@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # The clean-text check (.github/scripts/clean_text.py, run by .github/workflows/clean-text.yml; CONTRIBUTING.md, "Clean commit and
-# PR text"): a pull request's branch name, title, body and commit messages carry no private data. Outside the rule's letter in
+# PR text"): a pull request's branch name, title, body and commit messages carry no private data, attribution line or session URL. Outside the rule's letter in
 # docs/test-coverage.md (no session, draft or map is at stake), kept because the check is the only thing between a commit message
 # and a public-facing GitHub page, and a pattern that silently stops matching is invisible until the data is already out.
 # The script against throwaway repos, nothing on the network, no variable of GitHub's: the CI mode (the texts in CLEAN_TEXT_*) and
 # `--local <base>`. Checked: each rule (a board id of both shapes; the owner's name, the board host, a host below the owner's domain
 # and the bare domain, all lines of the deny data with made-up values; a word of the deny variable) in each place it is read (branch, title, body line, commit);
-# the allowed forms (a bare #123, the org `quillworks-org`, a Claude session URL, a Co-Authored-By line, bare initials) passing; the deny
+# each attribution line and a session URL refused one at a time; the allowed forms (a bare #123, the org `quillworks-org`, bare
+# initials, the attribution words in ordinary prose) passing; the deny
 # variable unset, empty, and set (one regex per line, newline-separated only, comments and blank lines skipped, an invalid regex
 # exiting 2 by line number, any case, ASCII word boundaries so Japanese next to a name does not hide it, a hyphen being part of a
 # word; every rule, built-in ones too, on ASCII boundaries); the base fetched as the full refs/remotes/origin/<ref> (a same-named tag does not stand in) with a timeout; a merge
@@ -47,7 +48,7 @@ expect_hit() {  # <line> <label>: exit 1 and the exact line is in the output
     if [ "$rc" = 1 ] && grep -qxF -- "$1" <<< "$out"; then ok "$2"; else bad "$2: rc=$rc out=$(paste -sd'|' <<< "$out")"; fi
 }
 expect_clean() {  # <label>: exit 0 and no hit line
-    if [ "$rc" = 0 ] && ! grep -Eq '\((board id|deny list)\)' <<< "$out"; then ok "$1"; else bad "$1: rc=$rc out=$(paste -sd'|' <<< "$out")"; fi; }
+    if [ "$rc" = 0 ] && ! grep -Eq '\((board id|deny list|attribution line|session URL)\)' <<< "$out"; then ok "$1"; else bad "$1: rc=$rc out=$(paste -sd'|' <<< "$out")"; fi; }
 
 cm -m "base"; c0=$(rev)
 git -C "$R" checkout -q -b topic
@@ -59,13 +60,41 @@ ci; expect_clean "clean branch, title, body and commit; bare #123 and #12 are Gi
 grep -q 'CLEAN_TEXT_DENY is not set or empty' <<< "$out" && ok "the deny variable unset: one notice line says the rule is skipped" || bad "no notice: $out"
 [ "$(grep -c 'CLEAN_TEXT_DENY' <<< "$out")" = 1 ] && ok "the notice is one line" || bad "notice count: $out"
 DENY="$OWN"
-BASE=$c0; cm -m "link the org" -m $'see https://github.com/quillworks-org/salamander/pull/9 and quillworks-org/stackshot\n\nCo-Authored-By: Quill Sample <noreply@example.invalid>\nClaude-Session: https://claude.ai/code/session_01AbC-xyz_9'; HEAD=$(rev)
-BD=$'repo quillworks-org/salamander\n\nhttps://claude.ai/code/session_01AbC-xyz_9\nco-authored-by: Quill <x@example.invalid>'
-ci; expect_clean "the org quillworks-org (hyphen), a session URL and a Co-Authored-By line (even naming the owner) are allowed"
+BASE=$c0; cm -m "link the org" -m "see https://github.com/quillworks-org/salamander/pull/9 and quillworks-org/stackshot"; HEAD=$(rev)
+BD="repo quillworks-org/salamander"
+ci; expect_clean "the org quillworks-org (hyphen) is allowed"
 TT="QS asked for it, qs style"; BD="QS"; ci; expect_clean "bare initials are not matched"
 TT="a clean title"; BD="a clean body"
 
+echo "== attribution lines and session URLs are refused, each on its own, in each place"
+SURL=https://claude.ai/code/session_01AbC-xyz_9   # a made-up id
+GEN="Generated with [Claude Code](https://claude.com/claude-code)"
+ROBOT=$(printf '\360\237\244\226')   # the emoji the generated-with line usually starts with
+unset DENY
+refused() {  # <label> <the line> <the matched text> <rule>: that line alone in a commit body, as the title, and as a body line
+    BASE=$(rev); cm -m "a change" -m "$2"; HEAD=$(rev); S=$(short); TT="a clean title"; BD="a clean body"
+    ci; expect_hit "commit $S line 3: $3 ($4)" "$1: refused in a commit message"
+    BASE=$HEAD; TT=$2; ci; expect_hit "title: $3 ($4)" "$1: refused in the title"
+    TT="a clean title"; BD=$'intro\n\n'"$2"; ci; expect_hit "body line 3: $3 ($4)" "$1: refused in the body"
+    grep -q '1 hit(s)' <<< "$out" && ok "$1: one hit, nothing else flagged" || bad "$1 count: $out"
+    BD="a clean body"
+}
+refused "a Co-Authored-By line" "Co-Authored-By: Quill Sample <noreply@example.invalid>" "Co-Authored-By:" "attribution line"
+refused "the same key in lower case, indented" "  co-authored-by: Quill <x@example.invalid>" "co-authored-by:" "attribution line"
+refused "a Claude-Session line" "Claude-Session: a-made-up-value" "Claude-Session:" "attribution line"
+refused "a generated-with line" "$GEN" "Generated with [Claude Code]" "attribution line"
+refused "a generated-with line after its emoji" "$ROBOT $GEN" "$ROBOT Generated with [Claude Code]" "attribution line"
+refused "a session URL alone on a line" "$SURL" "$SURL" "session URL"
+refused "a session URL without a scheme, inside a sentence" "see ${SURL#https://} for the talk" "${SURL#https://}" "session URL"
+BASE=$(rev); HEAD=$BASE; B="fix/${SURL#https://}"; ci; expect_hit "branch: ${SURL#https://} (session URL)" "a session URL in the branch name"
+B=topic
+TT="refuse a Co-Authored-By line, a Claude-Session: line and \"$GEN\""
+BD=$'This refuses Co-Authored-By: and Claude-Session: trailers.\n`Co-Authored-By:` lines are refused.\n`Claude-Session:` too.\n"Generated with [Claude Code]" is refused.\nGenerated with care, not by [Claude Code] alone.\nA session URL looks like https://claude.ai/code/session_... and claude.ai/code/artifact/0a1b is not one.'
+ci; expect_clean "the words in ordinary prose (mid-line, in backticks or quotes) and the URL form with ... for the id pass"
+TT="a clean title"; BD="a clean body"
+
 echo "== each rule, in each place (the owner's name and domain are deny lines)"
+DENY="$OWN"
 BASE=$c0; cm -m "fix the thing" -m "tracks board#15"; HEAD=$(rev); S=$(short)
 ci; expect_hit "commit $S line 3: board#15 (board id)" "board#<digits> in a commit message body (line 3: subject, blank, body): commit, line, text, rule"
 BASE=$(rev); cm -m "see board-tmp-demo#7 for why"; HEAD=$(rev); S=$(short)
@@ -116,7 +145,8 @@ DENY="node.alpha"; BASE=$c0; HEAD=$c0; TT="nodeXalpha and node.alpha"; ci; expec
 grep -qxF "title: nodeXalpha (deny list)" <<< "$out" && [ "$(grep -c "deny list" <<< "$out")" = 2 ] && ok "and nodeXalpha, the dot being any character" || bad "regex: $out"
 DENY=$'the-session'; TT="clean"; B="the-session/topic"; ci; expect_hit "branch: the-session (deny list)" "a deny word in the branch name"
 B=topic; TT="a clean title"
-DENY="x-y"; BASE=$(rev); cm -m "Co-Authored-By: x-y <a@b.invalid>"; HEAD=$(rev); ci; expect_clean "a Co-Authored-By line naming a deny word is allowed"
+DENY="x-y"; BASE=$(rev); cm -m "Co-Authored-By: x-y <a@b.invalid>"; HEAD=$(rev); S=$(short)
+ci; expect_hit "commit $S: x-y (deny list)" "a deny word on a Co-Authored-By line is read too: no line is left out of the scan"
 DENY="node-alpha"
 BASE=$(rev); cm -m "run it with --node-alpha now"; HEAD=$(rev); S=$(short)
 ci; expect_hit "commit $S: node-alpha (deny list)" "a leading dash is not part of the word: --node-alpha is caught"
@@ -238,8 +268,12 @@ hc -m "fix the thing for board#9003"
 [ "$rc" != 0 ] && grep -qxF "message: board#9003 (board id)" <<< "$out" && [ "$(hn)" = 1 ] && ok "commit-msg: a board id refuses the commit, names the hit, and no commit is made" || bad "bad commit: rc=$rc n=$(hn) $out"
 hc -m "subject" -m "ask Quill first"
 [ "$rc" != 0 ] && grep -qxF "message line 3: Quill (deny list)" <<< "$out" && ok "commit-msg: a hit on a body line carries its line number" || bad "bad body: rc=$rc $out"
-hc -m "attribution only" -m $'Co-Authored-By: Quill <a@b.invalid>\nClaude-Session: https://claude.ai/code/session_01AbC-xyz_9'
-[ "$rc" = 0 ] && ok "commit-msg: the allowed trailers pass" || bad "trailers: rc=$rc $out"
+for line in "Co-Authored-By: Quill <a@b.invalid>" "Claude-Session: a-made-up-value" "$GEN" "$SURL"; do
+    hc -m "a change" -m "$line"
+    [ "$rc" != 0 ] && grep -Eq '^message line 3: .*\((attribution line|session URL)\)$' <<< "$out" && [ "$(hn)" = 1 ] && ok "commit-msg: refused on its own, no commit made: ${line%% *}" || bad "trailer ${line%% *}: rc=$rc n=$(hn) $out"
+done
+hc -m "refuse a Co-Authored-By: line and a Claude-Session: line"
+[ "$rc" = 0 ] && ok "commit-msg: a subject that only names the trailers commits" || bad "prose subject: rc=$rc $out"
 printf 'clean subject\n# board#9009 is a comment git drops\n' > "$T/msg1"
 out=$(cd "$H" && python3 -I "$CT" --message-file "$T/msg1" 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "--message-file: a # line is not scanned, as git drops it" || bad "comment line: rc=$rc $out"
@@ -267,6 +301,9 @@ git -C "$H" checkout -q -b feature; hc -m "feature work"; hp origin feature
 git -C "$H" checkout -q -b feat2; hc --no-verify -m "see board#9005 for why"; S=$(hshort)
 hp -u origin feat2
 [ "$rc" != 0 ] && grep -qxF "commit $S: board#9005 (board id)" <<< "$out" && ! git -C "$HR" rev-parse -q --verify refs/heads/feat2 >/dev/null && ok "pre-push: a new branch with a bad commit is refused and not created on the remote" || bad "new bad branch: rc=$rc $out"
+git -C "$H" checkout -q -b feat3 feature; hc --no-verify -m "a change" -m "Co-Authored-By: A Helper <a@b.invalid>"; S=$(hshort)
+hp -u origin feat3
+[ "$rc" != 0 ] && grep -qxF "commit $S line 3: Co-Authored-By: (attribution line)" <<< "$out" && ! git -C "$HR" rev-parse -q --verify refs/heads/feat3 >/dev/null && ok "pre-push: a commit with an attribution line is refused" || bad "push attribution: rc=$rc $out"
 git -C "$H" checkout -q feature; git -C "$H" branch -q quill/fix; hp origin quill/fix
 [ "$rc" != 0 ] && grep -qxF "branch: quill (deny list)" <<< "$out" && ok "pre-push: the branch name is read (quill/fix)" || bad "branch name: rc=$rc $out"
 hp origin --delete feature

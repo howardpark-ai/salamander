@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""clean_text.py: refuses private data in the text a pull request puts on GitHub (CONTRIBUTING.md, "Clean commit and PR text").
+"""clean_text.py: refuses private data, attribution lines and session URLs in the text a pull request puts on GitHub (CONTRIBUTING.md, "Clean commit and PR text").
 
 Scans the head branch name, the PR title, the PR body and the message of every non-merge commit in base..head. Every hit is
 printed as `<where>: <the matched text> (<rule>)`, one per line, and the exit status is 1. The PR body is never echoed whole:
@@ -13,7 +13,12 @@ Rules (case-insensitive):
                 character on its other side (`box-1-ci` is another name, `--box-1` and `box-1-` are the name). They are private
                 names, so they live in the secret (a secret and not a variable: only secrets are masked in a job's log) and never
                 in this repository (the code holds no owner value). Unset or empty: that rule is skipped and one notice line says so. A line that is not a valid regex exits 2, naming the source and the line number.
-Allowed and left out of the scan: `Co-Authored-By:` lines and a Claude session URL (https://claude.ai/code/session_...).
+  attribution line
+                a line that starts (leading spaces aside) with the `Co-Authored-By:` or `Claude-Session:` trailer key, or with
+                "Generated with [Claude Code]" (an emoji or markdown marks may precede it). The same words further along a line, or
+                in backticks or quotes, are prose and pass.
+  session URL   claude.ai/code/session_<id>, with or without a scheme, anywhere in a line. The form with ... for the id passes.
+No line is left out of the scan: a public push cannot be taken back.
 
 Usage (stdlib only; run it with `python3 -I`):
   CI (tests.yml's sibling, .github/workflows/clean-text.yml), everything through the environment:
@@ -49,9 +54,10 @@ FLAGS = re.IGNORECASE
 W = "[A-Za-z0-9_]"   # ASCII only, in every rule: a hit with a non-ASCII letter directly before or after it (`nameé`, `énode`) is still a hit
 RULES = [
     ("board id", re.compile(r"(?<!%s)(?:board-tmp-[A-Za-z0-9_-]+#\d+|board#\d+)" % W, FLAGS)),
+    ("attribution line", re.compile(r"^\s*(?:co-authored-by|claude-session)\s*:", FLAGS)),
+    ("attribution line", re.compile(r"""^[^A-Za-z0-9`"']*generated with \[claude code\]""", FLAGS)),
+    ("session URL", re.compile(r"(?:https?://)?(?:www\.)?(?<![A-Za-z0-9_-])claude\.ai/code/session_[A-Za-z0-9_-]+", FLAGS)),
 ]
-ALLOWED_LINE = re.compile(r"^\s*co-authored-by:.*$", FLAGS)
-ALLOWED_URL = re.compile(r"https://claude\.ai/code/session_[\w-]+", FLAGS)
 NOTICE_UNSET = "clean-text: notice: CLEAN_TEXT_DENY is not set or empty, so the deny check (the private names) is skipped"
 
 
@@ -81,21 +87,18 @@ def printable(text):
 
 
 def scan(where, text, rules):
-    """The hits of one text, one (where, matched, rule) per match; the allowed forms are blanked first, line numbers kept."""
+    """The hits of one text, one (where, matched, rule) per match."""
     hits = []
     lines = (text or "").splitlines()
     multi = len(lines) > 1
     for n, line in enumerate(lines, 1):
-        if ALLOWED_LINE.match(line):
-            continue
-        line = ALLOWED_URL.sub("", line)
         seen = set()
         for name, rx in rules:
             for m in rx.finditer(line):
                 if (m.span(), name) in seen:   # two deny lines that match the same text report it once
                     continue
                 seen.add((m.span(), name))
-                hits.append(("%s line %d" % (where, n) if multi else where, printable(m.group(0)), name))
+                hits.append(("%s line %d" % (where, n) if multi else where, printable(m.group(0).strip()), name))
     return hits
 
 
@@ -253,7 +256,7 @@ def check_push(remote, env):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(prog="clean_text.py", add_help=True, description="refuse private data in commit and PR text")
+    ap = argparse.ArgumentParser(prog="clean_text.py", add_help=True, description="refuse private data, attribution lines and session URLs in commit and PR text")
     ap.add_argument("--local", metavar="BASE", help="scan this checkout's branch and the commits in BASE..HEAD")
     ap.add_argument("--title", help="the PR title to scan (default: CLEAN_TEXT_TITLE)")
     ap.add_argument("--body-file", metavar="FILE", help="a file holding the PR body to scan, - for stdin (default: CLEAN_TEXT_BODY)")
