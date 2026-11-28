@@ -86,6 +86,17 @@ lane_plan() {
     fi
     return 1
 }
+# lane_ran_seed <conversation> <claude pid> — before a relaunch closes a claude whose conversation has no lane record yet
+# (it started before the record existed, or without the SessionStart hook), write the lane it ran on (lib/hook.sh, THE LANE
+# NOTE: the resumed one is told when it differs, a later retry of a failed resume included). An existing record is the
+# hook's: never overwritten. Never fails a relaunch.
+lane_ran_seed() {
+    local f="$SALA_STATE_DIR/lane-ran/$1" l
+    [ -n "$1" ] && [ ! -e "$f" ] || return 0
+    l=$(proc_lane "$2"); [ "$l" != "?" ] || return 0
+    mkdir -p "${f%/*}" 2>/dev/null && printf '%s\n' "$l" > "$f" 2>/dev/null
+    return 0
+}
 LOG="$SALA_LOG_DIR/salamander-revive.log"
 RETRY_WHAT="${SALA_RETRY_WHAT:-Recycle}"   # the kind of a set a worker started by hand (no SALA_SET) makes for itself
 pane_exists() { tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qxF "$1"; }
@@ -717,6 +728,7 @@ if [ "$SELF_WORKER" = 1 ]; then
         exit 0
     fi
     lane_plan "$label" "$cpid" || wabort "not relaunched — $LANE_WHY ($LANE_LINE)"
+    [ -z "$cpid" ] || { registry_conv_r _cv "$cpid"; lane_ran_seed "$_cv" "$cpid"; }   # read while the process lives
     # the pane cannot be relaunched now ($1 says why): the retry worker takes it (the first wait and the re-check after the hold both end here)
     self_handoff() {
         local why="$1" sess rnote hb
@@ -1187,6 +1199,7 @@ if [ "$nclaude" -gt 0 ]; then
         case "${ELIG[$i]:-}" in "CLAUDE|"*) ;; *) continue;; esac
         IFS='|' read -r pane sess label cpid ver uuid lline hname <<<"${ELIG[$i]#"CLAUDE|"}"
         echo "$label: /exit ($ver) → resume $uuid · $lline ..."
+        lane_ran_seed "$uuid" "$cpid"   # read while the process lives
         run_job "$TMPD/2.$i" close_pane "$pane" "$sess" "$label" "$cpid" "$ver" "$uuid" "$hname"
     done
     wait_jobs

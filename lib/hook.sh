@@ -1,5 +1,5 @@
-# lib/hook.sh — Claude Code settings hooks that give sala's busy check an exact answer, and a waiting session word of the
-# relaunch.
+# lib/hook.sh — Claude Code settings hooks that give sala's busy check an exact answer, a waiting session word of the
+# relaunch, and a session that moved lanes word of that.
 #
 # THE USAGE: `hook` with no or an unknown verb prints from its `salamander hook stop` line through the `hook stamp` line, so keep it contiguous.
 #   salamander hook stop        Stop hook (settings.json "Stop", matcher "*"): record what the turn that just ended left in
@@ -10,7 +10,8 @@
 #                               once, as hookSpecificOutput.additionalContext — the relaunch_text line (common.sh); and the sala
 #                               notices not shown to this session yet (`sala notice`, lib/notice.sh), in the same block
 #   salamander hook prompt      UserPromptSubmit hook (matcher none; "Telling every session something" in docs/notices-and-hooks.md): the notices
-#                               not shown to this session yet, as additionalContext, at its next prompt; nothing else
+#                               not shown to this session yet, as additionalContext, at its next prompt; it prints nothing else, and marks a
+#                               lane note as had (THE LANE NOTE, below; `stop` does too)
 #   salamander hook pre-tool    PreToolUse hook (matcher "Bash|Agent|Task|Monitor"): (1) DRAIN MODE: while a relaunch waits for this session,
 #                               deny a new background subagent, Monitor or background Bash call of its own turn (a subagent's own calls, carrying
 #                               agent_id, never; SALA_DRAIN=off in the config disables it; the reason says how to leave the work and relaunch;
@@ -25,13 +26,15 @@
 #                               defer the call, park the question, answer it on resume (lib/question.sh, lib/question.py)
 #   salamander hook session-start   SessionStart hook (matcher "*", docs/session-registry.md): record a fresh start of
 #                               this pane's session in the registry: source clear → why clear, resume → resume, startup → start,
-#                               compact → nothing. The row is SALA_SESSION_ID (spawn puts it in the pane's shell, so every claude started
+#                               compact → nothing recorded. The row is SALA_SESSION_ID (spawn puts it in the pane's shell, so every claude started
 #                               there inherits it) — but only for the claude IN that row's own pane (the fleet's tmux server, TMUX_PANE the
 #                               row's first pane: a throwaway on a private server, in another session, pane or window, or outside tmux
 #                               records nothing and prints nothing, one line in sessions.log) — else the pane's tmux
 #                               session name. Exit 0 always, prints nothing (a SessionStart hook's stdout is read as context) — except
-#                               for ONE case: source clear in a live BACK-role row prints one additionalContext line that
-#                               names the agent and its project and sends it to its mandate (below); SALA_CLEAR_CONTEXT=off prints nothing
+#                               for TWO cases, each one additionalContext line: source clear in a live BACK-role row names the agent and
+#                               its project and sends it to its mandate (below; SALA_CLEAR_CONTEXT=off prints nothing); and a
+#                               conversation that starts on another lane than it last ran on is told so, and again at a compact
+#                               start before its next turn (THE LANE NOTE, below)
 #   salamander hook subagent-stop   SubagentStop hook (matcher "*"): once a subagent has handed back, SIGTERM the background
 #                               shells it started and left running under the pane's claude and every process those shells started
 #                               (children in groups and sessions of their own too), then any process of the user whose stdout / stderr is that
@@ -75,6 +78,22 @@
 # and one detached waiter; it never blocks or fails the turn (exit 0 always, nothing on stdout). Linux and macOS alike:
 # bash and python3; setsid where it exists, nohup alone where it does not.
 #
+# THE LANE NOTE: a subagent keeps the model id it was started with, so one started on one lane and resumed on another falls
+# back to an older model. $SALA_STATE_DIR/lane-ran/<session id> holds the lane the conversation last ran on. `session-start`
+# reads the lane of the claude it runs under (proc_lane), and where it differs from the record it adds one additionalContext
+# line saying to start new subagents. A SessionStart hook's context starts no turn and makes no model request, and the CLI
+# waits for the hook before the first request of the process, whatever starts that turn. The CLI writes that context into
+# the transcript only with a turn (measured on 2.1.332: a resume closed with no turn leaves nothing), so the record is not
+# moved yet: the new lane waits in <session id>.next, and the next turn (`prompt` at its start, `stop` at its end) moves it
+# over the record. Until then every start on another lane than the record says it again. The line carries the time of the
+# start that says it: the CLI adds no SessionStart context whose text the conversation already holds (measured on 2.1.332), so
+# without it a move made a second time would be dropped while the record moved. A compact start says the waiting line again,
+# with its own time, and nothing when none waits: measured on the same CLI, a typed /compact as the first thing after the resume
+# of a conversation with one earlier turn sent the line only inside the compaction request, and the next turn held none of it
+# (with more earlier turns it was kept). A /compact runs neither `prompt` nor `stop`, so the note still waits. An unreadable lane ("?") says and
+# records nothing, a headless `claude -p` (sdk-cli) neither tells nor moves anything, and lib/revive.sh writes a missing
+# record from the process it is about to close. `prompt` pays one glob test while no note waits.
+#
 # THE YOUR MOVE ROW: `post-tool` and `stop` are also the first thing a session does after a terminal question is
 # answered, so each calls _row_check: when stuck.state holds a "Your move" row for THIS pane (a `.pane=<TMUX_PANE>` line, read by
 # the shell's own `read`: no fork for any other pane), a detached subshell closes it once the pane shows no question any more
@@ -88,6 +107,36 @@ _row_check() {
     ( . "$SALA_ROOT/lib/common.sh" && . "$SALA_ROOT/lib/stuck.sh" && ( flock -w 10 8 || exit 0; sq_row_hook "$TMUX_PANE" ) 8>>"$SQ_STATE.lock" ) >/dev/null 2>&1 </dev/null &
     disown 2>/dev/null || :
     return 0
+}
+
+# _lane_start <session id> <claude pid, or ""> [compact] — session-start's half of THE LANE NOTE: prints the hook's JSON when the
+# conversation runs on another lane than it last ran on; at a compact start, only while a note waits for a turn, the waiting one
+# again. common.sh is sourced by the caller.
+_lane_start() {
+    local f="$SALA_STATE_DIR/lane-ran/$1" now was="" t
+    if [ "${3:-}" = compact ]; then
+        { IFS= read -r now < "$f.next" && IFS= read -r was < "$f"; } 2>/dev/null || return 0
+    else
+        rm -f "$f.next"                                    # a note no turn came for: decided afresh against the record
+        now=$(proc_lane "${2:-}")
+        [ "$now" != "?" ] || return 0
+        { IFS= read -r was < "$f"; } 2>/dev/null || :
+        [ "$was" != "$now" ] || return 0
+        mkdir -p "${f%/*}" 2>/dev/null || return 0
+        [ -n "$was" ] || { printf '%s\n' "$now" > "$f"; return 0; }   # first sight of this conversation: nothing to compare with
+        printf '%s\n' "$now" > "$f.next" || return 0
+    fi
+    t="[sala] This session moved from the $(lane_shown "$was") lane to the $(lane_shown "$now") lane at its relaunch (noted $(date '+%Y-%m-%d %H:%M:%S %z')): start new subagents and do not resume ones started before the move."
+    t="${t//\\/\\\\}"; t="${t//\"/\\\"}"
+    printf '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s"}}\n' "$t"
+}
+
+# _lane_turn <state dir> <session id> — the other half: a turn runs, so a waiting note is in the transcript and its lane is
+# the one the conversation ran on.
+_lane_turn() {
+    case "$2" in ''|*[!0-9A-Za-z_-]*) return 0;; esac
+    [ "${CLAUDE_CODE_ENTRYPOINT:-}" != sdk-cli ] && [ -e "$1/lane-ran/$2.next" ] || return 0
+    mv -f "$1/lane-ran/$2.next" "$1/lane-ran/$2" 2>/dev/null || :
 }
 
 # DRAIN MODE's refusal (`pre-tool`, below): <session id> <tool name> <what the call is> → prints the deny JSON and logs it, or prints nothing (allow).
@@ -193,12 +242,14 @@ case "${1:-}" in
         if [ "$1" = prompt ]; then _ev=UserPromptSubmit; else _row_check; fi
         _sd="${XDG_STATE_HOME:-$HOME/.local/state}/salamander"; _wd="$_sd/waiting"; _nf="$_sd/notices.tsv"
         if [ "$_ev" = PostToolUse ]; then set -- "$_wd"/*; [ -e "$1" ] && _wait=1; fi
-        [ -n "$_wait" ] || [ -s "$_nf" ] || exit 0                      # nothing waits for anyone, no notice is up: the common case, done
+        _lane=""; if [ "$_ev" = UserPromptSubmit ]; then set -- "$_sd"/lane-ran/*.next; [ -e "$1" ] && _lane=1; fi
+        [ -n "$_wait" ] || [ -s "$_nf" ] || [ -n "$_lane" ] || exit 0   # nothing waits for anyone, no notice is up, no lane note: the common case, done
         [ -t 0 ] && { echo "salamander hook $([ "$_ev" = PostToolUse ] && echo post-tool || echo prompt) reads the $_ev hook input on stdin (a settings.json hook)" >&2; exit 2; }
         IFS= read -r -N 512 _in || true                                # session_id leads the JSON; tool_response can run to megabytes: never read past what is needed
         _re='"session_id"[[:space:]]*:[[:space:]]*"([^"]+)"'
         if ! [[ $_in =~ $_re ]]; then IFS= read -r -N 3584 _more || true; _in="$_in$_more"; [[ $_in =~ $_re ]] || exit 0; fi
         _sid="${BASH_REMATCH[1]}"
+        [ -z "$_lane" ] || _lane_turn "$_sd" "$_sid"
         _wtext=""; _agent=""
         # WHO MADE THE CALL. A tool call inside a subagent carries agent_id (the rest of the input is read only as far as needed: it is
         # in the first 8 KB). The waiting line and the notices are for the session's own turn: a call inside a subagent neither tells
@@ -235,12 +286,12 @@ case "${1:-}" in
     session-start)
         # SessionStart (phase 2): the explicit signal that a pane's session began a conversation. The hook input carries
         # session_id (the conversation, a claude session id), source (startup | resume | clear | compact) and cwd. It must never fail
-        # a start and never print: a SessionStart hook's stdout is added to the model's context, so all of it goes to /dev/null and
-        # the exit status is 0 on every path. Nothing runs for compact (the conversation is the same) or for a headless `claude -p`
+        # a start, and a SessionStart hook's stdout is added to the model's context, so all output goes to /dev/null except the context
+        # lines named in the usage text above, and the exit status is 0 on every path. Nothing runs for compact (the conversation is the same) but a waiting lane note, nor for a headless `claude -p`
         # (CLAUDE_CODE_ENTRYPOINT=sdk-cli: a run a session starts inherits SALA_SESSION_ID, and is not the session). The same goes for
         # an interactive claude that is not in the row's own pane (below, THE ROW'S OWN PANE): it inherited the id from a shell and is not the session.
         [ -t 0 ] && { echo "salamander hook session-start reads the SessionStart hook input on stdin (a settings.json hook)" >&2; exit 0; }
-        exec 3>&1 >/dev/null 2>&1                 # fd 3 is the hook's real stdout: only the cleared background agent's context line goes there (below)
+        exec 3>&1 >/dev/null 2>&1                 # fd 3 is the hook's real stdout: only the lane note and the cleared background agent's line go there (one at most: a clear's conversation is new, so it has no lane record to differ from)
         [ "${CLAUDE_CODE_ENTRYPOINT:-}" = sdk-cli ] && exit 0
         _in=$(cat) || exit 0
         IFS= read -r -d '' _py <<'PY' || true   # the program in a variable: python's stdin stays the hook's payload
@@ -253,12 +304,17 @@ if isinstance(s, str) and isinstance(src, str) and re.fullmatch(r"[0-9A-Za-z_-]{
 PY
         _out=$(printf '%s' "$_in" | python3 -I -S -c "$_py" 2>/dev/null) || exit 0
         IFS=$'\t' read -r _sid _src <<< "$_out"
-        case "${_src:-}" in clear) _why=clear ;; resume) _why=resume ;; startup) _why=start ;; *) exit 0 ;; esac
+        case "${_src:-}" in clear) _why=clear ;; resume) _why=resume ;; startup) _why=start ;; compact) _why="" ;; *) exit 0 ;; esac
         [ -n "${_sid:-}" ] || exit 0
+        if [ -z "$_why" ]; then                   # compact: the same conversation, nothing to record; a lane note no turn has had yet is said again
+            [ -e "${XDG_STATE_HOME:-$HOME/.local/state}/salamander/lane-ran/$_sid.next" ] || exit 0
+            . "$SALA_ROOT/lib/common.sh"; _lane_start "$_sid" "" compact >&3; exit 0
+        fi
+        . "$SALA_ROOT/lib/common.sh"
+        _lane_start "$_sid" "$(own_claude_pid 2>/dev/null)" >&3   # THE LANE NOTE: the conversation's, whichever pane it is in
         _target="${SALA_SESSION_ID:-}"
         _t=(); command -v timeout >/dev/null 2>&1 && _t=(timeout 30)
         if [ -n "$_target" ]; then            # THE ROW'S OWN PANE: the id sits in the pane's shell environment, so every claude started from that shell inherits it, a throwaway on a private tmux server included. Only the claude that IS in the row's pane may name the row
-            . "$SALA_ROOT/lib/common.sh"
             _why_not=""
             if [ -z "${TMUX_PANE:-}" ]; then _why_not="the claude is in no tmux pane"
             elif ! on_fleet_server; then _why_not="the claude is on another tmux server ($FLEET_SOCKET_SEEN)"
@@ -282,7 +338,6 @@ PY
             fi
         else                                  # a pane spawn did not make (adopted, restored) or a registry that was off at its spawn: the row of its tmux session name
             [ -n "${TMUX_PANE:-}" ] || exit 0
-            . "$SALA_ROOT/lib/common.sh"
             on_fleet_server || exit 0
             _target=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || exit 0
             [ -n "$_target" ] && [ "$_target" != "${SALA_RC_SESSION:-}" ] || exit 0
@@ -356,6 +411,7 @@ PY
         _out=$(python3 -c "$_py" "$SALA_BUSY_DIR" "$SALA_REG_DIR" 2>/dev/null) || exit 0
         [ -n "$_out" ] || exit 0
         IFS=$'\t' read -r _sid _n _flip _regf _id <<< "$_out"; [ "$_flip" != - ] || _flip=""; [ "$_regf" != - ] || _regf=""
+        _lane_turn "$SALA_STATE_DIR" "$_sid"
         if [ -n "$_flip" ]; then                                        # the row was idle already: the record is complete
             [ "$_n" = 0 ] && waiting_for "$_sid" && ready_wake
         elif [ -n "$_regf" ]; then                                      # the flip follows the hooks: a detached waiter stamps it

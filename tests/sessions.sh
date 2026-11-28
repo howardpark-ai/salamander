@@ -14,6 +14,8 @@
 # PHASE 2 (Thu Oct 22nd 2026, the end of this file): `sala sessions record` (by name, id and id prefix; idempotent; the errors; off; the
 # lock), sessions_prepare/sessions_abandon, and `salamander hook session-start` per source, with garbage on stdin and as the fallback by
 # the pane's tmux session name (a private tmux server, no claude). The spawn and unpark halves are tests/sessions-spawn.sh.
+# THE LANE NOTE (lib/hook.sh): `hook session-start`, `prompt` and `stop` under a stand-in claude (a shell with a registry row
+# and a lane's variables): a start on another lane than the conversation last ran on says so, again (a compact start too) until a turn runs.
 # PHASE 3 (Thu Oct 22nd 2026, the end of this file): the heartbeat's session-registry.json (contents, `written` refreshed every run, atomic,
 # nothing published when off / missing / corrupt and the last good file kept with one log line) and `sala sessions resolve` (id, prefix,
 # transcript, name, alias, role:; retired with and without --live; ambiguous = exit 2 with every candidate id, none = exit 1; read-only).
@@ -376,6 +378,69 @@ for src in clear resume startup; do   # the row's own pane, every source: record
 done
 PT kill-server 2>/dev/null; tmux_socket_rm "$PSOCK"
 tmux kill-server 2>/dev/null
+
+echo "== the lane note: a conversation that starts on another lane than it last ran on is told, until a turn has run (lib/hook.sh)"
+# a stand-in claude: a shell with a registry row of its own and a lane's variables, the hook its child
+cat > "$HOME/standin.sh" <<'SH'
+printf '{}\n' > "$HOME/.claude/sessions/$$.json"
+"$1" hook "$2" <<< "$3"; rc=$?
+rm -f "$HOME/.claude/sessions/$$.json"
+exit $rc
+SH
+as() {  # <lane's variables> <hook verb> <payload> → LOUT (stdout+stderr), LRC
+    LOUT=$(env -u SALA_SESSION_ID -u TMUX_PANE -u CLAUDE_CONFIG_DIR -u ANTHROPIC_API_KEY -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_ANTHROPIC_AWS -u CLAUDE_CODE_ENTRYPOINT $1 \
+        bash "$HOME/standin.sh" "$SALA" "$2" "$3" 2>&1); LRC=$?
+}
+lstart() { as "$1" session-start "{\"session_id\":\"$3\",\"hook_event_name\":\"SessionStart\",\"source\":\"$2\"}"; }   # <variables> <source> <conversation>
+lturn() { as "$1" "$2" "{\"session_id\":\"$3\",\"background_tasks\":[]}"; }   # <variables> <prompt|stop> <conversation>
+ran() { local d="$SALA_STATE_DIR/lane-ran"; printf '%s/%s' "$(cat "$d/$1" 2>/dev/null)" "$(cat "$d/$1.next" 2>/dev/null)"; }   # <conversation> → <lane it last ran on>/<lane a note waits for>
+told() {  # <from> <to> → 0 when LOUT is the one SessionStart context line naming that move
+    python3 -c 'import json,re,sys; o=json.loads(sys.argv[1])["hookSpecificOutput"]; c=re.sub(r" \(noted \d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d{4}\):", " (noted T):", o["additionalContext"], count=1); w="[sala] This session moved from the %s lane to the %s lane at its relaunch (noted T): start new subagents and do not resume ones started before the move." % (sys.argv[2], sys.argv[3]); sys.exit(0 if o["hookEventName"] == "SessionStart" and len(o) == 2 and c == w else 1)' "$LOUT" "$(lane_shown "$1")" "$(lane_shown "$2")" 2>/dev/null
+}
+S1="" API="ANTHROPIC_API_KEY=x" BED="CLAUDE_CODE_USE_BEDROCK=1" SDK="CLAUDE_CODE_ENTRYPOINT=sdk-py"
+L1=33333333-0000-4000-8000-0000000000c1 L2=33333333-0000-4000-8000-0000000000c2 L3=33333333-0000-4000-8000-0000000000c3
+lstart "$S1" startup "$L1"; o1=$LOUT r1=$LRC; lstart "$S1" resume "$L1"
+[ "$r1$LRC" = 00 ] && [ -z "$o1$LOUT" ] && [ "$(ran "$L1")" = subscription-1/ ] && ok "a first start records the lane and says nothing; so does a resume on the same lane" || bad "same lane: $r1$LRC '$o1' '$LOUT' $(ran "$L1")"
+lstart "$API" resume "$L1"
+[ "$LRC" = 0 ] && told subscription-1 api && [ "$(ran "$L1")" = subscription-1/api ] && ok "a resume on another lane: one SessionStart context line naming both lanes; the record waits for a turn" || bad "moved: rc=$LRC '$LOUT' $(ran "$L1")"
+lstart "$API" resume "$L1"
+told subscription-1 api && ok "closed with no turn (the CLI kept nothing of it): the next start says it again" || bad "again: '$LOUT' $(ran "$L1")"
+o1=$LOUT; sleep 1.1   # the line's time has whole seconds
+lstart "$API" compact "$L1"
+[ "$LRC" = 0 ] && told subscription-1 api && [ "$LOUT" != "$o1" ] && [ "$(ran "$L1")" = subscription-1/api ] && ok "a compact before the next turn (with one earlier turn the CLI keeps the line only in the compaction request): says the waiting line again, in a new text, and it still waits" || bad "compact while waiting: rc=$LRC '$LOUT' '$o1' $(ran "$L1")"
+lturn "$API" prompt "$L2"
+[ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = subscription-1/api ] && ok "another conversation's prompt leaves it waiting" || bad "other prompt: rc=$LRC '$LOUT' $(ran "$L1")"
+lturn "$API" prompt "$L1"; o1=$LOUT r1=$LRC; r2=$(ran "$L1"); lstart "$API" resume "$L1"
+[ "$r1$LRC" = 00 ] && [ -z "$o1$LOUT" ] && [ "$r2" = api/ ] && ok "a turn (the prompt hook, silent) moves the record: never said again" || bad "after the prompt: $r1$LRC '$o1' '$LOUT' $r2"
+lstart "$BED" resume "$L1"; told api bedrock || bad "to bedrock: '$LOUT'"
+lstart "$SDK" resume "$L1"
+told api sdk && [ "$(ran "$L1")" = api/sdk ] && ok "a second move with no turn between: from the lane it last ran on, to the one it is on" || bad "second move: '$LOUT' $(ran "$L1")"
+lstart "$API" resume "$L1"
+[ -z "$LOUT" ] && [ "$(ran "$L1")" = api/ ] && ok "moved back with no turn between: nothing to say, nothing left waiting" || bad "back: '$LOUT' $(ran "$L1")"
+lstart "$BED" resume "$L1"; lturn "$BED" stop "$L1"
+[ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = bedrock/ ] && ok "a turn's end (the stop hook) moves the record too" || bad "stop: rc=$LRC '$LOUT' $(ran "$L1")"
+lstart "$S1" compact "$L1"
+[ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = bedrock/ ] && ok "a compact with no note waiting: nothing said or recorded" || bad "compact: rc=$LRC '$LOUT' $(ran "$L1")"
+L5=33333333-0000-4000-8000-0000000000c5
+lstart "$API" startup "$L5"; lturn "$API" stop "$L5"; lstart "$BED" resume "$L5"; o1=$LOUT; lstart "$BED" compact "$L5"; o2=$LOUT r2=$(ran "$L5")
+lturn "$BED" prompt "$L5"; lstart "$BED" compact "$L5"
+( LOUT=$o1; told api bedrock ) && ( LOUT=$o2; told api bedrock ) && [ "$r2" = api/bedrock ] && [ -z "$LOUT" ] && [ "$(ran "$L5")" = bedrock/ ] && ok "a move to the bedrock lane: told at the resume and again at a compact before the turn; the turn moves the record, a later compact says nothing" || bad "to bedrock: '$o1' '$o2' $r2 '$LOUT' $(ran "$L5")"
+lstart CLAUDE_CODE_ENTRYPOINT=sdk-cli resume "$L1"; o1=$LOUT r2=$(ran "$L1")
+lstart "$API" resume "$L1"; lturn CLAUDE_CODE_ENTRYPOINT=sdk-cli prompt "$L1"; r3=$(ran "$L1"); lturn CLAUDE_CODE_ENTRYPOINT=sdk-cli stop "$L1"
+[ -z "$o1" ] && [ "$r2" = bedrock/ ] && [ "$r3" = bedrock/api ] && [ "$(ran "$L1")" = bedrock/api ] && ok "a headless claude -p is told nothing and moves nothing" || bad "sdk-cli: '$o1' $r2 $r3 $(ran "$L1")"
+LOUT=$(printf '{"session_id":"%s","source":"resume"}' "$L1" | env -u SALA_SESSION_ID -u TMUX_PANE -u CLAUDE_CODE_ENTRYPOINT "$SALA" hook session-start 2>&1); LRC=$?
+[ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = bedrock/ ] && ok "an unreadable lane (no claude found): silent, no lane recorded, none left for a turn to record" || bad "unreadable: rc=$LRC '$LOUT' $(ran "$L1")"
+lstart "$S1 SALA_LANE_SUBSCRIPTION1_LABEL=a\"b\\c" startup "$L3"; lstart "$API SALA_LANE_SUBSCRIPTION1_LABEL=a\"b\\c" resume "$L3"
+( export SALA_LANE_SUBSCRIPTION1_LABEL='a"b\c'; told subscription-1 api ) && ok "a lane label with a quote and a backslash stays valid JSON" || bad "label: '$LOUT'"
+L4=33333333-0000-4000-8000-0000000000c4
+lstart "$S1" startup "$L4"; lstart "$API" resume "$L4"; o1=$LOUT; lturn "$API" prompt "$L4"; lstart "$S1" resume "$L4"; lturn "$S1" prompt "$L4"
+sleep 1.1   # the line's time has whole seconds, and a real relaunch takes longer
+lstart "$API" resume "$L4"
+told subscription-1 api && [ -n "$o1" ] && [ "$o1" != "$LOUT" ] && ok "a move made a second time is said in another text (the CLI drops a context line the conversation already holds)" || bad "repeat: '$o1' '$LOUT' $(ran "$L4")"
+echo api > "$SALA_STATE_DIR/outside.next"   # a note waits (L4's), so the prompt hook reads its input
+lturn "$API" prompt ../outside
+[ -e "$SALA_STATE_DIR/outside.next" ] && [ ! -e "$SALA_STATE_DIR/outside" ] && [ "$(ran "$L4")" = subscription-1/api ] && ok "a session id that is no id moves no file" || bad "bad id: $(ls "$SALA_STATE_DIR")"
+rm -f "$SALA_STATE_DIR/outside.next" "$SALA_STATE_DIR/outside"
 
 echo "== phase 3: the heartbeat publishes session-registry.json"
 export PYTHONDONTWRITEBYTECODE=1

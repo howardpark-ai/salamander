@@ -146,6 +146,19 @@ recycles was counted back in only one and the other set stayed open. Now:
   to type `/exit`, or its turn was just paused) the hold is not lifted under it, and calls are still refused: that attempt ends the hold
   itself, or the next look lifts it. A reboot's drain is not capped. While the flag is a reboot's, or a reboot or shutdown is under way,
   the cap lifts nothing and watch raises no flag again; a reboot that ends without rebooting leaves a recycle's clock in place.
+- **The lane note** (a session that moved lanes is told to start new subagents). A subagent keeps the model id it was started with, so one
+  started on one lane and resumed on another falls back to an older model. The SessionStart hook compares
+  the lane of the claude it runs under with the lane the conversation last ran on (`lane-ran/<conversation id>` under the state directory)
+  and, where they differ, adds one line to the session's context: it moved from one lane to the other, so it starts new subagents and
+  resumes none started before. The line carries the time of the start that says it: the CLI adds no `SessionStart` context whose text the
+  conversation already holds, so without the time a move made a second time would not be told. sala starts no turn for it: the line goes out with the session's next turn, whatever starts it (a typed
+  prompt, a message, a finished background task), and the CLI waits for the hook before that turn's first request. It covers every way a
+  conversation comes back (a recycle, a revive, a retry after a resume that failed, the sdk lane's fallback, an unpark, a wake, a resume by
+  hand). The record moves once a turn has run (`hook prompt` at its start, `hook stop` at its end); a session closed with no turn kept
+  nothing of the line and hears it at the next start, from the lane it last ran on to the one it is then on, and nothing when that is the
+  same lane. A `/compact` before that turn hears it again: the compaction's own start says the waiting line, with its own time, because a
+  conversation with one earlier turn kept the first one only in the compaction request. A conversation with no record yet gets one from the relaunch that is about to close its claude. All three hooks must be
+  registered; a process whose environment cannot be read (macOS) and a headless `claude -p` are told nothing.
 - **The pane's claude, and "relaunched".** The pane's claude is the one nearest the pane's own process (that process itself, or the fewest
   parent steps below it), so a claude it started (a nested `claude -p`, a fork before its exec) is never taken for it, whatever its pid (pids
   wrap, so the younger one can be the lower number). Two at the same depth: the one whose process started first, then the lower pid (the only

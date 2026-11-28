@@ -5,7 +5,9 @@
 # both lanes and both fixes (nothing relaunched, nothing recorded, no retry worker), a mismatch with a row relaunched on the
 # row, --lane-default relaunching on the default, each in the dry run and for real; the dry runs of `revive --self` and
 # `recycle --force` from a pane scheduling, relaunching, freezing and writing nothing, and leaving an earlier retry worker
-# alone; a fleet recycle relaunching every other pane and naming the refused pane in its post. The setup mirrors where
+# alone; a fleet recycle relaunching every other pane and naming the refused pane in its post; the lane record a relaunch
+# writes for a conversation that has none before it closes the claude (lib/hook.sh, THE LANE NOTE; the hooks themselves:
+# tests/sessions.sh): the sweep and the self-worker, never over an existing record, none on a dry run, no turn started. The setup mirrors where
 # lanes.sh leaves its panes: a and b on the api lane with rows (the lanes themselves, the verb and the switches are
 # lanes.sh's). Posts stubbed to a file; isolated HOME, a private tmux socket, the compiled fake claude (tests/fake-claude.c,
 # FAKE_LANE_LOG). Usage: bash tests/lanes-revive.sh   (exit 0 = pass; ~55 s)
@@ -33,7 +35,7 @@ printf '{"fake":true}\n' > "$HOME/.claude-team/.credentials.json"
 cleanup() {
     local f p; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s "$f" ] && kill "$(<"$f")" 2>/dev/null; done
     $T kill-server 2>/dev/null; tmux_socket_rm; sleep 1
-    for p in $(pgrep -x claude); do [ "$HOME/.local/share/claude/versions/9.9.9" -ef "/proc/$p/exe" ] && kill -9 "$p" 2>/dev/null; done
+    kill_fake_claude "$HOME/.local/share/claude/versions/9.9.9"
     rm -rf "$HOME" 2>/dev/null; true
 }; trap cleanup EXIT
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux    # literal socket: the children run set -u
@@ -118,6 +120,32 @@ waitfor "grep -q 'sala-test-f: not relaunched — runs on the subscription-2 lan
 [ "$(workers)" = 0 ] && ok "no retry worker for it (not a passing reason)" || bad "a retry worker holds f"
 ! kill -0 "$SP" 2>/dev/null && [ ! -e "$HOME/.claude/salamander-retry.$SP.pid" ] && [ ! -e "$SALA_WAITING_DIR/test-flag" ] && ok "the real recycle stopped the stand-in worker and cleared the flags (the control)" || bad "control: alive=$(kill -0 "$SP" 2>/dev/null && echo y || echo n) pidfile=$([ -e "$HOME/.claude/salamander-retry.$SP.pid" ] && echo y || echo n) flag=$([ -e "$SALA_WAITING_DIR/test-flag" ] && echo y || echo n)"
 kill "$SP" 2>/dev/null; rm -f "$HOME/.claude/salamander-retry.$SP.pid"
+
+echo "== the lane record (lib/hook.sh, THE LANE NOTE): a relaunch writes the lane a conversation ran on before it closes the claude"
+ran() { cat "$SALA_STATE_DIR/lane-ran/$1" 2>/dev/null; }   # <uuid> → its record
+mks() { $T new-session -d -s "sala-test-$1" -c "$HOME" -e FAKE_SESSION_ID="$2" -e FAKE_NAME="sala-test-$1" -e FAKE_LOG="$FAKE_LOG" -e FAKE_LANE_LOG="$FAKE_LANE_LOG" -e FAKE_TYPED_LOG="$FAKE_TYPED_LOG" -e FAKE_SOCK_LOG="$HOME/sock.log" "${@:3}"; $T send-keys -t "sala-test-$1" claude Enter; }
+U7=$(uuid 7); U8=$(uuid 8); U9=$(uuid 9)
+mks h "$U7"; mks i "$U8"; fake_up sala-test-h sala-test-i
+lane_write sala-test-h api
+"$SALA" revive --force --only sala-test-h --dry-run >/dev/null 2>&1
+[ -z "$(ran "$U7")" ] && ok "a dry run writes none" || bad "dry run wrote: $(ran "$U7")"
+"$SALA" revive --force --only sala-test-h >/dev/null 2>&1; wait_lock; fake_up sala-test-h
+[ "$(starts "$U7")" = 2 ] && [ "$(ran "$U7")" = subscription-1 ] && ok "a move: the record holds the lane it left, for the resumed claude's hook to compare" || bad "sweep: starts $(starts "$U7") record '$(ran "$U7")'"
+lane_write sala-test-h subscription-2
+"$SALA" revive --force --only sala-test-h >/dev/null 2>&1; wait_lock; fake_up sala-test-h
+[ "$(starts "$U7")" = 3 ] && [ "$(ran "$U7")" = subscription-1 ] && ok "an existing record is the hooks' to move: a later relaunch leaves it" || bad "overwrite: starts $(starts "$U7") record '$(ran "$U7")'"
+"$SALA" note --deliver >/dev/null 2>&1; sleep 1
+! grep -qsF 'sala note' "$HOME/sock.log" && ! grep -qsF "$U7" "$SALA_LOG_DIR/salamander-notes.tsv" && ok "no note stored and nothing pushed to the session (no turn of its own)" || bad "pushed: $(cat "$HOME/sock.log" "$SALA_LOG_DIR/salamander-notes.tsv" 2>/dev/null)"
+lane_write sala-test-i api
+TMUX_PANE=$(tmux display -p -t sala-test-i '#{pane_id}') "$SALA" revive --self >/dev/null 2>&1
+waitfor '[ "$(starts "$U8")" = 2 ]' 60 && [ "$(ran "$U8")" = subscription-1 ] && ok "the self-worker writes it too" || bad "self: starts $(starts "$U8") record '$(ran "$U8")' $(tail -5 "$RLOG")"
+wait_lock
+mks j "$U9" -e FAKE_RESUME_FAIL=1; fake_up sala-test-j; lane_write sala-test-j api
+out=$("$SALA" revive --force --only sala-test-j 2>&1)
+[ "$(ran "$U9")" = subscription-1 ] && grep -qE 'sala-test-j.*resume (started and died|did.?n.?t start)' <<< "$out" && ok "a resume that dies: the record still names the lane it ran on, so a retry's resume is told" || bad "failed resume: record '$(ran "$U9")' out $out"
+eval "$(sed -n '/^lane_ran_seed() {/,/^}/p' "$ROOT/lib/revive.sh")"   # the function alone: revive.sh is a verb, not a library
+lane_ran_seed seed-readable $$; lane_ran_seed seed-unreadable 999999999
+[ "$(ran seed-readable)" = subscription-1 ] && [ ! -e "$SALA_STATE_DIR/lane-ran/seed-unreadable" ] && ok "a process whose lane cannot be read leaves no record" || bad "seed: readable '$(ran seed-readable)' unreadable '$(ran seed-unreadable)'"
 
 [ "$fail" = 0 ] && echo "lanes-revive: pass" || echo "lanes-revive: FAIL"
 exit $fail
