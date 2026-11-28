@@ -103,6 +103,8 @@ PYL
         if [ "${text:0:7}" = "[hold] " ]; then
             by=""
             if ! hold_pid_is "$pid" "$uuid"; then by="sala (that process is gone; not delivered)"
+            # the cap's note, with a newer relaunch's hold up since: "you may start background work" is no longer so (common.sh, THE CAP)
+            elif [[ $text == *"$SALA_HOLD_CAP_WHY"* ]] && waiting_for "$uuid" && ! hold_over "$uuid"; then by="sala (a newer relaunch holds the session; not delivered)"
             elif ! pause_active "$pid" && sock=$(session_socket "$pid") && [ -n "$sock" ] \
                && session_push "$sock" "[sala note $id] ${text:7} (Automatic salamander message: sala wrote this when a relaunch's wait ended, not ${SALA_OWNER_NAME}. It is delivered once.)"; then
                 by="sala (delivered once)"; sent+=("$sess")

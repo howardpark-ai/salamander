@@ -13,7 +13,8 @@
 #                               not shown to this session yet, as additionalContext, at its next prompt; nothing else
 #   salamander hook pre-tool    PreToolUse hook (matcher "Bash|Agent|Task|Monitor"): (1) DRAIN MODE: while a relaunch waits for this session,
 #                               deny a new background subagent, Monitor or background Bash call of its own turn (a subagent's own calls, carrying
-#                               agent_id, never; SALA_DRAIN=off in the config disables it; the reason says how to leave the work and relaunch);
+#                               agent_id, never; SALA_DRAIN=off in the config disables it; the reason says how to leave the work and relaunch;
+#                               for SALA_HOLD_MAX at most, 30 min: past it the call goes through, common.sh THE CAP);
 #                               (2) deny a Bash command that would relaunch or update the fleet
 #                               outside sala — reboot, a CLI update, tmux kill-* on the fleet's server or a window/pane put into another session, kill/pkill of a claude
 #                               process — with the fix (`sala op …`) in the reason (lib/guard.py)
@@ -96,9 +97,11 @@ _drain_deny() {
     . "$SALA_ROOT/lib/common.sh" >/dev/null 2>&1 || return 0
     case "${SALA_DRAIN:-on}" in 0|off|no|false) return 0;; esac
     waiting_for "$1" || return 0                                       # the flag went down since the glob test: the wait is over
+    hold_lift "$1" detach >/dev/null && return 0                       # held past SALA_HOLD_MAX: lifted here, the call goes on (common.sh, THE CAP)
     hold_told "$1" "$(own_claude_pid 2>/dev/null)"                     # a refused session has been told it is held (common.sh, hold_ended)
-    local _what _t; _what=$(waiting_what "$1"); [ -n "$_what" ] || _what=recycle
-    _t="${SALA_DRAIN_DENY_TEXT//<what>/$_what}"; _t="${_t//<call>/$3}"
+    local _what _t _c; _what=$(waiting_what "$1"); [ -n "$_what" ] || _what=recycle
+    hold_cap_words_r _c "$_what"
+    _t="${SALA_DRAIN_DENY_TEXT//<what>/$_what}"; _t="${_t//<call>/$3}"; _t="${_t//<cap>/$_c}"
     printf '[%s] drain: refused %s (%s) for session %s; a %s waits for it\n' "$(date +%Y-%m-%dT%H:%M:%S%z)" "$2" "$3" "$1" "$_what" >> "$SALA_LOG_DIR/salamander-drain.log" 2>/dev/null || :
     _t="${_t//\\/\\\\}"; _t="${_t//\"/\\\"}"; _t="${_t//$'\n'/\\n}"; _t="${_t//$'\t'/\\t}"; _t="${_t//$'\r'/}"
     printf '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "%s"}}\n' "$_t"
@@ -111,7 +114,8 @@ case "${1:-}" in
         #    turn: a background subagent (Agent or Task with run_in_background true), a Monitor, a Bash call with run_in_background true. Denied
         #    (never ask) with the way out in the reason (SALA_DRAIN_DENY_TEXT); a call carrying agent_id is a subagent's own and is never denied; SALA_DRAIN=off
         #    in the config turns it off. COST: with nothing waiting, one glob test; a call of another tool than Bash, Agent, Task or Monitor is let through
-        #    after the first bytes. Any doubt allows: an unreadable input, a session id that is no id, a failing helper never denies a call.
+        #    after the first bytes. Any doubt allows: an unreadable input, a session id that is no id, a failing helper never denies a call. A hold
+        #    longer than SALA_HOLD_MAX is lifted at the first call it would refuse (common.sh, hold_lift).
         # 2. THE FLEET GUARD (Bash only): a command naming none of the guarded words costs one regex, no python. On a word, guard.py decides
         #    (lib/guard.py has the rules); any failure there allows (fail open).
         [ -t 0 ] && { echo "salamander hook pre-tool reads the PreToolUse hook input on stdin (a settings.json hook)" >&2; exit 2; }
@@ -213,8 +217,9 @@ case "${1:-}" in
             . "$SALA_ROOT/lib/common.sh"
             if waiting_told "$_sid"; then                              # two tool calls at once: the first tells
                 _what=$(waiting_what "$_sid"); [ -n "$_what" ] || _what=recycle
-                _cp=$(own_claude_pid 2>/dev/null); hold_told "$_sid" "$_cp"
-                _wtext=$(relaunch_text "$_what" "$_cp")
+                _cp=$(own_claude_pid 2>/dev/null)
+                if hold_over "$_sid"; then _wtext=$(relaunch_text "$_what" "$_cp" over)   # past the cap: nothing is held, so nothing to remember
+                else hold_told "$_sid" "$_cp"; _wtext=$(relaunch_text "$_what" "$_cp"); fi
             fi
         fi
         _due=""; _skip=""

@@ -228,7 +228,7 @@ retry_worker() {
         # watch's now: hold_ended)
         for e in "${pending[@]}"; do IFS='|' read -r pane _ _ _ <<<"$e"
             case " $(printf '%s ' ${still[@]+"${still[@]}"})" in *" $pane|"*) continue;; esac
-            if [ -n "${ends[$pane]:-}" ]; then hold_ended "${conv[$pane]:-}" "${ends[$pane]%%|*}" "${ends[$pane]#*|}"; else waiting_clear "${conv[$pane]:-}"; fi
+            if [ -n "${ends[$pane]:-}" ]; then hold_ended "${conv[$pane]:-}" "${ends[$pane]%%|*}" "${ends[$pane]#*|}"; else waiting_clear "${conv[$pane]:-}"; hold_cap_drop "${conv[$pane]:-}"; fi
         done
         pending=(${still[@]+"${still[@]}"})
         # CLOSURE (a follow-up report on the retry, when the retry actually passes through): the panes back in this pass in ONE post, one bullet each, the set's count in the headline
@@ -757,6 +757,7 @@ if [ "$SELF_WORKER" = 1 ]; then
     cwd=$(tmux display -p -t "$SELF_PANE" '#{pane_current_path}')
     uuid=$(uuid_for_live_pane "$cpid" "$t" "$cwd")
     [ -z "$uuid" ] && wabort "no registry entry or transcript match for the pane (title \"$t\")"
+    hold_relaunch_mark "$uuid"   # THE CAP: a hold is not lifted under this relaunch, nor the inbox hold taken from it
     hname=$(registry_field "$cpid" name); inbox_hold "$uuid" "$hname"   # stackshot's lines wait out the relaunch (a dead worker's hold: watch drops it after 10 min)
     _nap "$SALA_HOLD_SETTLE"   # held BEFORE the pause, as the sweep holds before its first /exit: a line handed out just before the hold is a turn by now, and pane_exit's mod refuses it (rc 4, waited out below)
     waiting_clear "$uuid"   # a flag a retry worker raised for this pane comes down with the relaunch
@@ -793,6 +794,7 @@ if [ "$SELF_WORKER" = 1 ]; then
     [ "$rc" = 2 ] && wabort "the resume started and died within ${SALA_RESUME_WAIT}s — the pane is back at a shell, the error above its prompt; resume it with: claude --resume $uuid"
     [ "$rc" = 0 ] || wabort "resume did not start within ${SALA_RESUME_WAIT}s — the pane is at a shell; resume it with: claude --resume $uuid"
     inbox_release "$uuid" "$hname" wait
+    hold_cap_drop "$uuid"
     [ -n "$DSET" ] && { set_resolve "$DSET" ok "$label" "$label relaunched on $(proc_version "$RESUMED_PID"), $(set_after "$DSET")"; set_report "$DSET"; }
     echo "[$(date -Is)] self-worker: pane $SELF_PANE relaunched on conversation $uuid → $CURRENT_VER$(lane_note "$label") · $LANE_LINE"; exit 0
 fi
@@ -859,6 +861,11 @@ pause_try() {
         return 1
     fi
     pause_reason_ok "$why" || return 1
+    if hold_over "$uuid" "${SALA_SET:-}"; then   # THE CAP (common.sh): this relaunch interrupts nothing any more, it waits for the pane to be free
+        if [ "$DRY" = 1 ]; then emit ECHO "[dry-run] $label: held ($why); it would not be paused: this relaunch has waited past SALA_HOLD_MAX, so it waits for the pane to be free"
+        else pause_stand_down "$uuid" "$hname"; fi
+        return 1
+    fi
     if ! pause_scope_ok "$sess"; then
         if [ "$DRY" = 1 ]; then   # the plan names the rule: a front agent is never paused unless the scope says all
             case "${SALA_PAUSE_SCOPE:-background}" in
@@ -883,6 +890,7 @@ pause_try() {
     pause_clock_r held "$uuid"
     [ "$held" -ge "$a" ] || return 1
     pause_retry_in_r ref "$uuid"; [ "$ref" -le 0 ] || return 1   # a try that did not take is tried again SALA_PAUSE_RETRY s later (common.sh, pause_failed), not at every pass
+    hold_pause_gate "$uuid" "${SALA_SET:-}" || return 1   # the cap again, right before the Escape; passed, the hold is not lifted under this relaunch
     if pause_pane "$pane" "$sess" "$cpid" "$uuid"; then
         emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — its turn was interrupted with one Escape; it is relaunched next and a note leaves it what it was doing"
         set_paused "${SALA_SET:-}" "$sess: paused at $(local_clock "$PAUSE_AT") after $(hold_age_words "$PAUSE_HELD") of holding the relaunch"
@@ -978,6 +986,7 @@ check_pane() {
         draft=$(pane_draft "$pane" "$cpid")
         [ -n "$draft" ] && { skip "$label: unsubmitted text at the prompt (\"$draft\") — typing /exit would append to it and send the lot; submit or clear it, then rerun"; return; }
         if [ "$DRY" = 1 ]; then emit ECHO "[dry-run] $label: would /exit ($ver) and resume $uuid on $CURRENT_VER · $LANE_LINE${RELAUNCH_CWD:+ · $CWD_PLAN}$([ "${SALA_EXIT_END:-1}" = 1 ] && echo " · a claude still running ${SALA_EXIT_WAIT}s after /exit: will end a stuck process (that one pid: TERM, then KILL after ${SALA_EXIT_TERM_WAIT}s) and resume the session")"; emit WOULD ""; return; fi
+        hold_relaunch_mark "$uuid"   # THE CAP: the session is not told it is free while this sweep is about to /exit it
         emit CLAUDE "$pane|$sess|$label|$cpid|$ver|$uuid|$LANE_LINE|$(registry_field "$cpid" name)"   # the lane line is said when the /exit is typed (phase 2)
         ;;
     bash|sh|zsh|fish)
@@ -1098,7 +1107,7 @@ verify_pane() {
     fi
     if [ "$kind" = claude ]; then
         inbox_release "$uuid" "$hname" wait
-        newver=$(proc_version "$RESUMED_PID"); refusal_clear "$uuid"   # a relaunch ends the refusal memory (common.sh)
+        newver=$(proc_version "$RESUMED_PID"); refusal_clear "$uuid"; hold_cap_drop "$uuid"   # a relaunch ends the refusal memory and the cap's clock (common.sh)
         local pw; pw=$(pause_words "$uuid" live)   # THE PAUSE (common.sh): a pane THIS relaunch paused says so in its row; the note it was left is handed over now, not at watch's next tick
         UPDATED+=("$label: $ver → $newver$(lane_note "${label%:*}")$cwdnote${pw:+ · $pw}")   # the lane named when it is not subscription-1 (common.sh, lanes)
         pause_clock_clear "$uuid"
