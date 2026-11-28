@@ -39,6 +39,9 @@
 #   50+ minutes). A pane relaunched or cleared by someone else between the two steps drops its state. The warm-window bound applies to
 #   every wrap-up, a retry after a dropped one included; the /clear after a wrap-up turn is not bound (it makes no model call).
 #
+# A PLUGIN RELOAD sala asked a pane for (lib/plugin-reload.sh) moves the row's idle stamp with no turn: for such a pane this step reads
+# the idle age, the "turn is over" test and whether the Stop record is current by the stamp of before it (reload_idle_stamp_r).
+#
 # NEVER: while a recycle holds the lock, a revive, rename, retire, spawn, lane, model, reboot or queued operation runs, the pane map is
 # frozen or a resurrect restore runs (bare_busy, lib/barepane.sh); on a tmux server that is not the fleet's. At most SALA_IDLE_WRAPUP_MAX
 # actions (a wrap-up typed, a /clear typed) per tick.
@@ -90,8 +93,9 @@ WRAP_WHY=""
 # wrap_ready <session> <pane> <claude pid> <conversation> <idle age> → 0 when the pane may be spoken to now; else 1 with WRAP_WHY (one
 # short reason, empty for "not interesting yet"). Cheap checks first: a file read each; tmux and the process tree only after them.
 # <stage> is wrap (a first wrap-up) or clear (the turn is over; the idle-age and turn-since rules do not apply, the rest does).
+# [idle stamp]: the stamp the idle check reads the Stop hook's record by, in place of the row's (a pane a plugin reload was asked of).
 wrap_ready() {
-    local sess="$1" pane="$2" pid="$3" conv="$4" age="$5" stage="$6" st started stop e crons base v ph a b c lane hold d mx
+    local sess="$1" pane="$2" pid="$3" conv="$4" age="$5" stage="$6" idle="${7:-}" st started stop e crons base v ph a b c lane hold d mx
     WRAP_WHY=""
     registry_field_r st "$pid" status
     if parked_job_r hold "$pid"; then WRAP_WHY="parked on a background job ($hold)"; return 1; fi
@@ -113,7 +117,7 @@ wrap_ready() {
     fi
     _proc_lane_r lane "$pid"
     [ "$lane" != sdk ] || { WRAP_WHY="on the sdk lane"; return 1; }
-    is_idle "$pid" || { WRAP_WHY=$(is_idle_reason "$pid"); WRAP_WHY=${WRAP_WHY%%;*}; WRAP_WHY=${WRAP_WHY:-"not idle"}; return 1; }
+    is_idle "$pid" "$idle" || { WRAP_WHY=$(is_idle_reason "$pid" "$idle"); WRAP_WHY=${WRAP_WHY%%;*}; WRAP_WHY=${WRAP_WHY:-"not idle"}; return 1; }
     if pane_prompt "$pane"; then WRAP_WHY="a dialog is showing"; return 1; fi
     d=$(pane_draft "$pane" "$pid")
     if [ -n "$d" ] && ! [[ $d == "$SALA_MSG_MARK"* || $d == /clear ]]; then WRAP_WHY="text is typed in its input box"; return 1; fi
@@ -155,7 +159,7 @@ wrap_clear_one() {
 }
 
 wrapup_locked() {
-    local tbl sess pane pid k v ph a b c d conv st stamp age now acts=0 line seenk=" " q kk e
+    local tbl sess pane pid k v ph a b c d conv st stamp held age now acts=0 line seenk=" " q kk e
     local -A isback=()
     _now_r now
     while IFS= read -r line; do [ -n "$line" ] && isback[$line]=1; done < <(wrap_back_names)
@@ -170,6 +174,7 @@ wrapup_locked() {
         registry_conv_r conv "$pid"; [ -n "$conv" ] && [ "$conv" != null ] || continue
         v=$(st_get "wrap.$k"); ph=""; a=""; b=""; c=""; d=""; read -r ph a b c d <<< "$v"
         registry_field_r st "$pid" status; registry_field_r stamp "$pid" statusUpdatedAt
+        reload_idle_stamp_r held "$pid" "$conv" "$stamp"; stamp=${held:-$stamp}   # a requested plugin reload starts no idle stretch
         if [[ ${stamp:0:10} =~ ^[0-9]{10}$ ]]; then _stamp_age_r age "$stamp"; else age=0; fi
         # a pane the pane map does not know has no row to follow and no revive: left alone (sala adopt registers it)
         if [ -z "$(ledger_row "$sess")" ]; then
@@ -189,7 +194,7 @@ wrapup_locked() {
                     elif [ "${WRAP_DRY:-0}" = 1 ]; then echo "$sess: its wrap-up turn is running"; fi
                     continue
                 fi
-                if ! wrap_ready "$sess" "$pane" "$pid" "$conv" "$age" clear; then wrap_say "$k" "$sess: wrap-up turn over, clear waits — $WRAP_WHY"; continue; fi
+                if ! wrap_ready "$sess" "$pane" "$pid" "$conv" "$age" clear "$held"; then wrap_say "$k" "$sess: wrap-up turn over, clear waits — $WRAP_WHY"; continue; fi
                 if [ "${WRAP_DRY:-0}" = 1 ]; then echo "$sess: wrap-up turn over — /clear would be typed now"; continue; fi
                 if [ "$acts" -ge "$SALA_IDLE_WRAPUP_MAX" ]; then wlog "wrapup: cap of $SALA_IDLE_WRAPUP_MAX actions per tick — $sess waits for the next"; continue; fi
                 acts=$((acts + 1)); wrap_clear_one "$sess" "$pane" "$pid" "$conv" "$k" "$a" "${d:-0}" ;;
@@ -199,7 +204,7 @@ wrapup_locked() {
                     _kv_first_r e "$SALA_BUSY_DIR/$conv" epoch
                     if ! { [[ $e =~ ^[0-9]+$ ]] && [ "$e" -gt "$a" ]; }; then wrap_say "$k" "$sess: not wrapped up — its /clear was not taken; waits for a new turn" "/clear not taken, waits for a new turn"; continue; fi
                 fi
-                if ! wrap_ready "$sess" "$pane" "$pid" "$conv" "$age" wrap; then
+                if ! wrap_ready "$sess" "$pane" "$pid" "$conv" "$age" wrap "$held"; then
                     if [ -n "$WRAP_WHY" ]; then wrap_say "$k" "$sess: idle $((age / 60)) min, not wrapped up — $WRAP_WHY" "$WRAP_WHY"
                     elif [ "${WRAP_DRY:-0}" = 1 ] && [ "$st" = idle ]; then echo "$sess: idle ${age}s of $((SALA_IDLE_WRAPUP_MIN * 60))s — not yet"; fi
                     continue

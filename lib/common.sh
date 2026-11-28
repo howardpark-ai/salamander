@@ -3681,7 +3681,7 @@ busy_cause() {
     if [ -z "$w" ] && [ -n "$sid" ]; then n=$(_nlines "$(subagent_holders "$1" "$sid")"); [ "$n" -gt 0 ] && c+="; $(plural "$n" subagent) running"; fi
     echo "$c"
 }
-is_idle_reason() {
+is_idle_reason() {   # <claude-pid> [idle stamp, as is_idle takes it] → why the pane is not idle; nothing when it is
     local st stamp age sid d hs hl jp jwhy
     registry_field_r st "$1" status; [ -n "$st" ] || { echo "no registry status for pid $1 — cannot confirm idle"; return; }
     # a PARKED pane ("a pane parked on a background job" above): its own status is always 'shell', so the job's state
@@ -3735,7 +3735,7 @@ is_idle_reason() {
     # the live readings below (a child, a scratch file written in the last 2 min) still hold. A relaunch without the flag
     # trusts the record as before.
     if [ -n "$sid" ]; then   # as lists, never a bare call: a caller under `set -e` (tests/smoke.sh) must survive busy_state's 2
-        hs=$(busy_state "$1" "$sid" "$stamp") && { if [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$1")" ]; then hs=""; else echo "$hs"; return 0; fi; } || case $? in 1) [ "$own_turn" = 1 ] || subagents_why "$1" "$sid"; return 0;; esac   # a record with nothing in flight lists no subagent
+        hs=$(busy_state "$1" "$sid" "${2:-$stamp}") && { if [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$1")" ]; then hs=""; else echo "$hs"; return 0; fi; } || case $? in 1) [ "$own_turn" = 1 ] || subagents_why "$1" "$sid"; return 0;; esac   # a record with nothing in flight lists no subagent
     fi
     if [ "$own_turn" = 1 ]; then kids=$(work_children "$1" | { grep -vxF -f <(_ancestor_pids) || :; } | tr '\n' ' ')   # the call's own way up is not work in flight
     else kids=$(work_children "$1" | tr '\n' ' '); fi   # a plugin's MCP server is not work in flight (work_children)
@@ -3748,7 +3748,7 @@ is_idle_reason() {
     fi
     return 0   # idle: the status is 0 on every path, so a caller under `set -e` may capture the reason
 }
-is_idle() {  # <claude-pid> → 0 idle · 1 busy · 2 unknown. Unknown is NEVER idle.
+is_idle() {  # <claude-pid> [idle stamp] → 0 idle · 1 busy · 2 unknown. Unknown is NEVER idle. [idle stamp]: the Stop hook's record counts as current for it, not for the row's (lib/plugin-reload.sh reload_idle_stamp_r)
     local st stamp age sid d kids jp
     registry_field_r st "$1" status; [ -n "$st" ] || return 2
     if parked_job_pid_r jp "$1"; then is_idle "$jp"; return; fi   # a parked pane is idle when its job is
@@ -3761,7 +3761,7 @@ is_idle() {  # <claude-pid> → 0 idle · 1 busy · 2 unknown. Unknown is NEVER 
     registry_field_r sid "$1" sessionId; [ -n "$sid" ] && ready_for "$sid" && { [ -z "$(subagent_holders "$1" "$sid")" ]; return; }
     _children_r kids "$1"   # (never a failing status: a caller under `set -e`, tests/smoke.sh, must survive "no children")
     if [ -n "$kids" ]; then local parked; registry_field_r parked "$1" parkedJobId; [ -n "$parked" ] && [ "$parked" != null ] && return 1; fi   # parked: as in is_idle_reason
-    if [ -n "$sid" ]; then busy_state "$1" "$sid" "$stamp" >/dev/null && return 1 || case $? in 1) [ -z "$(subagent_holders "$1" "$sid")" ]; return;; esac; fi
+    if [ -n "$sid" ]; then busy_state "$1" "$sid" "${2:-$stamp}" >/dev/null && return 1 || case $? in 1) [ -z "$(subagent_holders "$1" "$sid")" ]; return;; esac; fi
     [ -z "$(work_children "$1")" ] || return 1   # a plugin's MCP server is not work in flight (work_children)
     if [ -n "$sid" ]; then
         while IFS= read -r d; do

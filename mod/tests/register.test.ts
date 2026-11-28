@@ -12,6 +12,8 @@ type World = {
   agents: AgentInfo[]
   fills: { text: string; mode: string }[]
   dialog: boolean
+  // what a command run answers (a rejection: the promise rejects)
+  answer: () => Promise<{ text?: string }>
   replied: (reqid: string) => Promise<Record<string, unknown>>
 }
 
@@ -23,7 +25,7 @@ const agent = (id: string, status: AgentInfo['status'], type = 'general-purpose'
 })
 
 function world(on: On, sessionId = 'S1'): World {
-  const w: World = { files: new Map(), commands: [], draft: '', agents: [], fills: [], dialog: false, replied: async () => ({}) }
+  const w: World = { files: new Map(), commands: [], draft: '', agents: [], fills: [], dialog: false, answer: async () => ({}), replied: async () => ({}) }
   const waiters = new Map<string, (v: Record<string, unknown>) => void>()
   mock.env(on, { XDG_RUNTIME_DIR: '/run/user/test', HOME: '/home/t' })
   on('session.id', () => ({ value: sessionId }))
@@ -56,8 +58,12 @@ function world(on: On, sessionId = 'S1'): World {
       const m = /\.([A-Za-z0-9_-]+)\.reply\.json$/.exec(to)
       if (m?.[1]) waiters.get(m[1])?.(JSON.parse(text) as Record<string, unknown>)
       if (to.endsWith(`/${sessionId}.json`)) waiters.get('stamp')?.(JSON.parse(text) as Record<string, unknown>)
+      if (to.endsWith('.reload.json')) waiters.get('reload-state')?.(JSON.parse(text) as Record<string, unknown>)
     }
-    if (cmd === 'rm') w.files.delete(e.argv[2] ?? '')
+    if (cmd === 'rm') {
+      w.files.delete(e.argv[2] ?? '')
+      if (e.argv[2]?.endsWith('.reload.json.begun')) waiters.get('mark-gone')?.({})
+    }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('agent.list', () => ({ value: w.agents }))
@@ -68,7 +74,7 @@ function world(on: On, sessionId = 'S1'): World {
   on('command.run', ($, e) => {
     w.commands.push({ command: e.command, args: e.args })
     waiters.get(`cmd:${e.command}`)?.({})
-    return {}
+    return w.answer()
   })
   w.replied = reqid =>
     new Promise(resolve => {
@@ -399,6 +405,92 @@ test('rename: /rename run with the name, then ok', async ($, on) => {
   await $.session.receive(peer('[sala-mod] rename n1 demo-main'))
   expect(await reply).toEqual({ reqid: 'n1', ok: true })
   expect(w.commands).toEqual([{ command: 'rename', args: 'demo-main' }])
+})
+
+test('reload: answered ok at once, /reload-plugins run with no argument over a draft, and ok written once it answers "Reloaded:"', async ($, on) => {
+  const w = world(on)
+  w.draft = 'unsent words'
+  let give: (v: { text?: string }) => void = () => undefined
+  const answer = new Promise<{ text?: string }>(resolve => {
+    give = resolve
+  })
+  w.answer = () => answer
+  const reply = w.replied('l1')
+  const state = w.replied('reload-state')
+  expect(await $.session.receive(peer('[sala-mod] reload l1'))).toEqual({ consumed: 'sala: reload request l1' })
+  // the request is answered while the command is still waiting, and nothing is written for it yet
+  expect(await reply).toEqual({ reqid: 'l1', ok: true })
+  expect(w.files.has(`${DIR}/S1.reload.json`)).toBe(false)
+  give({ text: 'Reloaded: 2 plugins · 3 skills' })
+  expect(await state).toEqual({ begun: 1_700_000_000_000, ok: true, text: 'Reloaded: 2 plugins · 3 skills' })
+  expect(w.files.has(`${DIR}/S1.reload.json`)).toBe(true)
+  expect(w.commands).toEqual([{ command: 'reload-plugins', args: '' }])
+  expect(w.draft).toBe('unsent words')
+})
+
+test('reload: an answer that is not "Reloaded:", and no answer text, are written as not ok', async ($, on) => {
+  const w = world(on)
+  const cases: [string, { text?: string }, string][] = [
+    ['l2', { text: 'Plugins changed. Run /reload-plugins --force to apply.' }, 'Plugins changed. Run /reload-plugins --force to apply.'],
+    ['l3', {}, ''],
+  ]
+  for (const [id, said, text] of cases) {
+    w.answer = async () => said
+    const state = w.replied('reload-state')
+    await $.session.receive(peer(`[sala-mod] reload ${id}`))
+    expect(await state).toEqual({ begun: 1_700_000_000_000, ok: false, text })
+  }
+  // --force is never added, whatever the answer asked for
+  expect(w.commands).toEqual([
+    { command: 'reload-plugins', args: '' },
+    { command: 'reload-plugins', args: '' },
+  ])
+})
+
+test('reload: a rejected command is answered ok to the request and written as not ok with why', async ($, on) => {
+  const w = world(on)
+  w.answer = async () => {
+    throw new Error('the session was stopped and nobody has sent input since')
+  }
+  const reply = w.replied('l4')
+  const state = w.replied('reload-state')
+  await $.session.receive(peer('[sala-mod] reload l4'))
+  expect(await reply).toEqual({ reqid: 'l4', ok: true })
+  const got = await state
+  expect(got).toMatchObject({ begun: 1_700_000_000_000, ok: false })
+  // the test kit's engine words a hook's throw its own way; what is held here is that the rejection's words are kept
+  expect(String(got.text).length).toBeGreaterThan(0)
+})
+
+test('reload: the mark of a running reload is there while the command runs and gone once it is answered', async ($, on) => {
+  const w = world(on)
+  let give: (v: { text?: string }) => void = () => undefined
+  const answer = new Promise<{ text?: string }>(resolve => {
+    give = resolve
+  })
+  w.answer = () => answer
+  const reply = w.replied('l5')
+  const state = w.replied('reload-state')
+  const cleared = w.replied('mark-gone')
+  await $.session.receive(peer('[sala-mod] reload l5'))
+  await reply
+  expect(w.files.get(`${DIR}/S1.reload.json.begun`)).toBe('{"begun":1700000000000}\n')
+  give({ text: 'Reloaded: 1 plugin' })
+  await state
+  await cleared
+  expect(w.files.has(`${DIR}/S1.reload.json.begun`)).toBe(false)
+})
+
+test('reload: a copy of the mod that the reload itself loaded writes the answer at its session start', async ($, on) => {
+  const w = world(on)
+  w.files.set(`${DIR}/S1.reload.json.begun`, '{"begun":1699999999000}\n')
+  const state = w.replied('reload-state')
+  const cleared = w.replied('mark-gone')
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  expect(await state).toEqual({ begun: 1_699_999_999_000, ok: true, text: 'Reloaded: the reload replaced the sala mod itself' })
+  await cleared
+  expect(w.files.has(`${DIR}/S1.reload.json.begun`)).toBe(false)
+  expect(w.commands).toEqual([])
 })
 
 test('unmarked lines and other origins pass through; a malformed id is consumed', async ($, on) => {
