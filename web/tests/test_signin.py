@@ -95,8 +95,8 @@ def open_chat(served, browser) -> None:
 
 
 def attach(browser) -> None:
-    browser.evaluate("addFile(new File(['x'], 'notes.txt', { type: 'text/plain' })); ''")
-    until(lambda: browser.evaluate("state.uploads.length === 1 && !!state.uploads[0].name"), "the file did not go up")
+    browser.evaluate("attach.add([new File(['x'], 'notes.txt', { type: 'text/plain' })]); ''")
+    until(lambda: browser.evaluate("attach.getUploads().length === 1 && !!attach.getUploads()[0].name"), "the file did not go up")
 
 
 def sign_in(proxy, browser) -> None:
@@ -168,7 +168,7 @@ def test_a_stream_that_stops_asks_whether_the_sign_in_ended_and_the_attached_fil
     browser.evaluate("state.es.close(); openStream(state.current); ''")
     sign_in(proxy, browser)
     until(lambda: browser.evaluate("document.querySelectorAll('#chips > *').length === 1"), "the attached file is not back")
-    assert browser.evaluate("state.uploads[0].fileName") == "notes.txt"
+    assert browser.evaluate("attach.getUploads()[0].fileName") == "notes.txt"
     assert browser.evaluate("getText()") == "kept draft" and browser.evaluate("location.pathname") == CHAT
 
 
@@ -176,7 +176,7 @@ def test_a_refused_upload_asks_whether_the_sign_in_ended(proxy, served, browser)
     open_chat(served, browser)
     # the upload, api/config and the page alone are refused: nothing else the page asks within this test could notice
     proxy.deny = lambda path: path in (CHAT, "/api/config", "/api/upload")
-    browser.evaluate("addFile(new File(['x'], 'notes.txt', { type: 'text/plain' })); ''")
+    browser.evaluate("attach.add([new File(['x'], 'notes.txt', { type: 'text/plain' })]); ''")
     sign_in(proxy, browser)
     assert browser.evaluate("location.pathname") == CHAT
 

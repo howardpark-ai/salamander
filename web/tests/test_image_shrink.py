@@ -7,7 +7,7 @@ fit says so in words, and a file that is empty says "came through empty" after o
 
 These run in a headless Chromium (conftest.py: `served`, `browser`) and are skipped without one. The images are made in the
 page; the biggest is 5000 x 2500 and a smooth gradient, so it costs a few hundred KB. The byte limit is lowered in the page
-(`MAX_IMAGE_BYTES`) to test the size steps, instead of building a file of 20 MB.
+(`attach.limits.perImageSource`) to test the size steps, instead of building a file of 20 MB.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ async function feed(file) {
     await new Promise((r) => setTimeout(r, 100));
     if (!document.querySelector("#chips .chip.uploading") && (document.querySelectorAll("#chips .chip").length || document.querySelector("#send-status").textContent)) break;
   }
-  return { chips: document.querySelectorAll("#chips .chip").length, names: state.uploads.map((u) => u.name),
+  return { chips: document.querySelectorAll("#chips .chip").length, names: attach.getUploads().map((u) => u.name),
            status: document.querySelector("#send-status").textContent };
 }
 """
@@ -127,7 +127,7 @@ def test_an_image_over_the_byte_limit_steps_its_quality_and_size_down_until_it_f
     start(served, browser)
     # 1200 x 800 of noise is about 3 MB as a PNG and far over 150 KB as a JPEG at any quality: the size has to come down too
     got = browser.evaluate("""(async () => {
-      MAX_IMAGE_BYTES = 150 * 1024;
+      attach.limits.perImageSource = 150 * 1024;
       const f = await makeImage(1200, 800, "noise", "image/png", "noise.png");
       const r = await feed(f); r.sourceBytes = f.size; return r; })()""")
     assert got["chips"] == 1 and got["status"] == "", got
@@ -142,7 +142,7 @@ def test_an_image_over_the_byte_limit_steps_its_quality_and_size_down_until_it_f
 def test_an_image_that_cannot_be_made_to_fit_says_so_and_sends_nothing(served, browser):
     start(served, browser)
     got = browser.evaluate("""(async () => {
-      MAX_IMAGE_BYTES = 2000;
+      attach.limits.perImageSource = 2000;
       return feed(await makeImage(600, 400, "noise", "image/png", "noise.png")); })()""")
     assert got["chips"] == 0 and got["names"] == [], got
     assert "could not be made small enough to attach" in got["status"] and "limit" in got["status"], got
@@ -172,13 +172,13 @@ def test_a_file_whose_first_read_is_empty_is_read_once_more_and_goes_up(served, 
 
 # The size rule: a big PNG or WebP with no see-through pixel is re-encoded as a JPEG even when it is within the server's limit and
 # within 4000 px (the pane's Claude Code takes at most 5 MB as base64 and drops an image it cannot shrink). The threshold is
-# lowered in the page (`REENCODE_OVER_BYTES`) to test it with small images; the real size is in the paste test of
+# lowered in the page (`attach.limits.reencodeOver`) to test it with small images; the real size is in the paste test of
 # test_paste_one_chip.py (a 3000 x 4000 PNG of about 15 MB).
 
 def test_a_big_opaque_png_within_the_limit_goes_up_as_a_jpeg(served, browser):
     start(served, browser)
     got = browser.evaluate("""(async () => {
-      REENCODE_OVER_BYTES = 200 * 1024;
+      attach.limits.reencodeOver = 200 * 1024;
       const f = await makeImage(600, 400, "noise", "image/png", "shot.png");
       const r = await feed(f); r.sourceBytes = f.size; return r; })()""")
     assert got["chips"] == 1 and got["status"] == "", got
@@ -191,7 +191,7 @@ def test_a_big_opaque_png_within_the_limit_goes_up_as_a_jpeg(served, browser):
 def test_a_png_under_the_threshold_goes_up_as_it_is(served, browser):
     start(served, browser)
     got = browser.evaluate("""(async () => {
-      REENCODE_OVER_BYTES = 5 * 1024 * 1024;
+      attach.limits.reencodeOver = 5 * 1024 * 1024;
       const f = await makeImage(600, 400, "noise", "image/png", "shot.png");
       const r = await feed(f); r.size = f.size; return r; })()""")
     assert got["chips"] == 1 and got["status"] == "", got
@@ -202,7 +202,7 @@ def test_a_png_under_the_threshold_goes_up_as_it_is(served, browser):
 def test_a_big_png_with_one_see_through_pixel_stays_a_png_as_it_is(served, browser):
     start(served, browser)
     got = browser.evaluate("""(async () => {
-      REENCODE_OVER_BYTES = 200 * 1024;
+      attach.limits.reencodeOver = 200 * 1024;
       const f = await makeImage(600, 400, "noise-hole", "image/png", "cutout.png");
       const r = await feed(f); r.size = f.size; return r; })()""")
     assert got["chips"] == 1 and got["status"] == "", got
@@ -214,7 +214,7 @@ def test_a_big_png_with_one_see_through_pixel_stays_a_png_as_it_is(served, brows
 def test_a_big_jpeg_within_the_limit_goes_up_as_it_is(served, browser):
     start(served, browser)
     got = browser.evaluate("""(async () => {
-      REENCODE_OVER_BYTES = 20 * 1024;
+      attach.limits.reencodeOver = 20 * 1024;
       const f = await makeImage(600, 400, "noise", "image/jpeg", "photo.jpg");
       const r = await feed(f); r.size = f.size; return r; })()""")
     assert got["chips"] == 1 and got["status"] == "", got

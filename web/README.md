@@ -208,17 +208,17 @@ sala is, *Deploying* below.
   image is encoded as a PNG of 19 MB each time `files` is read, a second or more, which let the next link look like a new
   gesture). One event is one gesture on its own side as well: the image Files of one paste or `beforeinput` that hold the same
   bytes (same type and size, then the bytes compared; a clipboard that offers the picture twice, as `image.png` and under
-  another name) make one chip, and files that are not images are never merged (`distinctPictures` in `static/app.js`;
+  another name) make one chip, and files that are not images are never merged (`distinctPictures` in `static/attach.js`;
   `tests/test_paste_one_chip.py`). All three feed the same path: uploaded to `$XDG_STATE_HOME/sala-web/uploads/`
   (default `~/.local/state/sala-web/uploads/`) under a random name, then their paths are pasted with **bracketed paste**. Claude Code turns a bracketed-pasted image
   path into an `[Image #N]` chip; the same path typed with `send-keys -l` stays raw text (tested on Claude Code
   2.1.296). Uploads older than 30 days are deleted at startup.
-  **An image always fits.** `addImage` (`static/app.js`) reads the file's bytes first (`arrayBuffer()`, once more after 150 ms when the
+  **An image always fits.** `addImage` (`static/attach.js`) reads the file's bytes first (`arrayBuffer()`, once more after 150 ms when the
   first read is empty) and says "That image came through empty" when the second is empty too, instead of sending a body the
   server refuses. An image over the server's limit (`max_upload_bytes`, 20 MB) or longer than 4000 px on its long side is then
   redrawn on a canvas, at most 4000 px (under the 4096 px side mobile canvases allow), and re-encoded before it is sent: a PNG
   when any pixel is see-through (JPEG has no alpha), otherwise a JPEG at quality 0.92. Claude scales an image itself, so the session
-  sees the same picture. **A big PNG or WebP is re-encoded even within the limit:** one over 5 MB (`REENCODE_OVER_BYTES`) with no
+  sees the same picture. **A big PNG or WebP is re-encoded even within the limit:** one over 5 MB (`limits.reencodeOver`) with no
   see-through pixel goes up as a JPEG, stepping the quality (0.92, 0.85, 0.75, 0.6) toward 5 MB and sending the smallest result
   when none gets there, never a smaller picture for a size the pane shrinks itself. A Ctrl+V of a photo hands over its
   pixels as a PNG (a 3000 x 4000 photo of 5 MB as JPEG is 19 MB as a PNG), and such a PNG never reached the session. Why 5 MB: the
@@ -413,6 +413,36 @@ placeholder's place (*The placeholder* below); `tests/test_composer_cm6.py` hold
 against the old glyph, centred on the letters, both themes), the caret rules (at, before and in the marker; Home, the arrows,
 Ctrl+arrows, a tap, a programmatic move), Backspace, a composition in a list item (also from the line's start), an image
 paste and a file drop on the editor, the history after a send, and the look at 320, 390 and 1280 px in both themes.
+
+### The attachment module
+
+What the composer does with files (the attach button and its Android menu, the chips, the uploads with their progress, the shrink of a
+big image, drag and drop, and the one-gesture-one-chip paste logic described under *Images and files* above) is one module,
+`static/attach.js` with `static/attach.css`, that uses nothing of `app.js`: `SalaAttach.create(hostEl, cfg)` puts the button, its menu
+and the two hidden file inputs at the start of `hostEl` (the composer's row, `position: relative`) and returns a handle. `app.js` is
+one host; a page that copies the two files is another (`tests/test_attach_module.py` loads the module in a page with no `app.js`).
+
+`cfg` (every key is optional): `endpoint` (the upload address, default `api/upload`: an image is POSTed whole, any other file to
+`<endpoint>?name=<name>`), `fetch` (the host's authenticated fetch, used for an image), `limits` (bytes: `perFile` 500 MB,
+`perImageSource` 20 MB, `maxFiles` and `totalBytes` unlimited, `reencodeOver` 5 MB; the handle's `limits` is the live object),
+`onChange(uploads)` (after the chips were drawn: the host's send button reads it), `onChosen(file)`, `onStatus(message, kind)` (a
+notice; default a line under the chips), `onUnauthorized()` (a file upload answered 401), `t(key, vars)` (the words; English is built
+in, a key the host does not know falls back to it), `isBusy()` (the host is sending: the attach button is disabled), `dropTarget`
+(the element drag and drop is watched on; none, no drop handling), `chipsEl` (where the chips go; default a new element before
+`hostEl`) and `renderSend(slot)` (the host puts its own send button in the slot, the last child of `hostEl`).
+
+The handle: `getUploads()`, `clear()`, `add(files)`, `isUploading()`, `bindPaste(editableEl)` (the paste and `beforeinput` links with
+the de-duplication, for a plain editable; it returns the function that unbinds), `restore(entries)` (files already uploaded, put back
+as chips), `render()` and `refresh()` (draw again after the language or the busy state changed), and for a host with its own editor
+`handlePaste(e)`, `handleBeforeInput(e)`, `seenInEarlierLink(link, file, at)` and `addImage(file)`; `app.js`'s CodeMirror composer
+calls these from its own handlers and keeps its own `<img>` lifting (`liftImage`). `SalaAttach` also exports `humanSize`, `fileIcon`,
+`clipboardFiles`, `clipboardImages`, `sniffImageType` and `IMAGE_EXT`.
+
+To copy it into another page: `static/attach.js`, `static/attach.css` (it reads the host's theme variables `--panel`, `--border`,
+`--muted`, `--text`, `--accent`, `--hover`, `--faint` and `--error`), and the strings of `static/i18n-en.js` the module asks `t` for:
+the sixteen `app.up.*` keys and `ui.cmp.attach`, `ui.cmp.menu`, `ui.cmp.photos`, `ui.cmp.files` (the module's English defaults match
+them, so a page with no table needs none). The server side is the host's own: `POST <endpoint>` with the image as the body and
+`POST <endpoint>?name=` with the file, each answering `{"ok": true, "name": <reference>}`.
 
 ### Quoting a reply
 

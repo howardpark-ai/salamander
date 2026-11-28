@@ -116,7 +116,7 @@ SETTLE = """new Promise((res) => { const t0 = Date.now(); let last = -1, since =
   const n = document.querySelectorAll("#chips .chip").length, up = document.querySelectorAll("#chips .chip.uploading").length;
   if (n !== last) { last = n; since = Date.now(); }
   if ((!up && n >= 1 && Date.now() - since > %d) || Date.now() - t0 > 90000)
-    res({ chips: n, uploading: up, names: state.uploads.map((u) => u.name), status: document.querySelector("#send-status").textContent, log: window.__log });
+    res({ chips: n, uploading: up, names: attach.getUploads().map((u) => u.name), status: document.querySelector("#send-status").textContent, log: window.__log });
   else setTimeout(poll, 100); })(); })"""
 
 

@@ -84,6 +84,13 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### The composer's attachment code is a module of its own: `web/tests/test_attach_module.py` new, 4 (2 in a browser); the attach tests follow the move (Sat Nov 28th 2026)
+
+The path guarded: what the owner attaches to a message, an upload that goes up whole and once, a shrunk image that still reaches the session, one chip for one paste. The code moved from `static/app.js` to `static/attach.js` and `static/attach.css` behind one config object (`SalaAttach.create(hostEl, cfg)`), so another page can copy the two files; nothing about what the owner sees or sends changed.
+Held (`test_attach_module.py`): the module's source names nothing of app.js (`state`, `el`, `$`, `tl`, `apiFetch`); the page loads `attach.js` before `app.js` and `attach.css` with the other sheets, and `style.css` no longer holds the rules; in a blank page that loads only the module, `create` puts the button, the menu, the two inputs and the page's send slot in order, an image goes up through the page's own `fetch` and shows as a chip, `maxFiles` refuses the one past it with a notice, a file over `perFile` fails before any request with the words and the chip's error, `clear()` empties the chips and tells the page; `bindPaste` takes one paste of an image on a plain textarea once, with the same gesture's `beforeinput` skipped.
+Followed the move, no check added or dropped: `test_composer_attach.py`, `test_attach_menu.py`, `test_paste_one_chip.py`, `test_image_shrink.py`, `test_composer_editable.py`, `test_signin.py` reach the uploads through the module's handle (`attach.getUploads()`, `attach.limits`) where they read `state.uploads` and two page constants, and the markup checks read `attach.js`, which now builds the button, the menu and the inputs.
+Not covered, and why: the browser tests run in CI only; a second host page (the board) is not built here.
+
 ### `tests/feedbackdrain.sh` new, 31; `tests/op.sh` +6, one check extended (Sat Nov 28th 2026)
 
 The paths guarded: the drain presses keys in a live pane, where a wrong key sends a transcript or deletes an unsent draft; Esc at the exit's drafts gate deletes the drafts; a draft the drain cannot send must not keep a pane from its relaunch. In the queue, an operation judged stuck starts a `claude -p` and raises an alarm.

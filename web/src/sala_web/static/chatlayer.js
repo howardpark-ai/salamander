@@ -271,7 +271,7 @@ window.SalaThreadLayer = (() => {
   }
   // a file a reply sent that is no image: its name and the caption written with it (no route serves the file itself)
   function fileNode(b) {
-    return el("div", { class: "cl-file" }, el("div", { class: "sent-file" }, fileIcon(), el("span", { class: "sf-name", text: b.name })),
+    return el("div", { class: "cl-file" }, el("div", { class: "sent-file" }, SalaAttach.fileIcon(), el("span", { class: "sf-name", text: b.name })),
       b.caption ? el("div", { class: "cl-file-cap" }, ...linkNodes(b.caption)) : null);
   }
   const OWN = { question: askedNode, answer: answeredNode, file_sent: fileNode };   // the blocks renderMessage draws nothing for
