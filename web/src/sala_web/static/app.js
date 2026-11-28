@@ -1488,7 +1488,7 @@ for (const t of ["pointerup", "mouseup", "pointercancel", "touchend"]) {
   document.addEventListener(t, () => { if (nsSizing) { nsSizing = false; nsSaveListHeight(); } }, true);
 }
 nsRestoreListHeight();
-const nsRole = () => (document.querySelector('input[name="ns-role"]:checked') || {}).value || "front";
+const nsRole = () => (document.querySelector('input[name="ns-role"]:checked') || {}).value || "none";
 const utf8Len = (t) => new TextEncoder().encode(t).length;
 class NsStop extends Error {}   // a step failed and said so; the chain ends
 
@@ -1772,12 +1772,13 @@ function nsAgentLine(mandate, sel, kind) {   // kind: front or back
 }
 // the steps for the pick: make the page (new), list it again (hidden, or listed with no agent yet: stackshot lets the label
 // that listed a project add its first agents), add the agent (unless the project lists the name), start the session
-function nsPlan(sel, name) {
+function nsPlan(sel, name, role) {
   const steps = [];
   const has = Object.prototype.hasOwnProperty.call(sel.agents, name);
+  const none = role === "none";   // a session with no agent role: nothing is listed on the project and no agent is added (only a new project is made)
   if (sel.kind === "new" || ns.done.has("make:" + sel.key)) steps.push({ id: "make", label: () => tl("app.ns.step.make") });   // made by an earlier try of this form: shown done
-  else if (!has && (sel.kind === "hidden" || !Object.keys(sel.agents).length)) steps.push({ id: "list", label: () => tl(sel.kind === "hidden" ? "app.ns.step.relist" : "app.ns.step.confirm") });
-  if (!has) steps.push({ id: "agent", label: () => tl("app.ns.step.agent", { name }) });
+  else if (!none && !has && (sel.kind === "hidden" || !Object.keys(sel.agents).length)) steps.push({ id: "list", label: () => tl(sel.kind === "hidden" ? "app.ns.step.relist" : "app.ns.step.confirm") });
+  if (!has && !none) steps.push({ id: "agent", label: () => tl("app.ns.step.agent", { name }) });
   steps.push({ id: "spawn", label: () => tl("app.ns.step.spawn") });
   return steps.map((s) => ({ ...s, state: "todo" }));
 }
@@ -1786,7 +1787,7 @@ function nsPickedNote() {
   let t = "";
   if (ns.pickedNew && !sel) t = tl("app.ns.needLetters");
   else if (sel) {
-    const plan = nsPlan(sel, nsEl.name.value.trim()).map((s) => s.id);
+    const plan = nsPlan(sel, nsEl.name.value.trim(), nsRole()).map((s) => s.id);
     const parts = [];
     const pname = nsNameOf(sel.key, sel.scope);
     if (plan.includes("make")) parts.push(tl("app.ns.do.make", { pname, scope: sel.scope }));
@@ -1810,7 +1811,7 @@ function nsValidate() {
   const mandateErr = bytes > mandateMax ? tl("app.ns.mandateOver", { max: Math.round(mandateMax / 1024), have: Math.round(bytes / 1024) })
     : role === "back" && !mandate.trim() ? tl("app.ns.mandateNeeded") : "";
   nsEl.mandateErr.textContent = mandateErr;
-  nsEl.mandateHint.textContent = tl(role === "back" ? "app.ns.mandateReq" : "ui.ns.mandateHint");
+  nsEl.mandateHint.textContent = tl(role === "back" ? "app.ns.mandateReq" : role === "none" ? "ui.ns.mandateHintNone" : "ui.ns.mandateHint");
   nsPickedNote();
   nsEl.modelOther.hidden = nsEl.model.value !== NS_OTHER;
   const modelOk = nsEl.model.value !== NS_OTHER || (nsEl.modelOther.value.trim() !== "" && NS_MODEL_RE.test(nsEl.modelOther.value.trim()));
@@ -1869,7 +1870,7 @@ async function nsSubmit(e) {
   nsEl.pending.hidden = false;
   nsValidate();
   nsStopTrack();
-  const res = { kind: "working", name, project: sel.key, role, steps: nsPlan(sel, name), wait: "", error: null, pageOwed: false };
+  const res = { kind: "working", name, project: sel.key, role, steps: nsPlan(sel, name, role), wait: "", error: null, pageOwed: false };
   ns.result = res;
   clearInterval(ns.tick);
   ns.tick = setInterval(nsRenderStatus, 1000);   // the seconds of a long step
@@ -2109,7 +2110,7 @@ function nsRenderStatus() {
   } else if (res.kind === "queued") {
     kids.push(...nsQueuedKids(res, {
       steps: nsStepsList(res.steps),
-      about: tl("app.ns.about", { role: res.role, project: res.project }),
+      about: res.role === "none" ? tl("app.ns.aboutNone", { project: res.project }) : tl("app.ns.about", { role: res.role, project: res.project }),
       note: res.pageOwed ? el("p", { class: "ns-hint", text: tl("app.ns.pageOwed") }) : null,
     }));
     nsElapsedTick(res, nsEl.status, () => ns.result);

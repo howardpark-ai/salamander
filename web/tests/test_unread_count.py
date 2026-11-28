@@ -258,6 +258,27 @@ def test_only_an_idle_front_agent_is_ever_unread(store):
         assert s["unread"] is False and s["unread_count"] == 0, role
 
 
+def test_a_session_with_a_project_and_no_agent_role_counts_like_a_front_agent(store):
+    """A session the owner made to work with (`sala spawn --role none`) has a project and no role: its count and marker are a front agent's.
+    Not a quick (side) session, a Slack session, a background agent, or one with no project."""
+    st = store["state"]
+    own = lambda **kw: {**sdict("example-alpha-fox", None), "project": "projects/alpha", **kw}
+    st.annotate(scopes_of(own(), own(name="example-alpha-s", side={"kind": "fork"}), own(name="example-alpha-b", role="back")), T0 + 1)   # first sight: read
+    append_reply(store, T0 + 5000, "r1")
+    mine, side, back = own(), own(name="example-alpha-s", side={"kind": "fork"}), own(name="example-alpha-b", role="back")
+    slack, bare = own(name="example-alpha-sl", surface="slack"), sdict("example-alpha-bare", None)
+    st.annotate(scopes_of(mine, side, back, slack, bare), T0 + 6000)
+    assert (mine["unread"], mine["unread_count"]) == (True, 1)
+    for other in (side, back, slack, bare):
+        assert (other["unread"], other["unread_count"]) == (False, 0), other["name"]
+    assert st.mark_read("example-alpha-fox", "/home/alex/work", SID, T0 + 7000) is True
+    again = own()
+    st.annotate(scopes_of(again), T0 + 8000)
+    assert (again["unread"], again["unread_count"]) == (False, 0)
+    rows = json.loads(store["path"].read_text())["sessions"]
+    assert "example-alpha-fox" in rows and "example-alpha-sl" not in rows
+
+
 def test_a_slack_agent_has_no_count_and_no_marker_row_while_a_front_agent_without_surface_still_counts(store):
     st = store["state"]
     slack = {**sdict("sf-example-a"), "surface": "slack"}

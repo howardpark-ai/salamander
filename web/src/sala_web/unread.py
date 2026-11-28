@@ -1,4 +1,4 @@
-"""How many replies each front agent has written since the owner last opened it (the sidebar's orange count; it replaced
+"""How many replies each front agent (and each session with no agent role) has written since the owner last opened it (the sidebar's orange count; it replaced
 the "New" chip).
 
 The read state lives on the server, in `state_dir/read-state.json` (`$XDG_STATE_HOME/sala-web/read-state.json`), so the phone
@@ -9,7 +9,7 @@ listed (entries not seen for SEEN_KEEP_DAYS are dropped, so the file does not gr
 `annotate` sets two fields on every session: `unread_count`, the number of replies with a timestamp after "read", and
 `unread`, which is `unread_count > 0`. A reply is the text of a turn that ended (transcript._ends_turn: a main-thread
 assistant line with text that is not followed by a tool call; narration between tool calls is not one). Only a front
-agent (stackshot's role `front`) has a count; a background agent, a Slack agent (`surface` "slack": the owner reads it in Slack,
+agent (stackshot's role `front`) and a session with a project and no role at all (the owner's own, made with `sala spawn --role none`) have a count; a background agent, a Slack agent (`surface` "slack": the owner reads it in Slack,
 so it has no read-marker row either), a quick session and a session with no project have 0.
 A turn still running does not count yet: while the session is not `idle` (busy, or waiting for an answer) only a line that
 says it ended its turn counts, so the text being written at this moment is left out, and the replies of turns that already
@@ -60,6 +60,16 @@ def _write(path: Path, data: dict) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
+
+
+def counts_unread(s: dict) -> bool:
+    """Whether a session of group_sessions()'s result has an unread count: a front agent, and a session the owner works with that has a project and no role
+    (one made with `sala spawn --role none`: it is on no agents map, and shows as a front agent does). Not a background agent, a Slack agent, a quick (side)
+    session, or a session with no project."""
+    if s.get("surface") == "slack":
+        return False
+    role = s.get("role")
+    return role == "front" or (not role and bool(s.get("project")) and not s.get("side"))
 
 
 class ReadState:
@@ -140,7 +150,7 @@ class ReadState:
                     for s in g["sessions"]:
                         s["unread"] = False
                         s["unread_count"] = 0
-                        if s.get("role") != "front" or s.get("surface") == "slack":
+                        if not counts_unread(s):
                             continue
                         cwd, sid = s.get("cwd") or "", s.get("sessionId") or ""
                         e = rows.get(s["name"])

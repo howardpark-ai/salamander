@@ -2,6 +2,7 @@
 #
 #   spawn [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--dry-run]
 #   spawn NAME --role <role word> [--front|--back] --mandate FILE|TEXT [...]   (a plain spawn that registers its name with stackshot: THE SPAWN GATE, below)
+#   spawn NAME --project <page key> --role none [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]   (a session to work with: no agent role)
 #   spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #   spawn --suggest-name --project <page key> --role front|back [--prefix P] [--new]
 #   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
@@ -26,6 +27,11 @@
 # given (a file that exists wins). A relative path is made absolute: the pane's shell starts in --cwd, not where spawn ran.
 # The orientation line and a TEXT are MESSAGES: tui_send types them with `<!-- sala -->` in front (Mon Oct 12th 2026,
 # the board's quote-origin check; common.sh, THE MESSAGE MARKER), so a transcript reader can tell them from the owner's.
+#
+# A SESSION WITH NO AGENT ROLE (--project <page key> --role none): a session the owner creates to work with, named after a project. It is on no agents map: stackshot is
+# not asked and nothing is registered (the gate and the unregistered-agent watch skip it by the row's no_role mark), no mandate is required, and it starts in $HOME, where the
+# CLI loads the front rules, never in SALA_BACK_CWD. Its registry row carries the project and no role, so the sessions list shows it as it shows a front agent's. A name the
+# project record lists is refused: the record gives that name's role (a record that cannot answer refuses too, as every other project spawn does). Only a project's lead (--role back) starts in SALA_BACK_CWD.
 #
 # A PROJECT AGENT (--project <page key> --role front|back; both or neither): a session of a project, registered by its line
 # on the hub page's `agents:` map — a front agent (the ones the owner talks to) a top-level entry, a background one under
@@ -346,7 +352,7 @@ while [ $# -gt 0 ]; do
         --model)  MODEL="${2:-}";  shift 2 || die "--model needs an alias";;
         --effort) EFFORT="${2:-}"; shift 2 || die "--effort needs a level";;
         --project) PROJECT="${2:-}"; shift 2 || die "--project needs a page key (<dir>/<slug>, e.g. projects/demo)";;
-        --role)   ROLE="${2:-}";   shift 2 || die "--role needs front or back (with --project), or a role word for stackshot (a plain spawn, below)";;
+        --role)   ROLE="${2:-}";   shift 2 || die "--role needs front, back or none (with --project), or a role word for stackshot (a plain spawn, below)";;
         --front)  REG_SIDE=front; shift;;          # a plain spawn that registers its name with stackshot (THE SPAWN GATE, the header): which side; --back (the default) is a background agent
         --back)   REG_SIDE=back; shift;;
         --surface) SURFACE_OPT="${2:-}"; SURFACE_GIVEN=1; shift 2 || die "--surface needs sala or slack";;   # where a front agent talks with the owner (the header, THE SURFACE)
@@ -382,7 +388,7 @@ fi
 # A PLAIN SPAWN'S REGISTRATION ARGUMENTS (the header, THE SPAWN GATE): with no --project, --role is the role WORD stackshot lists the agent under (engineer, tests: the part of the name after the project's name),
 # --front/--back (default back) its side; they only matter when the name is not on the project record yet, and --mandate then gives the line it is listed with. front|back belong to --project.
 if [ "$SIDE" = 0 ] && [ -z "$PROJECT" ] && [ -n "$ROLE" ]; then
-    case "$ROLE" in front|back) die "--role needs --project <page key> when it is front or back (a project agent); a plain spawn's --role is the role word stackshot lists the agent under (engineer, tests), with --front or --back for its side" ;; esac
+    case "$ROLE" in front|back|none) die "--role needs --project <page key> when it is front or back (a project agent); a plain spawn's --role is the role word stackshot lists the agent under (engineer, tests), with --front or --back for its side" ;; esac
     [[ $ROLE =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]] || die "--role takes a role word of letters, digits, . _ - (at most 32 characters, no leading dash), not '$ROLE'"
     REG_ROLE=$ROLE; ROLE=""
 fi
@@ -392,8 +398,8 @@ fi
 # THE PROJECT AGENT'S ARGUMENTS (the header): --project and --role go together; a back agent needs a mandate
 if [ "$SIDE" = 0 ] && { [ -n "$PROJECT" ] || [ -n "$ROLE" ] || [ "$SUGGEST" = 1 ]; }; then
     [ -n "$PROJECT" ] || die "--role needs --project <page key> (<dir>/<slug>, e.g. projects/demo): a project agent is a session of a project page"
-    [ -n "$ROLE" ] || die "--project needs --role front or --role back (front: a session ${SALA_OWNER_NAME} talks to, a top-level entry under agents:; back: a background agent, under background:)"
-    case "$ROLE" in front|back) ;; *) die "--role takes front or back, not '$ROLE'";; esac
+    [ -n "$ROLE" ] || die "--project needs --role front, back or none (none: a session to work with, on no agents map; front: a session ${SALA_OWNER_NAME} talks to, a top-level entry under agents:; back: a background agent, under background:)"
+    case "$ROLE" in front|back|none) ;; *) die "--role takes front, back or none, not '$ROLE'";; esac
     page_key_ok "$PROJECT" || die "'$PROJECT' is not a page key: <dir>/<slug> with the dir one of ${SALA_PAGE_DIRS// /, } and the slug lowercase letters, digits and dashes (projects/site-redesign, projects/demo)"
 fi
 SURFACE=""   # slack only: a sala agent carries no surface (absent means sala), like stackshot's project record
@@ -403,6 +409,8 @@ if [ "$SURFACE_GIVEN" = 1 ]; then
     if [ "$SURFACE_OPT" = slack ]; then
         [ "$ROLE" = front ] || die "a slack agent is a front agent: --surface slack goes with --role front, not --role $ROLE"
         SURFACE=slack
+    elif [ "$ROLE" = none ]; then
+        die "--surface sala conflicts with --role none: a session with no agent role answers nowhere but sala and has no surface to set; drop --surface (it goes with --role front or back)"
     fi
 fi
 if [ "$NEW_OPT" = 1 ]; then
@@ -620,7 +628,17 @@ elif [ -n "$PROJECT" ]; then
     # THE PROJECT SPAWN'S CHECKS (common.sh): stackshot's project record ALONE (THE SPAWN GATE: listed = yes; not listed with a mandate = stackshot is asked to list it, and the pane
     # starts only on its yes). A record that cannot answer (missing, stale, unreadable, no such project) is no answer: the spawn fails closed (exit 6, no pane) unless it carries
     # --role and --mandate, which register through stackshot without reading the record first. No page is asked.
-    if [ "${SALA_AGENT_CHECK:-on}" = off ]; then LISTED="not checked (SALA_AGENT_CHECK=off)"
+    if [ "$ROLE" = none ]; then
+        # a session with no agent role (the header): never registered, and a name the record lists is that agent's, not this session's
+        LISTED="no agent role: on no agents map, stackshot is not asked"
+        if [ "${SALA_AGENT_CHECK:-on}" != off ]; then
+            rec=$(project_record_agent "" "$NAME"); rrc=$?
+            case "$rrc" in
+                0) spawn_log "refused: $rec"; die "'$NAME' is on a project's agents map ($(sed -n 1p <<< "$rec")): a session with no agent role takes a name the record does not list; spawn it with the role the record gives (--role front or back), or pick another name" ;;
+                1) spawn_log "project record: no answer ($rec)"; spawn_record_refuse "$rec" "whether '$NAME' is an agent on a project's agents map (a session with no agent role must not take that name)" ;;
+            esac
+        fi
+    elif [ "${SALA_AGENT_CHECK:-on}" = off ]; then LISTED="not checked (SALA_AGENT_CHECK=off)"
     elif exempt=$(agent_gate_exempt "$NAME" 0 "$GENERATED"); then
         LISTED="not checked ($exempt)"; spawn_log "gate: '$NAME' is exempt ($exempt)"
         # the exemption skips the REQUIREMENT to be on the record (no registration, no page check), never the role of a name the record DOES list: a *-test-* name that is
@@ -681,13 +699,13 @@ print('|'.join([str(d.get('name','')), str(d.get('version','')), str(d.get('brid
 
 SIDE_MFILE="$SALA_STATE_DIR/mandates/side-$NAME.md"   # where a side session's generated mandate is written (at run time; the dry run only says so)
 if [ "$DRY" = 1 ]; then
-    echo "[dry-run] would spawn '$NAME'${PROJECT:+ as a $ROLE agent${SURFACE:+ on the $SURFACE surface} of $PROJECT (on its agents map: $LISTED)}${SIDE_KIND:+ as a side session ($([ "$SIDE_KIND" = fork ] && echo "a fork of $FORK_OF" || echo "a fresh start about $ITEM of $SIDE_PROJECT")${ITEM:+, item $ITEM}; on no agents map; its write-up summary goes to $SIDE_TO)} on the $(lane_shown "$LANE") lane${LANE_OPT:+ (recorded)}, cwd $CWD, model ${MODEL:-global default} / effort ${EFFORT:-global default}${FORK:+, forked from $FORK}"
+    echo "[dry-run] would spawn '$NAME'${PROJECT:+ as $([ "$ROLE" = none ] && echo "a session with no agent role, named after" || echo "a $ROLE agent${SURFACE:+ on the $SURFACE surface} of") $PROJECT (on its agents map: $LISTED)}${SIDE_KIND:+ as a side session ($([ "$SIDE_KIND" = fork ] && echo "a fork of $FORK_OF" || echo "a fresh start about $ITEM of $SIDE_PROJECT")${ITEM:+, item $ITEM}; on no agents map; its write-up summary goes to $SIDE_TO)} on the $(lane_shown "$LANE") lane${LANE_OPT:+ (recorded)}, cwd $CWD, model ${MODEL:-global default} / effort ${EFFORT:-global default}${FORK:+, forked from $FORK}"
     if [ "$SIDE" = 1 ]; then echo "[dry-run] mandate: written to $SIDE_MFILE and read by the session ($([ "$GO" = 1 ] && echo "then it starts on it; nobody confirms" || echo "it waits for a confirmation"))${AGENTS:+, naming the agents $AGENTS}${MANDATE:+, with your ${MFILE:+file $MFILE}${MTEXT:+text} appended}"
     elif [ -n "$MFILE" ]; then echo "[dry-run] mandate: the file $MFILE, read by the session ($([ "$GO" = 1 ] && echo "then it starts on it; nobody confirms" || echo "it waits for a confirmation")): $(mandate_line)"
     elif [ -n "$MTEXT" ]; then echo "[dry-run] mandate: the text typed as the first message: $(mandate_line)"
     else echo "[dry-run] mandate: none"; fi
     [ -z "$GATE_NOTE" ] || [ -n "$PROJECT" ] || echo "[dry-run] gate: '$NAME' is $GATE_NOTE"
-    [ -n "$PROJECT" ] && echo "[dry-run] register: $([ -n "${SALA_SPAWN_REGISTER:-}" ] && echo "the hook (SALA_SPAWN_REGISTER) would run after" || echo "no hook configured (SALA_SPAWN_REGISTER): the page's line is the record")"
+    [ -n "$PROJECT" ] && [ "$ROLE" != none ] && echo "[dry-run] register: $([ -n "${SALA_SPAWN_REGISTER:-}" ] && echo "the hook (SALA_SPAWN_REGISTER) would run after" || echo "no hook configured (SALA_SPAWN_REGISTER): the page's line is the record")"
     [ -z "$BACK_RULE_NOTE" ] || echo "[dry-run] lane: $BACK_RULE_NOTE"
     echo "[dry-run] nothing made, recorded or typed"
     exit 0
@@ -786,7 +804,9 @@ MAPPED=""
 if [ -n "${ruuid:-}" ]; then ledger_write add "$NAME" "$ruuid" "$NAME" "$CWD" && MAPPED=1; fi
 LANE_ROW=""
 if [ -n "$LANE_OPT" ]; then lane_write "$NAME" "$LANE_OPT" && LANE_ROW=1; fi   # the explicit lane is intent: every later relaunch keeps it
-if [ -n "$PROJECT" ] && [ -n "$MAPPED" ]; then sessions_set "$NAME" "project=$PROJECT" "role=$ROLE" ${SURFACE:+"surface=$SURFACE"}; fi   # the session registry's row (phase 1): never fails the spawn
+if [ -n "$PROJECT" ] && [ -n "$MAPPED" ]; then
+    if [ "$ROLE" = none ]; then sessions_set "$NAME" "project=$PROJECT" "no_role=1"; else sessions_set "$NAME" "project=$PROJECT" "role=$ROLE" ${SURFACE:+"surface=$SURFACE"}; fi
+fi   # the session registry's row (phase 1): never fails the spawn
 if [ -z "$PROJECT" ] && [ "$SIDE" = 0 ] && [ -n "$MAPPED" ]; then
     # a bare spawn of a name a project lists (its agents map, through stackshot's project record) is that project's agent: its row takes the project and
     # role from the record (sessions.py tag --auto), so the back agents' lane rule and the published registry count it. Any other bare spawn is a
@@ -809,7 +829,8 @@ else "$SALA_BIN" revive --save-map >/dev/null 2>&1; fi
 
 [ "$GENERATED" = 1 ] && echo "   (name auto-generated — throwaway)"
 echo "✅ spawned '$NAME'"
-[ -n "$PROJECT" ] && echo "   project : $PROJECT — $ROLE agent${SURFACE:+ ($SURFACE surface)} (on its agents map: $LISTED)"
+if [ "$ROLE" = none ]; then [ -z "$PROJECT" ] || echo "   project : $PROJECT — a session with no agent role ($LISTED)"
+else [ -z "$PROJECT" ] || echo "   project : $PROJECT — $ROLE agent${SURFACE:+ ($SURFACE surface)} (on its agents map: $LISTED)"; fi
 if [ "$SIDE" = 1 ]; then
     echo "   side    : $SIDE_KIND${FORK_OF:+ of $FORK_OF}${ITEM:+, $ITEM}${SIDE_PROJECT:+ ($SIDE_PROJECT)} — on no agents map; summary to $SIDE_TO; retires only on ${SALA_OWNER_NAME}'s word, once \`sala side done\` ran"
     [ -n "$SIDE_REC" ] || echo "   ⚠ the side record could not be written under $SALA_SIDE_DIR: retire will not ask for the write-up marker, and sala side done cannot run"
@@ -834,5 +855,5 @@ elif ! lane_rc "$LANE"; then echo "   remote  : none — no Remote Control on th
 else echo "   remote  : no bridge yet — check /rc in the pane, or run /remote-control there"; fi
 [ "${rname:-}" = "$NAME" ] || echo "   ⚠ session name is '${rname:-unset}', not '$NAME' — run /rename $NAME in the pane"
 [ -n "$MAPPED" ] || echo "   ⚠ the pane map has no row for '$NAME' yet ($([ -n "${ruuid:-}" ] && echo "the write failed, see above" || echo "no registry entry yet")) — a reboot could not bring it back; once it is up, run: salamander adopt $NAME"
-[ -n "$PROJECT" ] && spawn_register   # THE REGISTER HOOK (the header): after the session is up and mapped; a failure is one ⚠ line, never the exit status
+[ -n "$PROJECT" ] && [ "$ROLE" != none ] && spawn_register   # THE REGISTER HOOK (the header): after the session is up and mapped; a failure is one ⚠ line, never the exit status
 exit 0   # the session is up and verified above; nothing after this line may decide the exit status (Why: a trailing `[ … ] &&` once returned 1 on every good spawn)

@@ -108,17 +108,19 @@ def test_a_new_project_create_with_all_three_steps_and_the_open_button_fits_too(
     set_value(browser, "#ns-filter", "Fresh Idea")
     assert wait_for(browser, "document.querySelector('#ns-projects .ns-opt[data-key=\"__new__\"]:not([disabled])') !== null", 10.0), ns(browser)
     pick(browser, "__new__")
-    assert wait_for(browser, "document.querySelector('#ns-name').value === 'beta-fresh-idea-main'"), ns(browser)
+    click(browser, 'input[name="ns-role"][value="back"]')   # the form opens on a session with no agent role (two steps); a background agent is the three-step create
+    assert wait_for(browser, "document.querySelector('#ns-name').value.startsWith('beta-fresh-idea-')"), ns(browser)
+    name = ns(browser)["name"]
     set_value(browser, "#ns-mandate", "# Fresh idea\nWork out whether the idea holds.")
     in_view(browser, "typed")                      # the new project's note (what Create will make) is two lines: the fields may scroll under the pinned foot, Create is in view
     click(browser, "#ns-submit")
     g = wait_state(browser, "queued", 30.0)
     assert len(g["steps"]) == 3, g
     in_view(browser, "queued, three steps")
-    browser.evaluate("window.__names = ['beta-fresh-idea-main']; ''")
+    browser.evaluate("window.__names = [" + json.dumps(name) + "]; ''")
     sala.marker("running")
     g = wait_state(browser, "ready", 30.0)
-    assert g["link"] == "s/beta-fresh-idea-main" and len(g["steps"]) == 3, g
+    assert g["link"] == "s/" + name and len(g["steps"]) == 3, g
     assert in_view(browser, "ready, three steps and the Open button")["linkBottom"] > 0
 
 

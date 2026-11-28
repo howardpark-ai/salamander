@@ -62,36 +62,39 @@ def test_scoped_project_is_named_scope_agent_and_never_other_scope_or_main(sala,
     (argv,) = suggest_calls(sala)
     assert argv[argv.index("--project") + 1] == "projects/quarry" and argv[argv.index("--prefix") + 1] == "lamp", argv   # the project's real prefix, from its main agent
     assert "gamma-quarry" not in json.dumps(sala.records()) and "alex-" not in json.dumps(argv), argv    # the keeper (an agent of another project) is not the prefix
-    # the add-to-project line and the words of the create carry the same prefix
-    assert g["picked"] and "Create will add" in g["picked"] and g["name"] in g["picked"], g
-    # a background agent: asked again with the same prefix
+    # a session with no agent role adds nothing to the project; the suggestion asked for it said so
+    assert not g["picked"], g
+    assert argv[argv.index("--role") + 1] == "none", argv
+    # a background agent: asked again with the same prefix, and the create adds it to the project
     click(browser, 'input[name="ns-role"][value="back"]')
     end = time.time() + 10
     while time.time() < end and len(suggest_calls(sala)) < 2:
         time.sleep(0.1)
     last = suggest_calls(sala)[-1]
     assert last[last.index("--role") + 1] == "back" and last[last.index("--prefix") + 1] == "lamp", last
+    g = ns(browser)
+    assert "Create will add" in g["picked"] and g["name"] in g["picked"], g   # the add-to-project line and the words of the create carry the same prefix
 
 
-def test_main_only_for_a_project_with_no_agent_yet(sala, served, browser):
+def test_a_session_with_no_agent_role_is_a_word_never_main(sala, served, browser):
     open_form(browser, served, scope="gamma")
-    # projects/gamma-pantry is listed with no agent: its first front agent is -main
+    # the form opens on the session choice (no agent role): even a project with no agent yet gets a word, and sala is asked with role none
     pick(browser, "projects/gamma-pantry")
-    assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-pantry-main'"), ns(browser)
-    assert "--new" not in suggest_calls(sala)[-1], suggest_calls(sala)[-1]   # a listed project: sala's record says it has no agent
-    # a background agent, though, is a word
+    assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-pantry-pink'"), ns(browser)
+    last = suggest_calls(sala)[-1]
+    assert last[last.index("--role") + 1] == "none" and "--new" not in last, last
+    # a background agent is a word as well
     click(browser, 'input[name="ns-role"][value="back"]')
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-pantry-pink'"), ns(browser)
-    # gamma-harbor has its main: a front agent is a word too
-    click(browser, 'input[name="ns-role"][value="front"]')
+    click(browser, 'input[name="ns-role"][value="none"]')
     pick(browser, "projects/gamma-harbor")
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-harbor-pink'"), ns(browser)
-    # a project made here has none: -main
+    # a project made here has no agent either, and still gets a word, not -main
     click(browser, "#ns-summary")                                      # open the folded box to type in it
     set_value(browser, "#ns-filter", "zeta-lab")
     click(browser, '#ns-projects .ns-opt[data-key="__new__"]')
-    assert wait_for(browser, "document.querySelector('#ns-name').value.endsWith('-main')"), ns(browser)
-    assert "zeta-lab" in ns(browser)["name"], ns(browser)
+    assert wait_for(browser, "document.querySelector('#ns-name').value.startsWith('gamma-zeta-lab-')"), ns(browser)   # the scope and the project's name, then a word
+    assert not ns(browser)["name"].endswith("-main"), ns(browser)
     assert "--new" in suggest_calls(sala)[-1], suggest_calls(sala)[-1]   # no page yet: no record can know it, so the page says it is new
 
 

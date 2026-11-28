@@ -2,7 +2,7 @@
 name, the spawn itself through sala's operation queue, and the operation's state while the page waits for the session.
 
 The form is the one way sala's web UI makes a session, and it makes none itself: a submit is `sala op spawn NAME
---project <key> --role front|back [--mandate FILE] [--lane L] [--model M] [--effort E] --from sala-web --words "…"`,
+--project <key> --role front|back|none [--mandate FILE] [--lane L] [--model M] [--effort E] --from sala-web --words "…"`,
 run as an argv list (never a shell; nothing typed by a user reaches a command line except the name, the key, the lane,
 the model and the effort, each checked here against the same shapes lib/op.sh and lib/spawn.sh check), and the queue
 (lib/op.sh) plans it, refuses it or queues it. Its words are the owner's own action behind Cloudflare Access: "<name>, via
@@ -55,7 +55,7 @@ from .config import owner_name
 NAME_MAX = 48                       # sala's SALA_AGENT_NAME_MAX: tmux's session name, the /rename typed, the sidebar's rows
 NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")   # agent_name_ok: lowercase, digits, dashes, no dash at either end
 SEGMENT_RE = NAME_RE                                         # page_key_ok: each segment of <dir>/<slug>[/<sub>…] the same
-ROLES = ("front", "back")
+ROLES = ("front", "back", "none")   # none: a session to work with, on no agents map (`op spawn --role none`: nothing is registered, it starts in the home folder)
 EFFORTS = ("low", "medium", "high", "xhigh", "max")          # lib/spawn.sh's list
 ITEM_RE = re.compile(r"^(?:board#\d+|board-tmp-[a-z0-9]+(?:-[a-z0-9]+)*#\d+|[a-z]\d+)$")   # lib/common.sh item_id_ok
 AGENTS_RE = re.compile(r"^[a-z0-9-]+(?:,[a-z0-9-]+)*$")                                      # spawn --agents
@@ -116,7 +116,8 @@ def zone_stamp(now: datetime | None = None) -> str:
 
 def words_for(role: str, name: str, project: str, now: datetime | None = None) -> str:
     """The queue's `--words`: the owner's own action, said as the form heard it."""
-    return f"{owner_name()}, via the sala web form: new {role} {name} in {project}, {zone_stamp(now)}"
+    what = "session (no agent role)" if role == "none" else role
+    return f"{owner_name()}, via the sala web form: new {what} {name} in {project}, {zone_stamp(now)}"
 
 
 def side_words_for(r: "SpawnRequest", now: datetime | None = None) -> str:
@@ -328,7 +329,7 @@ def validate(body: object, dirs: list[str], lanes: list[str]) -> SpawnRequest | 
     if not page_key_ok(project, dirs):
         return 400, f"project must be a page key: <dir>/<slug> with the dir one of {', '.join(dirs)}, lowercase letters, digits and dashes"
     if role not in ROLES:
-        return 400, "role must be front or back"
+        return 400, "role must be front, back or none"
     if not name_ok(name):
         return 400, f"name must be lowercase letters, digits and dashes, no dash at either end, at most {NAME_MAX} characters"
     mandate = (s["mandate"] or "").replace("\r\n", "\n").replace("\r", "\n")

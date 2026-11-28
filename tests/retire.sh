@@ -519,12 +519,30 @@ out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-test-blind 
 tagged sala-rq19 "$UQ19"; : > "$CALLS"
 out=$(SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq19 --keep-web 2>&1); rc=$?
 [ "$rc" = 0 ] && ! echo "$out" | grep -qF "NOT asked" && ok "(4c no stackshot) no record and no client: a box with no stackshot has nothing to be blind to, no warning" || bad "(4c no stackshot) rc=$rc $out"
+# a session with no agent role (spawn --role none: the row's no_role mark) is exempt from the agent gate: no call to stackshot, no warning, also with no record
+UQ22=0a000026-0000-4000-8000-0000000000ac UQ23=0a000027-0000-4000-8000-0000000000ad
+tagged sala-rq22 "$UQ22"; sessions_set sala-rq22 project=projects/foo no_role=1 >/dev/null 2>&1; : > "$CALLS"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq22 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "would not ask stackshot to drop 'sala-rq22' from projects/foo's agents: it is a session with no agent role" && ok "(4c no_role) --dry-run: says stackshot is not asked, the reason named" || bad "(4c no_role) dry run: rc=$rc $out"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq22 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && ! tmux has-session -t =sala-rq22 2>/dev/null && ! echo "$out" | grep -qF "NOT asked" && ok "(4c no_role) retire: goes on, stackshot is not called, no warning" || bad "(4c no_role) rc=$rc calls=$(ncalls) $out"
+# the control: the same row with a role is an agent, and stackshot is asked
+mode ok; tagged sala-rq23 "$UQ23" projects/foo; : > "$CALLS"
+out=$("$SALA" retire sala-rq23 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && ok "(4c no_role control) a row with a role: stackshot is called once" || bad "(4c no_role control) rc=$rc calls=$(ncalls) $out"
 # forget-row of an orphan row: the same warning, in the dry run and for real
 ledger_write add sala-rq21 "$UQ21" sala-rq21 "$HOME/work" >/dev/null 2>&1; : > "$CALLS"
 out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" forget-row sala-rq21 --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && echo "$out" | grep -qF "would WARN, not refuse: stackshot cannot be asked to take 'sala-rq21' off a project" && [ -n "$(row sala-rq21)" ] && ok "(4c forget-row) --dry-run: the warning said, the row kept" || bad "(4c forget-row dry) rc=$rc $out"
 out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" forget-row sala-rq21 2>&1); rc=$?
 [ "$rc" = 0 ] && [ -z "$(row sala-rq21)" ] && [ "$(ncalls)" = 0 ] && echo "$out" | grep -qF "⚠ stackshot was NOT asked to take 'sala-rq21' off a project" && ok "(4c forget-row) real: the row forgotten, a ⚠ line says stackshot was not asked" || bad "(4c forget-row) rc=$rc calls=$(ncalls) $out"
+# the same orphan row with the no_role mark: no warning (the gate does not apply to it)
+UQ24=0a000028-0000-4000-8000-0000000000ae
+ledger_write add sala-rq24 "$UQ24" sala-rq24 "$HOME/work" >/dev/null 2>&1; sessions_set sala-rq24 no_role=1 >/dev/null 2>&1; : > "$CALLS"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" forget-row sala-rq24 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && ! echo "$out" | grep -qF "would WARN" && [ -n "$(row sala-rq24)" ] && ok "(4c forget-row no_role) --dry-run: no warning, the row kept" || bad "(4c forget-row no_role dry) rc=$rc $out"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" forget-row sala-rq24 2>&1); rc=$?
+[ "$rc" = 0 ] && [ -z "$(row sala-rq24)" ] && ! echo "$out" | grep -qF "NOT asked" && ok "(4c forget-row no_role) real: the row forgotten, no warning" || bad "(4c forget-row no_role) rc=$rc $out"
 mkfresh 0
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

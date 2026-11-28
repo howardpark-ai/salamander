@@ -45,6 +45,7 @@ class Session:
     agent_id: str | None = None  # sala's permanent id for the agent (sessions.json row id; outlives a rename, a recycle, a /clear), else None
     aliases: tuple[str, ...] = ()  # the names the agent had before (the registry row's aliases)
     surface: str | None = None  # "slack" for a front agent that answers the owner on Slack (the registry row's or the roles entry's surface); None is a sala session
+    own_project: str | None = None  # the project of a registry row marked no_role (a session with no agent role: on no agents map, so the roles map cannot name it), else None
     sleeping: str | None = None  # the ISO-Z time a sleeping session went to sleep (sala's marker); None for every live one. A sleeper has no process: pid 0, status "sleeping"
 
     @property
@@ -752,6 +753,8 @@ def attach_agent_ids(sessions: list[Session], rows: list[dict]) -> None:
         s.aliases = tuple(a for a in row.get("aliases") or [] if isinstance(a, str) and a)
         if row.get("surface") == "slack":
             s.surface = "slack"
+        if row.get("no_role") and not row.get("role") and isinstance(row.get("project"), str) and row["project"]:
+            s.own_project = row["project"]   # `spawn --role none`: the row, not stackshot's roles map, knows the project
 
     for s in sessions:   # the conversation first, for every session, so a name match never takes a row another session owns by it
         take(s, by_sid.get(s.session_id))
@@ -835,6 +838,8 @@ def group_sessions(sessions: list[Session], roles: dict[str, dict], side: dict[s
         r = roles.get(s.name) or roles.get(s.session_id) or {}
         s.role = r.get("role")
         s.project = r.get("project")
+        if not s.role and not s.project and s.own_project:   # a session with no agent role is on no agents map: its registry row gives the project, and it has no role
+            s.project = s.own_project
         if r.get("surface") == "slack":   # the roles file's entry says so too (only when slack); the registry row's mark, set by attach_agent_ids, stays
             s.surface = "slack"
         rec = side.get(s.name)

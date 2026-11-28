@@ -98,6 +98,10 @@ model_drop gamma >/dev/null 2>&1
 [ "$(q gamma model)" = null ] && ok "model_drop (sala model --clear) empties them" || bad "model=$(q gamma model)"
 sessions_set gamma project=projects/demo role=front >/dev/null 2>&1
 [ "$(q gamma project)" = '"projects/demo"' ] && [ "$(q gamma role)" = '"front"' ] && ok "spawn's --project/--role copy (sessions_set) lands" || bad "project=$(q gamma project) role=$(q gamma role)"
+sessions_set gamma project=projects/demo role= no_role=1 >/dev/null 2>&1
+[ "$(q gamma no_role)" = '"1"' ] && ok "spawn --role none: sessions_set keeps the no_role mark" || bad "no_role=$(q gamma no_role)"
+sessions_set gamma project=projects/demo role=front >/dev/null 2>&1
+[ "$(q gamma no_role)" = null ] && [ "$(q gamma role)" = '"front"' ] && ok "a row that gets a role loses the no_role mark" || bad "no_role=$(q gamma no_role) role=$(q gamma role)"
 ledger_write add delta "$U3" delta "$HOME/wd" >/dev/null 2>&1
 out=$("$SALA" sessions 2>&1)
 grep -q "^plain (live, no lane, model, project, role or alias; --full lists every row with its id): delta$" <<< "$out" && ! grep -qE '^[0-9a-f]{8} +delta ' <<< "$out" && grep -qE '^[0-9a-f]{8} +gamma ' <<< "$out" && ok "the listing folds a row with nothing but its name into one plain line; gamma (a lane, a project) keeps its row" || bad "plain fold: $out"

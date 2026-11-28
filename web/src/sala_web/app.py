@@ -281,7 +281,7 @@ none itself):
   GET  /api/spawn/options         what the New session form offers (spawn.py): the project pages (key, title)
                                   read from stackshot's pages checkout, the page dirs, the lanes a session can be spawned
                                   on, the effort levels, the name and mandate limits
-  GET  /api/spawn/suggest         ?project=<key>&role=front|back[&prefix=<agent-name prefix>][&new=1] (or ?side=1&fork_of=<agent> | &project=<key>) -> {"name"}, from `sala spawn --suggest-name`
+  GET  /api/spawn/suggest         ?project=<key>&role=front|back|none[&prefix=<agent-name prefix>][&new=1] (or ?side=1&fork_of=<agent> | &project=<key>) -> {"name"}, from `sala spawn --suggest-name`
   GET  /api/spawn/item            ?id=<board#N | board-tmp-box#N | sN> -> {"ok", "item", "project", "owner", "status"} from stackshot's item-facts:
                                   what the Discuss link (side?<id>) prefills a side conversation's form with
   GET  /api/spawn/projects        ?scope=<one of the scopes>|all[&q=<text>] -> the scope's listed projects (all: every
@@ -293,7 +293,7 @@ none itself):
   POST /api/spawn/project-list    {"key", "scope"?} -> stackshot's `post project-list` (a hidden project listed again)
   POST /api/spawn/project-agent   {"project", "name", "role", "front", "mandate"} -> stackshot's `post project-agent` (the
                                   agent added to the project before its session starts); the label is always `sala-web`
-  POST /api/spawn                 {"project", "role", "name", "mandate"?, "lane"?, "model"?, "effort"?} (a side conversation:
+  POST /api/spawn                 {"project", "role" (front, back or none: a session with no agent role, nothing registered), "name", "mandate"?, "lane"?, "model"?, "effort"?} (a side conversation:
                                   {"side": true, "fork_of" | "project" + "item" + "agents"?, "name"?: blank = suggested, ...}) -> `sala op spawn …
                                   --from sala-web --words "<name>, via the sala web form: …"`, an argv list, the mandate as
                                   a file under state_dir/mandates/; 202 {"op"} when queued, 409 with "code" not-listed (the
@@ -2889,7 +2889,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if not SP.page_key_ok(project, settings.page_dirs):
             return _err(400, "project must be a page key (<dir>/<slug>)")
         if role not in SP.ROLES:
-            return _err(400, "role must be front or back")
+            return _err(400, "role must be front, back or none")
         args = ["--project", project, "--role", role]
         prefix = (request.query_params.get("prefix") or "").strip()   # the project's real agent-name prefix, when the page knows it
         if prefix:

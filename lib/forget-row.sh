@@ -50,12 +50,13 @@ if [ "$DRY" = 1 ]; then
     if [ -n "$l" ]; then dry "would drop its lane row ($name → $l) from $SALA_LANES"; else dry "no lane row to drop"; fi
     if [ -n "$m" ]; then dry "would drop its model row ($name → $(printf '%s' "$m" | tr '\t' /)) from $SALA_MODELS"; else dry "no model row to drop"; fi
     if [ -n "$proj" ]; then dry "would tell stackshot to drop '$name' from $proj's agents (client.py post project-agent-retire, label $SALA_RETIRE_SENDER); a failure there changes nothing"
-    elif [ -n "${RETIRE_PROJ_BLIND:-}" ] && ! agent_gate_exempt "$name" 0 0 >/dev/null; then dry "would WARN, not refuse: stackshot cannot be asked to take '$name' off a project (no project is known for it and $RETIRE_PROJ_BLIND)"; fi
+    elif [ -n "${RETIRE_PROJ_BLIND:-}" ] && ! agent_gate_exempt "$name" 0 0 "$(_row_no_role "$name")" >/dev/null; then dry "would WARN, not refuse: stackshot cannot be asked to take '$name' off a project (no project is known for it and $RETIRE_PROJ_BLIND)"; fi
     is_sleeping "$name" && dry "'$name' is sleeping: its marker would be cleared with the row"
     dry "nothing to kill, no /exit, no snapshot, nothing archived on claude.ai (the id is only the map's word)"
     dry "the transcript would stay${ouuid:+: claude --resume $ouuid}"
     dry "nothing was changed"; exit 0
 fi
+nrole=$(_row_no_role "$name")   # read before the row goes: a retired row no longer answers
 ledger_write retire "$name" || die "'$name': no tmux session, and its pane-map row could not be removed (see above)"
 [ -z "$ouuid" ] || sleeping_clear "$ouuid"   # a sleeping session's marker goes with its row (common.sh, THE SLEEPING SESSIONS); no marker: nothing to do
 lane_drop "$name" || true
@@ -63,7 +64,7 @@ model_drop "$name" || true
 echo "'$name': no tmux session — its pane-map row removed (nothing killed, no /exit, nothing archived on claude.ai)"
 echo "forgot '$name'${ouuid:+; the transcript stays — bring the conversation back with: claude --resume $ouuid}"
 retire_drop_agent "$name" "$proj" "${psrc:-}"
-if [ -z "$proj" ] && [ -n "${RETIRE_PROJ_BLIND:-}" ] && ! agent_gate_exempt "$name" 0 0 >/dev/null; then   # no project is known AND the record could not answer: say so, as a retire does
+if [ -z "$proj" ] && [ -n "${RETIRE_PROJ_BLIND:-}" ] && ! agent_gate_exempt "$name" 0 0 "$nrole" >/dev/null; then   # no project is known AND the record could not answer: say so, as a retire does
     retire_log "$name: WARNING: forgotten although stackshot's project record could not say whether '$name' is on a project ($RETIRE_PROJ_BLIND); its entry, if any, stays on the record"
     echo "⚠ stackshot was NOT asked to take '$name' off a project: no project is known for it and $RETIRE_PROJ_BLIND; if it is a project agent its entry stays on the record until it is taken off (python3 $(stackshot_client 2>/dev/null || echo '<stackshot client.py>') post project-agent-retire <project page key> $name --sender $SALA_RETIRE_SENDER)"
 fi
