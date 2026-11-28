@@ -64,7 +64,6 @@ const state = {
   shellSession: "sala-shell",   // the Shell drawer's tmux session, from api/config (sala's SALA_SHELL_SESSION)
   host: "",             // this machine's short name, from api/config
   termLoadedFor: null,
-  uploads: [],          // {id, name, url, uploading}
   sending: false,
   pending: [],          // sent from this page, not yet seen in the transcript: {id, session, text, images, status, ...}
 };
@@ -3911,8 +3910,8 @@ function pendingNode(p) {
   if (t) box.append(t);
   const sentFiles = p.images.filter((im) => im.file);
   if (sentFiles.length) box.append(el("div", { class: "sent-files" }, ...sentFiles.map((im) =>
-    el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
-      im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
+    el("div", { class: "sent-file", title: im.file.name }, SalaAttach.fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
+      im.file.size ? el("span", { class: "sf-size", text: SalaAttach.humanSize(im.file.size) }) : null))));
   const shown = p.sent || p.text;   // a reply shows the line it answers, quoted, as the transcript's copy will
   if (shown.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(shown, linkNodes)));
   if (waits && p.status !== "held") box.append(SalaWaiting.line(p));
@@ -4072,11 +4071,9 @@ function toComposer(p) {
   if (state.selected === p.session) setText(p.text + (cur ? "\n" + cur : ""));
   // it comes back as the reply it was. One the server had is marked `back`: its reference stays though its own reply took the line (dropGoneReplyRef)
   if (p.reply) setReplyRef(p.session, p.mid ? { ...p.reply, back: true } : p.reply);
-  for (const im of p.images) {
-    state.uploads.push(im.file ? { id: ++uploadSeq, kind: "file", name: im.name, fileName: im.file.name, size: im.file.size, uploading: false }
-                               : { id: ++uploadSeq, name: im.name, url: im.url, uploading: false });
-  }
-  renderChips(); focusEnd();
+  attach.restore(p.images.map((im) => (im.file ? { kind: "file", name: im.name, fileName: im.file.name, size: im.file.size }
+                                              : { name: im.name, url: im.url })));
+  focusEnd();
   updateJump();
 }
 
@@ -4127,6 +4124,22 @@ const touchMode = window.matchMedia("(pointer: coarse) and (hover: none)");
 const placeholderFor = () => tl(window.matchMedia("(max-width: 760px)").matches ? "app.composer.label"
   : touchMode.matches ? "app.composer.phTouch" : "app.composer.phKeys");
 watchForInsertedImages($("#composer-editor"));
+// The attachment part of the composer (attach.js): its button, chips, uploads, paste de-duplication and drag and drop. The page keeps the send
+// button (put in the row's slot), the notices (#send-status) and the editor's own paste and beforeinput glue (composerImageHandlers, liftImage).
+const attach = SalaAttach.create($(".compose-row"), {
+  endpoint: "api/upload",
+  fetch: apiFetch,
+  limits: { perFile: 500 * 1024 * 1024, perImageSource: 20 * 1024 * 1024 },   // the server's caps: config.max_file_upload_bytes, config.max_upload_bytes
+  chipsEl: $("#chips"),
+  onChange: refreshSendButton,
+  onStatus: setStatus,
+  onUnauthorized: () => window.SalaSignin?.check(),
+  t: tl,
+  isBusy: () => state.sending,
+  dropTarget: window,
+  renderSend: (slot) => slot.append($("#send")),
+});
+$("#send").addEventListener("click", send);
 const composer = cm6Composer.createEditor($("#composer-editor"), {
   id: "input", label: tl("app.composer.label"), placeholder: placeholderFor(),
   // Enter sends on a desktop, and Shift+Enter is a new line. In touch mode, a phone or a tablet typing on its on-screen
@@ -4154,7 +4167,7 @@ function paintComposerWords() {
 }
 SalaI18n.onChange(() => {   // the words around the draft change; the draft itself is not touched
   paintComposerWords();
-  renderChips();
+  attach.render();
   const frame = $("#terminal-pane iframe");
   if (frame && state.current) frame.title = tl("term.frameTitleFor", { name: state.current.name });
 });
@@ -4175,273 +4188,18 @@ let statusFn = null;
 function setStatus(msg, kind) { const n = $("#send-status"); statusFn = typeof msg === "function" ? msg : null; n.textContent = statusFn ? statusFn() : msg; n.className = kind || ""; }
 function clearStatus() { setStatus("", ""); }
 function refreshSendButton() {
-  const uploading = state.uploads.some((u) => u.uploading);
-  $("#send").disabled = state.sending || uploading || (!getText().trim() && !state.uploads.some((u) => u.name));
-  // the attach button stays usable while an upload is in flight (a second photo can be picked), busy-marked meanwhile
-  const att = $("#attach");
-  att.disabled = state.sending;
-  att.classList.toggle("busy", uploading);
-  att.setAttribute("aria-busy", String(uploading));
-}
-
-function renderChips() {
-  const box = $("#chips");
-  box.replaceChildren(...state.uploads.map((u) => u.kind === "file" ? fileChip(u) :
-    el("div", { class: "chip" + (u.uploading ? " uploading" : ""), title: u.error || "" },
-      el("img", { src: u.url, alt: tl("app.up.attached") }),
-      el("button", { ...tx("app.up.removeImage", null, "aria-label"), text: "×", onclick: () => removeUpload(u.id) }))));
-  refreshSendButton();
-}
-// A file that is not an image: a chip with a generic file icon, its name, and under it its size, the
-// upload's progress while it goes up, or the error that stopped it. Progress repaints the two nodes in place
-// (paintFileChip), so a long upload does not rebuild the chip, and the remove button keeps its focus.
-const MAX_FILE_BYTES = 500 * 1024 * 1024;  // the server's cap (config.max_file_upload_bytes); checked here so a bigger file is not sent at all
-function humanSize(n) {
-  if (!(n >= 0)) return "";
-  if (n < 1024) return n + " B";
-  const units = ["KB", "MB", "GB"];
-  let v = n / 1024, i = 0;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return (v >= 10 ? Math.round(v) : v.toFixed(1)) + " " + units[i];
-}
-function fileIcon() {
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 20 20"); svg.setAttribute("width", "20"); svg.setAttribute("height", "20");
-  svg.setAttribute("class", "fc-icon"); svg.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS(ns, "path");
-  path.setAttribute("d", "M5 2.5h6.5L15 6v11.5H5zM11.5 2.5V6H15");
-  path.setAttribute("fill", "none"); path.setAttribute("stroke", "currentColor");
-  path.setAttribute("stroke-width", "1.4"); path.setAttribute("stroke-linejoin", "round");
-  svg.append(path);
-  return svg;
-}
-function paintFileChip(u) {
-  if (!u.metaEl || !u.metaEl.isConnected) return;
-  const pct = u.size ? Math.min(100, Math.floor(100 * (u.loaded || 0) / u.size)) : 0;
-  u.metaEl.textContent = u.error ? tl("app.up.failedMeta", { error: u.error }) : u.uploading ? tl("app.up.progress", { pct, size: humanSize(u.size) }) : humanSize(u.size);
-  u.barEl.style.width = (u.uploading ? pct : 0) + "%";
-}
-function fileChip(u) {
-  u.metaEl = el("span", { class: "fc-meta" });
-  u.barEl = el("span", { class: "fc-bar" });
-  const chip = el("div", { class: "chip file" + (u.uploading ? " uploading" : "") + (u.error ? " failed" : ""), role: "group",
-                           ...tx("app.up.file", { name: u.fileName }, "aria-label"), title: u.error ? u.fileName + ": " + u.error : u.fileName },
-    fileIcon(), el("span", { class: "fc-text" }, el("span", { class: "fc-name", text: u.fileName }), u.metaEl), u.barEl,
-    el("button", { type: "button", ...tx("app.up.remove", { name: u.fileName }, "aria-label"), text: "×", onclick: () => removeUpload(u.id) }));
-  queueMicrotask(() => paintFileChip(u));  // the nodes are in the page once renderChips has put them there
-  return chip;
-}
-function removeUpload(id) {
-  const u = state.uploads.find((x) => x.id === id);
-  if (u && u.xhr) u.xhr.abort();  // a file still going up stops with its chip
-  if (u && u.url) URL.revokeObjectURL(u.url);
-  state.uploads = state.uploads.filter((x) => x.id !== id);
-  renderChips();
-}
-let uploadSeq = 0;
-
-// An image goes up whole when it is within the server's limit (config.max_upload_bytes, 20 MB), its long side is at
-// most IMAGE_MAX_SIDE px, and it is not a big PNG or WebP (below). Otherwise it is redrawn on a canvas at that size and
-// re-encoded before it is sent: Claude scales an image down itself, so the session sees the same picture. PNG is kept only
-// when a pixel is not opaque (JPEG has no alpha, so the see-through parts would turn solid); every other image becomes a
-// JPEG, which is far smaller for a photo or a screenshot. A result still over the limit steps the quality down (JPEG) and
-// then the size, and an image that cannot be made to fit is refused in words (app.up.imgTooBig).
-// A big PNG or WebP is re-encoded as a JPEG even when it fits the limit: the pane's Claude Code takes an image of at most
-// 5 MB as base64 (3.75 MB of bytes) and 2000 px a side, shrinks a bigger one itself and drops the image when that fails; a
-// Ctrl+V of a 3000 x 4000 photo hands over its pixels as a PNG of 19 MB (the photo's own file was 5 MB of JPEG), which
-// the session never received. A photo or a screenshot is a fraction of that as a JPEG; a PNG that holds a see-through pixel
-// stays as it is (the check reads the pixels), and so does a JPEG or a GIF (a GIF would lose its animation).
-let MAX_IMAGE_BYTES = 20 * 1024 * 1024;    // the server's cap (config.max_upload_bytes) for one image; a `let` so a test can lower it
-let REENCODE_OVER_BYTES = 5 * 1024 * 1024; // a PNG or WebP over this many bytes is re-encoded as a JPEG when it has no see-through pixel; a `let` for a test
-const IMAGE_MAX_SIDE = 4000;               // under the 4096 px side that mobile canvases allow (16.7 MP)
-const JPEG_QUALITIES = [0.92, 0.85, 0.75, 0.6];
-const SHRINK_STEP = 0.75;                  // each further size step keeps this share of the side
-const MIN_SIDE = 320;                      // below this the picture is of no use: give up
-
-// The picture's pixels, upright (the EXIF turn applied), or null when the browser cannot decode the file.
-async function decodeImage(blob) {
-  try {
-    if (window.createImageBitmap) return await createImageBitmap(blob, { imageOrientation: "from-image" });
-  } catch (e) { /* fall through to an <img>, which also applies the turn */ }
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    return img;
-  } catch (e) {
-    return null;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-const imageSide = (img) => ({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
-
-// True when any pixel is not fully opaque: read in strips, so a 16 MP canvas is never copied out whole.
-function hasTransparency(ctx, w, h) {
-  const strip = Math.max(1, Math.floor(1048576 / w));  // about 1M pixels (4 MB) a read
-  for (let y = 0; y < h; y += strip) {
-    const d = ctx.getImageData(0, y, w, Math.min(strip, h - y)).data;
-    for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return true;
-  }
-  return false;
-}
-const canvasBlob = (canvas, type, quality) => new Promise((res) => canvas.toBlob(res, type, quality));
-
-// The image as it should be sent: the file itself when it needs no shrink, a smaller File when it does, and null when it
-// cannot be made to fit the limit. A file the browser cannot decode goes up as it is when it is within the limit (the
-// server takes it, as before), and counts as one that cannot be made to fit when it is over.
-async function fitImage(file) {
-  const asIs = () => (file.size <= MAX_IMAGE_BYTES ? file : null);
-  const img = await decodeImage(file);
-  if (!img) return asIs();
-  const canvas = document.createElement("canvas");
-  try {
-    const { w: sw, h: sh } = imageSide(img);
-    if (!sw || !sh) return asIs();
-    const bigLossless = (file.type === "image/png" || file.type === "image/webp") && file.size > REENCODE_OVER_BYTES;
-    if (file.size <= MAX_IMAGE_BYTES && Math.max(sw, sh) <= IMAGE_MAX_SIDE && !bigLossless) return file;
-    let scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(sw, sh));
-    let png = null;  // decided on the first draw: the pixels do not change between sizes
-    for (;;) {
-      const w = Math.max(1, Math.round(sw * scale)), h = Math.max(1, Math.round(sh * scale));
-      if (Math.max(w, h) < Math.min(MIN_SIDE, Math.max(sw, sh))) return null;
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, w, h);
-      if (png === null) {
-        png = file.type !== "image/jpeg" && hasTransparency(ctx, w, h);
-        // a see-through PNG that is only big, not over the limit or too wide, keeps its alpha as it is
-        if (png && file.size <= MAX_IMAGE_BYTES && Math.max(sw, sh) <= IMAGE_MAX_SIDE) return file;
-      }
-      const type = png ? "image/png" : "image/jpeg";
-      const made = (blob) => new File([blob], (file.name || "image").replace(/\.[^./\\]+$/, "") + (png ? ".png" : ".jpg"), { type });
-      // a big PNG or WebP is steered to REENCODE_OVER_BYTES by the quality steps, at the same size in pixels; when no step gets
-      // there, the smallest result within the limit goes up, never a smaller picture for a size the pane shrinks itself
-      const soft = !png && bigLossless ? Math.min(MAX_IMAGE_BYTES, REENCODE_OVER_BYTES) : MAX_IMAGE_BYTES;
-      let best = null;
-      for (const q of png ? [undefined] : JPEG_QUALITIES) {
-        const blob = await canvasBlob(canvas, type, q);
-        if (!blob || blob.type !== type) return asIs();  // a browser without that encoder
-        if (blob.size > MAX_IMAGE_BYTES) continue;
-        // a re-encode no smaller than a file the server takes anyway is not worth sending
-        if (file.size <= MAX_IMAGE_BYTES && blob.size >= file.size) continue;
-        if (blob.size <= soft) return made(blob);
-        if (!best || blob.size < best.size) best = blob;
-      }
-      if (best) return made(best);
-      if (file.size <= MAX_IMAGE_BYTES) return file;
-      scale *= SHRINK_STEP;
-    }
-  } finally {
-    if (img.close) img.close();
-    canvas.width = canvas.height = 0;
-  }
-}
-
-// The file's bytes, read once more when the first read comes back empty (a picker or a clipboard sometimes hands over a
-// File whose bytes are not ready yet); an empty second read is the browser's, not the server's.
-async function readImageBytes(file) {
-  let buf = await file.arrayBuffer();
-  if (!buf.byteLength) {
-    await new Promise((r) => setTimeout(r, 150));
-    buf = await file.arrayBuffer();
-  }
-  return buf;
-}
-
-async function addImage(file) {
-  if (!file || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
-    setStatus(() => tl("app.up.notAttached", { what: file ? file.type || tl("app.up.unknownType") : tl("app.up.noFile") }), "error");
-    return;
-  }
-  const u = { id: ++uploadSeq, url: URL.createObjectURL(file), uploading: true, name: null };
-  state.uploads.push(u);
-  renderChips();
-  try {
-    const buf = await readImageBytes(file);
-    if (!buf.byteLength) throw new Error(tl("app.up.imgEmpty"));
-    // a File whose own size disagrees with the bytes just read (it said 0, or the first read was empty) is rebuilt from
-    // those bytes, so the shrink and the upload below start from a whole file
-    let send = buf.byteLength === file.size ? file : new File([buf], file.name || "image", { type: file.type });
-    const fit = await fitImage(send);
-    if (!fit) throw new Error(tl("app.up.imgTooBig", { size: humanSize(send.size), limit: humanSize(MAX_IMAGE_BYTES) }));
-    send = fit;
-    const r = await apiFetch("api/upload", { method: "POST", headers: { "Content-Type": send.type }, body: send });
-    const d = await r.json();
-    if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
-    u.name = d.name;
-  } catch (e) {
-    setStatus(() => tl("app.up.imgFailed", { msg: e.message }), "error");
-    state.uploads = state.uploads.filter((x) => x !== u);
-  }
-  u.uploading = false;
-  renderChips();
-}
-
-// Any file but a png, jpeg, gif or webp goes up as the raw body of api/upload?name=<its name>, in an XMLHttpRequest for
-// its progress (fetch has none for an upload). The server streams it to disk and answers with the reference send takes.
-// A file with no name (an Android keyboard's or a share sheet's blob) is named from its type: pasted-<time>.<ext>, .bin
-// when the type says nothing; the server makes the name safe all the same (safe_upload_name).
-const NAME_EXT = { "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/ogg": "ogg",
-                   "audio/wav": "wav", "application/pdf": "pdf", "application/zip": "zip", "application/json": "json", "text/plain": "txt",
-                   "text/markdown": "md", "text/csv": "csv", "text/html": "html", "image/heic": "heic", "image/heif": "heif",
-                   "image/avif": "avif", "image/bmp": "bmp", "image/svg+xml": "svg", "image/png": "png", "image/jpeg": "jpg",
-                   "image/gif": "gif", "image/webp": "webp" };
-function attachmentName(file) {
-  if ((file.name || "").trim()) return file.name;
-  const type = (file.type || "").split(";")[0].trim().toLowerCase();
-  return `pasted-${Date.now()}.${NAME_EXT[type] || "bin"}`;
-}
-function addFile(file) {
-  const u = { id: ++uploadSeq, kind: "file", fileName: attachmentName(file), size: file.size, loaded: 0, uploading: true, name: null, error: "" };
-  state.uploads.push(u);
-  const fail = (msg) => {
-    u.uploading = false; u.error = typeof msg === "function" ? msg() : msg; u.xhr = null;
-    setStatus(() => tl("app.up.failed", { name: u.fileName, msg: typeof msg === "function" ? msg() : msg }), "error");
-    renderChips();
-  };
-  renderChips();
-  if (file.size > MAX_FILE_BYTES) { fail(() => tl("app.up.tooLarge", { size: humanSize(file.size), max: humanSize(MAX_FILE_BYTES) })); return Promise.resolve(); }
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    u.xhr = xhr;
-    xhr.open("POST", "api/upload?name=" + encodeURIComponent(u.fileName));
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (e) => { u.loaded = e.loaded; paintFileChip(u); };
-    xhr.onload = () => {
-      if (xhr.status === 401) window.SalaSignin?.check();
-      let d = {};
-      try { d = JSON.parse(xhr.responseText); } catch (e) { /* not JSON: a proxy's page */ }
-      if (xhr.status >= 200 && xhr.status < 300 && d.ok) { u.name = d.name; u.uploading = false; u.xhr = null; u.loaded = u.size; renderChips(); }
-      else fail(d.error || xhr.statusText || "HTTP " + xhr.status);
-      resolve();
-    };
-    xhr.onerror = () => { fail(() => tl("app.up.lost")); resolve(); };
-    xhr.onabort = () => resolve();
-    xhr.send(file);
-  });
-}
-// A file of no type that is in fact a png, jpeg, gif or webp (told by its bytes) goes up as an image, thumbnail and all.
-async function addAttachment(file) {
-  if (!file.type && file.size) {
-    let type = "";
-    try { type = await sniffImageType(file); } catch (e) { /* unreadable: it goes up as it is, and the upload says why it failed */ }
-    if (type) file = new File([file], file.name || `pasted-${Date.now()}.${IMAGE_EXT[type]}`, { type });
-  }
-  return /^image\/(png|jpeg|gif|webp)$/.test(file.type) ? addImage(file) : addFile(file);
+  $("#send").disabled = state.sending || attach.isUploading() || (!getText().trim() && !attach.getUploads().some((u) => u.name));
+  attach.refresh();   // the attach button: disabled while sending, busy-marked while a file goes up
 }
 
 function send() {
   const asleep = state.current ? null : sleeperHere();   // a sleeping session's chat: its first message is held for the wake
   const s = state.current || asleep;
   if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
-  if (state.sending || state.uploads.some((u) => u.uploading)) return;
+  if (state.sending || attach.isUploading()) return;
   // the box's text, byte for byte; but with nothing typed after a quote, the newline the quote added is not sent
   const text = getText() === quotedText ? quotedText.slice(0, -1) : getText();
-  const ups = state.uploads.filter((u) => u.name);
+  const ups = attach.getUploads().filter((u) => u.name);
   if (!text.trim() && !ups.length) return;
   // show it at once, like claude.ai; the composer empties now and the bubble holds the text if sending fails
   // the server's outbox takes the message, so it can be edited or cancelled while it waits. Not a "!" command; nor, to a live session with
@@ -4461,7 +4219,7 @@ function send() {
   quotedText = null;
   clearDraft(s.name);   // sent: nothing to come back to
   if (reply) setReplyRef(s.name, null);   // it left with the message: a bubble that fails keeps it, for Retry and Edit
-  state.uploads = []; renderChips();
+  attach.clear();
   clearStatus();
   redrawPending(p);
   const empty = $("#chat > .empty");
@@ -4474,139 +4232,17 @@ function send() {
   else deliver(p);
 }
 
-// Pasted images are clipboardData.files: it holds one File per item of kind "file", the same objects on every read
-// (HTML spec, [SameObject]); clipboardData.items is read only when files is empty, a net for a browser that fills
-// items alone. Reading both and deduplicating the File objects by their fields attached two chips for one paste
-// (on Android Chrome, and the same on a desktop Chrome): Chromium 155 makes a new File for every
-// items[i].getAsFile() call, "image.png" with lastModified = the time of the call, so the File in files (made when
-// the event was built) and the one getAsFile() returned differed by a few ms, and no field told them apart
-// (web/tests/test_composer_attach.py).
-function clipboardFiles(cd) {
-  if (!cd) return [];
-  const files = [...(cd.files || [])];
-  if (!files.length) for (const i of cd.items || []) if (i.kind === "file") { const f = i.getAsFile(); if (f) files.push(f); }
-  return files;
-}
-const clipboardImages = (cd) => clipboardFiles(cd).filter((f) => f.type.startsWith("image/"));
-// What beforeinput takes (it takes every file now; that broke the Android keyboard's image: its clipboard,
-// image suggestions, stickers and GIFs reach the editable through commitContent as an insertion carrying a File of NO
-// TYPE, or no bytes; before, clipboardImages() filtered it out, the browser inserted the <img> itself and liftImage
-// attached it; after, the File went to addFile, the browser's <img> was cancelled, and nothing was attached). A file with no
-// bytes, or with no type and no name that names a kind of file (no extension, or an image's extension), is left to the
-// browser here; a real file of any type, mp4 and PDF included, is taken. The paste event takes every file instead: the
-// editor cancels a paste that holds no text itself, so no <img> would follow, and addAttachment tells an image by its bytes.
-const NAMED_FILE_RE = /\.(?!(?:png|jpe?g|gif|webp|bmp|heic|heif|avif|svg)$)[A-Za-z0-9]{1,10}$/i;
-function leftToBrowser(f) {
-  return !f.size || (!f.type && !NAMED_FILE_RE.test(f.name || ""));
-}
-const takenFiles = (cd) => clipboardFiles(cd).filter((f) => !leftToBrowser(f));
-// Everything that can carry an image into the editable feeds addImage, and the text that comes with it stays plain:
-// 1. the paste event (a desktop paste, the Android paste menu, a keyboard's clipboard chip when Chrome delivers it so):
-//    files become chips; text with an HTML flavour goes in as its plain text; a plain-only paste is the browser's own;
-// 2. beforeinput, for an insertion that reaches the editable without a paste event (a keyboard's commitContent may
-//    arrive as insertFromPaste or insertFromDrop with a DataTransfer, an autocorrect as insertReplacementText): files
-//    become chips, HTML becomes its text; formatting commands (Ctrl+B, a format from a menu) are refused;
-// 3. an <img> that the browser put into the editable itself (its own paste of a bitmap, a keyboard's insertion): lifted
-//    out into a chip by liftImage (watchForInsertedImages) and removed.
-// One gesture, one chip: these are the links of one chain (Chromium 155: the paste event, then beforeinput
-// insertFromPaste with the same files, then the <img> it inserts), and the link that attaches the files stops the
-// chain (preventDefault: no beforeinput after a prevented paste, no <img> after a prevented beforeinput). Should a
-// browser run a later link all the same, it carries the same bytes under another File object, so a later link skips
-// what an earlier link attached within the last second, by size and type (nothing else survives the new File). Only a
-// later link checks: two pastes of one image in a row are two chips, so are two <img> in one insertion.
-// The clock of that check is when the later link BEGAN, not when it finished reading its files: a clipboard image of
-// 3000 x 4000 px is encoded as a PNG of 19 MB when `files` is first read, a second or more, once for each link, and a
-// window that ran on past those reads let the second link look like a new gesture.
-// One event is one gesture on its own side as well: the files of a single paste, beforeinput or drop are one picture each,
-// so two image Files in one event that hold the same bytes (a clipboard that offers the picture twice, as image.png and as
-// another name) make one chip (distinctPictures).
-const GESTURE_MS = 1000;
-let gestures = [];  // what a link attached: [{link, size, type, at}], links 1 (paste, drop), 2 (beforeinput), 3 (<img>)
-function noteGesture(link, files) {
-  const at = performance.now();
-  gestures = gestures.filter((g) => at - g.at < GESTURE_MS);
-  for (const f of files) gestures.push({ link, size: f.size, type: f.type, at });
-}
-function fromEarlierLink(link, f, at = performance.now()) {
-  return gestures.some((g) => g.link < link && at - g.at < GESTURE_MS && g.size === f.size && (g.type === f.type || !g.type));
-}
-// An event the handlers took already (one event reaching a handler twice attaches once)
-const takenEvents = new WeakSet();
-// true when two Files hold the same bytes (read whole; a file that cannot be read counts as different)
-async function sameBytes(a, b) {
-  try {
-    const [x, y] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]);
-    if (x.byteLength !== y.byteLength) return false;
-    const n = x.byteLength >> 2, p = new Uint32Array(x, 0, n), q = new Uint32Array(y, 0, n);
-    for (let i = 0; i < n; i++) if (p[i] !== q[i]) return false;
-    const u = new Uint8Array(x), v = new Uint8Array(y);
-    for (let i = n << 2; i < u.length; i++) if (u[i] !== v[i]) return false;
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-// The files of one event without a picture twice: an image File of the same type and size and the same bytes as an earlier one
-// of the event is left out. Files that are not images are never merged. A single file, or files that differ in type or size,
-// are decided without reading a byte, so a lone paste attaches at once.
-async function distinctPictures(files) {
-  const kept = [];
-  for (const f of files) {
-    let twin = false;
-    if (f.type.startsWith("image/")) {
-      for (const k of kept) {
-        if (k.type === f.type && k.size === f.size && await sameBytes(k, f)) { twin = true; break; }
-      }
-    }
-    if (!twin) kept.push(f);
-  }
-  return kept;
-}
-// Attach the pictures of one event (the files are already noted as the gesture's)
-async function attachEvent(files) {
-  (await distinctPictures(files)).forEach(addAttachment);
-}
 // The editor's own handlers run after these (EditorView.domEventHandlers, returning true cancels them): a paste of text,
 // plain or with an HTML flavour, is the editor's, which inserts its plain text as one undo step; images never reach it
 // (an image-only paste would otherwise replace the selection with nothing).
 function composerImageHandlers() {
   return cm6Composer.EditorView.domEventHandlers({
-    paste(e) {
-      if (takenEvents.has(e)) return true;
-      const files = clipboardFiles(e.clipboardData);   // any file; an image stays a thumbnail (addAttachment)
-      if (!files.length) return false;
-      takenEvents.add(e);
-      noteGesture(1, files); attachEvent(files);
-      return true;
-    },
-    beforeinput(e) {
-      const dt = e.dataTransfer;
-      if (!dt) return false;
-      if (takenEvents.has(e)) return true;
-      const at = performance.now();   // when this link began: reading a big clipboard image below takes a second or more
-      const files = takenFiles(dt);
-      if (!files.length) return false;
-      takenEvents.add(e);
-      const fresh = files.filter((f) => !fromEarlierLink(2, f, at));
-      noteGesture(2, files);   // all of them, those skipped too: the link after this one counts from the end of this read
-      attachEvent(fresh);
-      return true;
-    },
+    paste: (e) => attach.handlePaste(e),
+    beforeinput: (e) => attach.handleBeforeInput(e),
     // files dropped on the editor are the window's drop handler's (below); the editor must not read them as text
     drop(e) { return !!(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length); },
   });
 }
-// An image whose type the keyboard did not give: told by its first bytes (the four types the server takes as images)
-async function sniffImageType(blob) {
-  const b = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
-  const at = (i, str) => [...str].every((c, k) => b[i + k] === c.charCodeAt(0));
-  if (b[0] === 0x89 && at(1, "PNG")) return "image/png";
-  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
-  if (at(0, "GIF8")) return "image/gif";
-  if (at(0, "RIFF") && at(8, "WEBP")) return "image/webp";
-  return "";
-}
-const IMAGE_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
 const lifted = new WeakSet();
 let liftSeq = 0;
 async function liftImage(img) {
@@ -4622,11 +4258,11 @@ async function liftImage(img) {
   try {
     const blob = await (await fetch(src)).blob();
     // the type the keyboard gave if it is an image the server takes; else the bytes tell (a blob of no type, or "application/octet-stream")
-    const given = [blob.type, src.startsWith("data:") ? src.slice(5, src.search(/[;,]/)) : ""].find((t) => IMAGE_EXT[t]);
-    const type = given || await sniffImageType(blob) || blob.type;
-    const file = new File([blob], `keyboard-${++liftSeq}.${IMAGE_EXT[type] || "img"}`, { type });
-    if (fromEarlierLink(3, file, at)) return;  // the paste or beforeinput of this gesture attached it already
-    await addImage(file);
+    const given = [blob.type, src.startsWith("data:") ? src.slice(5, src.search(/[;,]/)) : ""].find((t) => SalaAttach.IMAGE_EXT[t]);
+    const type = given || await SalaAttach.sniffImageType(blob) || blob.type;
+    const file = new File([blob], `keyboard-${++liftSeq}.${SalaAttach.IMAGE_EXT[type] || "img"}`, { type });
+    if (attach.seenInEarlierLink(3, file, at)) return;  // the paste or beforeinput of this gesture attached it already
+    await attach.addImage(file);
   } catch (e) {
     setStatus(() => tl("app.up.readFailed", { msg: e.message || e }), "error");
   }
@@ -4643,69 +4279,6 @@ function watchForInsertedImages(host) {
     }
   }).observe(host, { childList: true, subtree: true });
 }
-$("#send").addEventListener("click", send);
-// The attach button, for a phone where paste and drag-drop do not reach the composer: a hidden file input behind it
-// (no accept: any file, multiple; on Android the chooser offers camera, gallery and files), feeding the same
-// addAttachment path as a paste. The value is cleared after each pick, so the same photo can be chosen
-// again (a "change" would not fire for it otherwise).
-// On Android (its user agent) the button opens a two-entry menu instead: "Photos and videos" opens the photo input (accept image
-// and video, which Android Chrome shows as its photo picker), "Files and camera" opens the chooser above (no accept). Every
-// other platform keeps the single tap straight to the chooser. The menu closes on a tap outside, Escape, or focus leaving it.
-const fileInput = $("#file-input");
-const photoInput = $("#photo-input");
-const takePicks = (input) => {
-  const files = [...(input.files || [])];
-  input.value = "";
-  files.forEach(addAttachment);
-};
-fileInput.addEventListener("change", () => takePicks(fileInput));
-photoInput.addEventListener("change", () => takePicks(photoInput));
-const onAndroid = /\bAndroid\b/.test(navigator.userAgent || "");
-if (!onAndroid) {
-  $("#attach").addEventListener("click", () => { if (!state.sending) fileInput.click(); });
-} else {
-  const attachBtn = $("#attach"), attachMenu = $("#attach-menu");
-  let attachOpen = false;
-  const setAttachMenu = (open) => {
-    attachOpen = open;
-    attachMenu.classList.toggle("on", open);
-    attachBtn.setAttribute("aria-expanded", open ? "true" : "false");
-  };
-  const inAttach = (node) => !!node && (attachBtn.contains(node) || attachMenu.contains(node));
-  attachBtn.setAttribute("aria-haspopup", "menu");
-  attachBtn.setAttribute("aria-expanded", "false");
-  attachBtn.addEventListener("click", () => { if (!state.sending) setAttachMenu(!attachOpen); });
-  attachMenu.addEventListener("click", (e) => {
-    const item = e.target.closest('[role="menuitem"]');
-    if (!item) return;
-    (item.id === "attach-photos" ? photoInput : fileInput).click();   // inside the tap: the browser allows the chooser
-    setAttachMenu(false);
-  });
-  attachMenu.addEventListener("keydown", (e) => {
-    const items = [...attachMenu.querySelectorAll('[role="menuitem"]')];
-    const at = items.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
-    }
-  });
-  document.addEventListener("pointerdown", (e) => { if (attachOpen && !inAttach(e.target)) setAttachMenu(false); });
-  document.addEventListener("focusout", (e) => { if (attachOpen && !inAttach(e.relatedTarget)) setAttachMenu(false); });
-  document.addEventListener("keydown", (e) => {
-    if (attachOpen && e.key === "Escape") { setAttachMenu(false); attachBtn.focus(); }
-  });
-}
-
-let dragDepth = 0;
-window.addEventListener("dragenter", (e) => { if (e.dataTransfer?.types?.includes("Files")) { dragDepth++; document.body.classList.add("dragging"); } });
-window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
-window.addEventListener("dragover", (e) => { if (e.dataTransfer?.types?.includes("Files")) e.preventDefault(); });
-window.addEventListener("drop", (e) => {
-  dragDepth = 0; document.body.classList.remove("dragging");
-  const files = [...(e.dataTransfer?.files || [])];
-  if (files.length) { e.preventDefault(); noteGesture(1, files); files.forEach(addAttachment); }
-});
-
 /* ---------- deploys: the reload banner, the connection state, drafts across a reload ---------- */
 // The page remembers the version it loaded (rendered into the HTML) and compares it with the server's: at the start of
 // every stream, every 60 s, and when the tab comes back into view. The version is a hash of the page's own files (the
@@ -4746,7 +4319,7 @@ function noteVersion(v, styles) {
   maybeAutoReload();
 }
 function safeToAutoReload() {
-  return document.hidden && !getText().trim() && !state.uploads.length && !state.sending &&
+  return document.hidden && !getText().trim() && !attach.getUploads().length && !state.sending &&
     !state.pending.some((p) => p.status === "sending" || p.status === "failed");
 }
 function maybeAutoReload() {
@@ -4877,7 +4450,7 @@ function keptForSignIn() {
   const unsent = state.pending.filter((p) => !p.hold && !p.mid && (p.status === "failed" || p.status === "sending")).map((p) => ({   // one with a mid is on the server
     session: p.session, text: p.text, at: p.sentAt, error: p.status === "failed" ? p.error : tl("app.pend.noNet"), ...(p.ob ? { cid: p.cid } : {}),
     ...(p.reply ? { reply: p.reply } : {}), images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
-  const files = state.uploads.filter((u) => u.name).map((u) => ({ name: u.name, fileName: u.fileName || u.name, size: u.size }));
+  const files = attach.getUploads().filter((u) => u.name).map((u) => ({ name: u.name, fileName: u.fileName || u.name, size: u.size }));
   const text = getText(), long = state.selected && text.length > DRAFT_MAX ? { session: state.selected, text } : null;
   return unsent.length || files.length || long ? { unsent, files, long } : null;
 }
@@ -4890,8 +4463,7 @@ function restoreFromSignIn(kept) {
     redrawPending(p);
     if (p.session === state.selected) $("#chat").append(p.node);
   }
-  for (const f of kept.files) state.uploads.push({ id: ++uploadSeq, kind: "file", name: f.name, fileName: f.fileName, size: f.size, uploading: false });
-  if (kept.files.length) renderChips();
+  attach.restore(kept.files.map((f) => ({ kind: "file", name: f.name, fileName: f.fileName, size: f.size })));
   const long = kept.long;
   if (long && long.session === state.selected && getText() === long.text.slice(0, DRAFT_MAX)) { setText(long.text); refreshSendButton(); }
 }

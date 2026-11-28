@@ -386,7 +386,7 @@ const withFiles = (...fs) => ({ files: fs, items: fs.map((f) => ({ kind: "file",
 const paste = (cd) => { const e = new ClipboardEvent("paste", { bubbles: true, cancelable: true }); Object.defineProperty(e, "clipboardData", { value: cd }); return !editable.dispatchEvent(e); };
 const beforeinput = (dt) => { const e = new InputEvent("beforeinput", { inputType: "insertFromPaste", bubbles: true, cancelable: true }); Object.defineProperty(e, "dataTransfer", { value: dt }); return !editable.dispatchEvent(e); };
 const insertImg = (b64, mime) => { const img = document.createElement("img"); img.src = "data:" + mime + ";base64," + b64; const d = document.createElement("div"); d.append(img); editable.append(d); };
-const clear = () => { state.uploads = []; renderChips(); __xhr.length = 0; };
+const clear = () => { attach.clear(); __xhr.length = 0; };
 """
 CHIP_KINDS = "[...document.querySelectorAll('#chips .chip')].map((c) => c.classList.contains('file') ? 'file:' + c.querySelector('.fc-name').textContent : 'image')"
 

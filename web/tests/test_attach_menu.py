@@ -1,5 +1,5 @@
 """The attach button on Android: a two-entry menu (photos and videos, files and camera), and every other platform's single tap
-straight to the file chooser as before (app.js, the attach button; index.html, #attach-menu and the two file inputs).
+straight to the file chooser as before (attach.js: the attach button, #attach-menu and the two file inputs).
 
 The page parts run in a headless Chromium when one is installed (conftest.py: `served`, `browser`); without one they are
 skipped. The user agent is set through DevTools before the page loads, so the page's own check (its user agent says Android)
@@ -15,7 +15,7 @@ import json
 from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
 
-INDEX = (STATIC / "index.html").read_text()
+ATTACH_JS = (STATIC / "attach.js").read_text()   # the module that builds the button, the menu and the two inputs
 ANDROID_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
 IPHONE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 "
              "Mobile/15E148 Safari/604.1")
@@ -43,7 +43,7 @@ WAIT_CHIPS = """
 new Promise((res) => { const t0 = Date.now(); (function poll() {
   const chips = document.querySelectorAll("#chips .chip"), up = document.querySelectorAll("#chips .chip.uploading");
   if ((chips.length >= %d && !up.length) || Date.now() - t0 > 15000)
-    res({ chips: chips.length, uploading: up.length, names: state.uploads.map((u) => u.name), status: document.querySelector("#send-status").textContent });
+    res({ chips: chips.length, uploading: up.length, names: attach.getUploads().map((u) => u.name), status: document.querySelector("#send-status").textContent });
   else setTimeout(poll, 100);
 })(); })
 """
@@ -72,11 +72,13 @@ def tap_attach(browser) -> None:
 
 def test_markup_has_the_menu_and_the_two_inputs():
     # the chooser input is unchanged; the photo input takes the photo picker (image and video), multiple, hidden
-    assert '<input id="file-input" type="file" multiple hidden>' in INDEX
-    assert '<input id="photo-input" type="file" accept="image/*,video/*" multiple hidden>' in INDEX
-    assert '<div id="attach-menu" class="attach-menu" role="menu" aria-label="Attach menu" data-i18n-aria-label="ui.cmp.menu">' in INDEX
-    assert '<button type="button" role="menuitem" id="attach-photos" data-i18n="ui.cmp.photos">Photos and videos</button>' in INDEX
-    assert '<button type="button" role="menuitem" id="attach-files" data-i18n="ui.cmp.files">Files and camera</button>' in INDEX
+    assert '<input id="file-input" type="file" multiple hidden>' in ATTACH_JS
+    assert '<input id="photo-input" type="file" accept="image/*,video/*" multiple hidden>' in ATTACH_JS
+    assert '<div id="attach-menu" class="attach-menu" role="menu">' in ATTACH_JS
+    assert '<button type="button" role="menuitem" id="attach-photos"></button>' in ATTACH_JS
+    assert '<button type="button" role="menuitem" id="attach-files"></button>' in ATTACH_JS
+    for key in ("ui.cmp.menu", "ui.cmp.photos", "ui.cmp.files"):   # the words come from the page's table, English built in
+        assert f'"{key}"' in ATTACH_JS
 
 
 def test_android_tap_opens_the_menu_and_each_entry_opens_its_input(served, browser):

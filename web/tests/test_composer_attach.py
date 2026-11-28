@@ -15,13 +15,15 @@ from sala_web.app import STATIC
 from send_stub import spy_send
 
 INDEX = (STATIC / "index.html").read_text()
+ATTACH_JS = (STATIC / "attach.js").read_text()   # the module that builds the button and the inputs
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64  # the server stores bytes; it does not decode them
 
 
 def test_composer_has_the_attach_control():
     # the chooser takes any file, multiple, hidden behind a named button
-    assert '<input id="file-input" type="file" multiple hidden>' in INDEX
-    assert '<button id="attach" class="attach-btn" type="button" aria-label="Attach files" data-i18n-aria-label="ui.cmp.attach"' in INDEX
+    assert '<input id="file-input" type="file" multiple hidden>' in ATTACH_JS
+    assert '<button id="attach" class="attach-btn" type="button">' in ATTACH_JS
+    assert '"ui.cmp.attach"' in ATTACH_JS
     assert '<div id="drop-hint" data-i18n="ui.cmp.drop">Drop files to attach</div>' in INDEX
 
 
@@ -29,7 +31,7 @@ WAIT_CHIPS = """
 new Promise((res) => { const t0 = Date.now(); (function poll() {
   const chips = document.querySelectorAll("#chips .chip"), up = document.querySelectorAll("#chips .chip.uploading");
   if ((chips.length >= %d && !up.length) || Date.now() - t0 > 15000)
-    res({ chips: chips.length, uploading: up.length, names: state.uploads.map((u) => u.name), cleared: document.querySelector("#file-input").value === "",
+    res({ chips: chips.length, uploading: up.length, names: attach.getUploads().map((u) => u.name), cleared: document.querySelector("#file-input").value === "",
           sendEnabled: !document.querySelector("#send").disabled, status: document.querySelector("#send-status").textContent,
           attachBusy: document.querySelector("#attach").getAttribute("aria-busy") });
   else setTimeout(poll, 100);
@@ -99,17 +101,17 @@ def test_paste_reads_clipboard_items_only_when_files_is_empty(served, browser):
       let calls = 0, stamp = 1791991172262;
       const fresh = () => { calls++; return new File([new Uint8Array(4)], "image.png", { type: "image/png", lastModified: (stamp += 3) }); };
       const chrome = { kind: "file", type: "image/png", getAsFile: fresh };
-      const chromeShape = clipboardImages({ files: [new File([new Uint8Array(4)], "image.png", { type: "image/png", lastModified: stamp })], items: [chrome] }).length;
+      const chromeShape = SalaAttach.clipboardImages({ files: [new File([new Uint8Array(4)], "image.png", { type: "image/png", lastModified: stamp })], items: [chrome] }).length;
       const callsWithFiles = calls;
       return {
-        filesOnly: clipboardImages({ files: [f], items: [] }).length,
-        itemsOnly: clipboardImages({ files: [], items: [item(f)] }).length,
-        both: clipboardImages({ files: [f], items: [item(f)] }).length,
+        filesOnly: SalaAttach.clipboardImages({ files: [f], items: [] }).length,
+        itemsOnly: SalaAttach.clipboardImages({ files: [], items: [item(f)] }).length,
+        both: SalaAttach.clipboardImages({ files: [f], items: [item(f)] }).length,
         chromeShape, callsWithFiles,
-        itemsOnlyFresh: clipboardImages({ files: [], items: [chrome, chrome] }).length,
-        twoInFiles: clipboardImages({ files: [f, new File([new Uint8Array(5)], "b.png", { type: "image/png" })], items: [item(f)] }).length,
-        nonImage: clipboardImages({ files: [t], items: [item(t), { kind: "string", type: "text/plain" }] }).length,
-        none: clipboardImages(null).length,
+        itemsOnlyFresh: SalaAttach.clipboardImages({ files: [], items: [chrome, chrome] }).length,
+        twoInFiles: SalaAttach.clipboardImages({ files: [f, new File([new Uint8Array(5)], "b.png", { type: "image/png" })], items: [item(f)] }).length,
+        nonImage: SalaAttach.clipboardImages({ files: [t], items: [item(t), { kind: "string", type: "text/plain" }] }).length,
+        none: SalaAttach.clipboardImages(null).length,
       }; })()""")
     assert got == {"filesOnly": 1, "itemsOnly": 1, "both": 1, "chromeShape": 1, "callsWithFiles": 0, "itemsOnlyFresh": 2,
                    "twoInFiles": 2, "nonImage": 0, "none": 0}, json.dumps(got)
@@ -118,8 +120,8 @@ def test_paste_reads_clipboard_items_only_when_files_is_empty(served, browser):
       const t = new File([new Uint8Array(4)], "a.txt", { type: "text/plain" });
       const m = new File([new Uint8Array(4)], "a.mp4", { type: "video/mp4" });
       const item = (file) => ({ kind: "file", type: file.type, getAsFile: () => file });
-      return { files: clipboardFiles({ files: [t, m], items: [] }).length, itemsOnly: clipboardFiles({ files: [], items: [item(m), { kind: "string" }] }).length,
-               imagesOfThem: clipboardImages({ files: [t, m], items: [] }).length, none: clipboardFiles(null).length }; })()""")
+      return { files: SalaAttach.clipboardFiles({ files: [t, m], items: [] }).length, itemsOnly: SalaAttach.clipboardFiles({ files: [], items: [item(m), { kind: "string" }] }).length,
+               imagesOfThem: SalaAttach.clipboardImages({ files: [t, m], items: [] }).length, none: SalaAttach.clipboardFiles(null).length }; })()""")
     assert got == {"files": 2, "itemsOnly": 1, "imagesOfThem": 0, "none": 0}, json.dumps(got)
 
 
@@ -173,22 +175,22 @@ def test_a_file_chip_shows_progress_and_an_error_and_remove_stops_the_upload(ser
     got = browser.evaluate("""(async () => {
       let aborted = 0;
       const big = 640 * 1024 * 1024;
-      state.uploads.push({ id: 901, kind: "file", fileName: "big.mov", size: big, loaded: big / 2,
+      attach.getUploads().push({ id: 901, kind: "file", fileName: "big.mov", size: big, loaded: big / 2,
                            uploading: true, name: null, error: "", xhr: { abort: () => { aborted++; } } });
-      state.uploads.push({ id: 902, kind: "file", fileName: "bad.zip", size: 1000, loaded: 0, uploading: false, name: null, error: "file too large (limit 500 MB)" });
-      renderChips(); await new Promise((r) => setTimeout(r, 50));
+      attach.getUploads().push({ id: 902, kind: "file", fileName: "bad.zip", size: 1000, loaded: 0, uploading: false, name: null, error: "file too large (limit 500 MB)" });
+      attach.render(); await new Promise((r) => setTimeout(r, 50));
       const [up, bad] = document.querySelectorAll("#chips .chip.file");
       const out = { up: up.className, upMeta: up.querySelector(".fc-meta").textContent, upBar: up.querySelector(".fc-bar").style.width,
                     barShown: getComputedStyle(up.querySelector(".fc-bar")).display,
                     bad: bad.className, badMeta: bad.querySelector(".fc-meta").textContent, badTitle: bad.title,
                     sendWhileUploading: document.querySelector("#send").disabled };
       up.querySelector("button").click();   // remove the one still going up
-      out.aborted = aborted; out.left = state.uploads.map((u) => u.id);
-      state.uploads = []; renderChips();
-      state.uploads.push({ id: 903, kind: "file", fileName: "e.txt", size: 1, error: "boom", uploading: false, name: null });
-      renderChips();
+      out.aborted = aborted; out.left = attach.getUploads().map((u) => u.id);
+      attach.clear();
+      attach.getUploads().push({ id: 903, kind: "file", fileName: "e.txt", size: 1, error: "boom", uploading: false, name: null });
+      attach.render();
       out.sendWithOnlyAnError = document.querySelector("#send").disabled;
-      state.uploads = []; renderChips();
+      attach.clear();
       return out; })()""")
     assert got["up"] == "chip file uploading" and got["upMeta"] == "Uploading 50% of 640 MB" and got["upBar"] == "50%", got
     assert got["barShown"] != "none" and got["sendWhileUploading"] is True, got
