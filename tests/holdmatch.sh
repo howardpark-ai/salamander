@@ -121,7 +121,9 @@ holders_run() { printf '1\npid 99, up 2400 s, task tk1, started by a subagent (s
 eval "$ORIG_HR"; rm -f "$PARENT"
 mksub "$U1" s1 builder "Build the package move"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
-    && has "$n" "sala never cuts a running subagent" && ok "the relaunch notice names it and says it is not cut" || bad "notice: $n"
+    && has "$n" "pausing is off, so the relaunch follows once it ends" && ok "pausing off: the relaunch notice names it and says it waits for its end" || bad "notice: $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all relaunch_text recycle "$K1"); has "$n" "subagent builder: Build the package move" \
+    && has "$n" "if it still runs 1 min after the notice and pausing applies to this session, the pause stops it with the exit" && ok "pausing on: the notice says when the pause stops it" || bad "notice (pause on): $n"
 bash -c 'trap : USR1; while :; do sleep 1; done' & WK=$!; PIDS+=("$WK"); echo "$WK" > "$HOME/.claude/salamander-retry.$WK.pid"   # a pending recycle's retry worker, so ready_wake succeeds
 # wait for the `sala ready` process to exit (its .done marker), not for the file's first byte: it writes the holder block, then the ready: line
 : > "$HOME/go1"; waitfor '[ -e "$HOME/ready1.done" ]' 20

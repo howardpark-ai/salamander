@@ -5745,3 +5745,11 @@ Covered, in `tests/pause.sh`: the new defaults (60 s, scope `all`, a front agent
 Not covered, and why: the CLI's real exit dialog and a real subagent are not run (the fake claude shows a dialog row); a guard that refuses every tool but `sala note`, `sala ready` and TaskStop while a drain waits is not part of this change; senders holding back new work is not either.
 
 Changed: `tests/pause.sh`, `tests/help-snapshot.txt`.
+
+### The relaunch notice for a running subagent tells the truth about the pause: `tests/holdmatch.sh` 1 changed, 1 added, `tests/help-snapshot.txt` follows (Sat Nov 28th 2026)
+
+The text a session gets for a running subagent no longer says sala never cuts it: it says the relaunch follows once the subagent ends, and that the pause stops it with the exit after `SALA_PAUSE_AFTER` (named in the text) when pausing applies, or, with pausing off, that the relaunch simply waits. The help line of `recycle`, the `sala ready` comments and `config.example` say the same.
+
+Covered, in `tests/holdmatch.sh`: the notice for one running subagent names it and, with pausing off, says the relaunch waits for its end; with `SALA_PAUSE_AFTER=60` it says the pause stops it with the exit after 1 min. Not covered: a notice past the hold cap (the same function).
+
+Changed: `tests/holdmatch.sh`, `tests/help-snapshot.txt`.

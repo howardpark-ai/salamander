@@ -189,7 +189,7 @@
                                  #   earlier than before; the 8-day drop of the list stands
 #SALA_SUBAGENT_STALE=21600      # recycle, watch, `sala ready`: a subagent whose transcript is not marked finished, written since this claude started and not
                                  #   longer ago than this (6 h) can be running; it IS running while it also wrote within SALA_SUBAGENT_QUIET or a process under the
-                                 #   pane was started by it. A running subagent holds the pane and is never cut; it is named in the skip line, in watch's one log line
+                                 #   pane was started by it. A running subagent holds the pane until it ends (only the pause after SALA_PAUSE_AFTER stops it); it is named in the skip line, in watch's one log line
                                  #   and in `sala ready`. A subagent that crashed (it never writes "finished") stops counting after the quiet time
 #SALA_SUBAGENT_QUIET=1800        # seconds a subagent may write nothing and still count as running with no process of its own under the pane (30 min)
                                  #   A subagent known to have ended (a completed, killed, failed or stopped notice in the session's transcript, or a last transcript line that is a

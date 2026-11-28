@@ -2709,12 +2709,15 @@ relaunch_text() {  # <what words> [claude-pid] [over] → the line the hook give
     return 0
 }
 # subagents_block <claude-pid> → what a running subagent means for the relaunch, one line each; nothing when none run. A subagent is
-# not cut by a relaunch that waits for it (the pause after SALA_PAUSE_AFTER stops it), and a shell or a task it started is no excuse to cut it: the exit is refused until it ends.
+# held, not cut, by a relaunch that waits for it, until the pause after SALA_PAUSE_AFTER stops it (never when pausing is off), and a shell or a task it started is no excuse to cut it: the exit is refused until it ends.
 subagents_block() {
-    local l n=0 out=""
+    local l n=0 out="" a w
     while IFS= read -r l; do [ -n "$l" ] && { out+="  $l"$'\n'; n=$((n + 1)); }; done < <(subagent_holders "$1")
     [ "$n" -gt 0 ] || return 0
-    { printf 'Holding the relaunch: %s running in this session (sala never cuts a running subagent; the relaunch follows once it ends):\n%s' "$(plural "$n" subagent)" "$out"
+    pause_after_r a
+    if [ "$a" -gt 0 ]; then w="the relaunch follows once it ends; if it still runs $(hold_span "$a") after the notice and pausing applies to this session, the pause stops it with the exit"
+    else w="pausing is off, so the relaunch follows once it ends"; fi
+    { printf 'Holding the relaunch: %s running in this session (%s):\n%s' "$(plural "$n" subagent)" "$w" "$out"
       printf '%s\n' "End one you do not need from this session (TaskStop <its id> when the CLI lists it, or let it finish); a subagent no task list shows ends only with its work."; } 2>/dev/null
     return 0
 }
