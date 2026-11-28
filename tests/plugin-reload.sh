@@ -4,12 +4,16 @@
 # takes session_push's line and writes the reply and the <sessionId>.reload.json the way the mod does). Checks:
 #   OFF by default: a pass asks nobody and writes nothing; --dry-run says who would be asked, that every other pane is left alone, and writes nothing.
 #   WHO: only a registry row with role back and no side session. A front agent, a side session and a pane with no mod are not asked; a background
-#   agent on the sdk lane, asleep, paused, waiting for a relaunch (flag, deferred list, queued operation) is skipped, and the reason said.
+#   agent that is the Remote Control session, a served session, on the sdk lane, asleep, in SALA_NO_RELAUNCH, paused, waiting for a relaunch
+#   (flag under either conversation id, deferred list, open relaunch set, queued, running or waiting operation) is skipped, and the reason said;
+#   a closed set and a done operation hold nobody. The whole pass stands aside on another tmux server and while the pane map is frozen.
 #   STALE: an update of a watched plugin later than the claude's start and its last confirmed reload, read from the pane's own config directory;
-#   one confirmed reload per version (the same version recorded again asks nobody); another plugin's update does not count; no plugin named:
-#   nobody is asked, said once.
-#   ANSWERS: ok makes the pane current until the next update; no answer is asked again after SALA_PLUGIN_RELOAD_RETRY; an answer that is no reload is
-#   counted and after SALA_PLUGIN_RELOAD_TRIES the install is given up on; a mod without the verb is left alone and said once; the per-pass cap.
+#   one confirmed reload per version (the same version recorded again asks nobody, also for a pane that started with it); another plugin's update
+#   does not count; no plugin named: nobody is asked, said once.
+#   ANSWERS: ok makes the pane current until the next update; no answer is asked again after SALA_PLUGIN_RELOAD_RETRY; at most
+#   SALA_PLUGIN_RELOAD_TRIES requests per version with no confirmed reload, whatever came of them; a mod without the verb is asked once, said
+#   once; the per-pass cap.
+#   IDLE WRAP-UP: after a request, the moved registry stamp does not change what `watch --wrapup` decides, until a turn ends.
 #   --only: asks one background agent now, on or off and stale or not, under the same exclusions; exit 0 ran, 1 not asked or no reload, 4 no answer yet;
 #   a wrong argument is refused (2).
 #   The watch's own pass runs it only with SALA_PLUGIN_RELOAD=on, and the settings are read from the config file.
@@ -17,7 +21,8 @@
 # -f /dev/null, the compiled fake claude. Usage: bash tests/plugin-reload.sh   (exit 0 = pass; two to three minutes)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH CLAUDE_CODE_PLUGIN_DIRS SALA_MOD_DIR \
-      SALA_PLUGIN_RELOAD SALA_PLUGIN_RELOAD_IDS SALA_PLUGIN_RELOAD_MAX SALA_PLUGIN_RELOAD_RETRY SALA_PLUGIN_RELOAD_TRIES SALA_PLUGIN_RELOAD_WAIT
+      SALA_PLUGIN_RELOAD SALA_PLUGIN_RELOAD_IDS SALA_PLUGIN_RELOAD_MAX SALA_PLUGIN_RELOAD_RETRY SALA_PLUGIN_RELOAD_TRIES SALA_PLUGIN_RELOAD_WAIT \
+      SALA_IDLE_WRAPUP SALA_IDLE_WRAPUP_MIN SALA_IDLE_WRAPUP_MAX_AGE SALA_IDLE_SETTLE SALA_RC_SESSION
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 TD=""; SOCK="sala-plugins-$$"; FAKEMOD=""; FAKEBIN=""
@@ -48,16 +53,17 @@ WLOG="$SALA_LOG_DIR/salamander-watch.log"; STATE="$SALA_STATE_DIR/plugin-reload.
 mkdir -p "$RUN" "$SALA_STATE_DIR" "$SALA_LOG_DIR"
 
 # THE PANES: name, role, side, and what else its tmux session carries
-NAMES="back two front side nomod old sdk cfg"
+NAMES="back two front side nomod old sdk cfg served"
 uuid() { local i=0 n; for n in $NAMES; do i=$((i + 1)); [ "$n" = "$1" ] && break; done; printf '%08d-0000-4000-8000-%012d' "$i" "$i"; }
-pane_up() {  # <short name> [tmux -e NAME=value …]
+pane_up() {  # <short name> [tmux -e NAME=value …]; CARGS: arguments for its claude
     local n=$1 s="sala-test-$1"; shift
-    tmux new-session -d -s "$s" -x 100 -y 30 -e "FAKE_SESSION_ID=$(uuid "$n")" -e "FAKE_NAME=$s" "$@" "bash --norc --noprofile -c 'claude; sleep 600'"
+    tmux new-session -d -s "$s" -x 100 -y 30 -e "FAKE_SESSION_ID=$(uuid "$n")" -e "FAKE_NAME=$s" "$@" "bash --norc --noprofile -c 'claude ${CARGS:-}; sleep 600'"
 }
 tmux new-session -d -s keep-alive
 for n in back two front side nomod old; do pane_up "$n"; done
 pane_up sdk -e CLAUDE_CODE_ENTRYPOINT=sdk-py
 pane_up cfg -e "CLAUDE_CONFIG_DIR=$TD/cfg"
+CARGS="--sdk-url ws://127.0.0.1:9/none" pane_up served   # what a Remote Control served session carries
 for n in $NAMES; do fake_up "sala-test-$n" || { echo "the fake panes did not start"; exit 1; }; done
 pid_of() { local f c; for f in "$HOME"/.claude/sessions/*.json; do c=$(<"$f"); case "$c" in *"$(uuid "$1")"*) f=${f##*/}; echo "${f%.json}"; return 0;; esac; done; return 1; }
 
@@ -66,7 +72,7 @@ python3 -I -S - "$SALA_SESSIONS_FILE" <<'PY'
 import json, os, sys
 rows = {}
 for n, role, side in (("back", "back", None), ("two", "back", None), ("front", "front", None), ("side", "back", "fork"),
-                      ("nomod", "back", None), ("old", "back", None), ("sdk", "back", None), ("cfg", "back", None)):
+                      ("nomod", "back", None), ("old", "back", None), ("sdk", "back", None), ("cfg", "back", None), ("served", "back", None)):
     s = "sala-test-" + n
     rows[s] = {"id": s, "name": s, "state": "live", "role": role, "side": side, "project": "projects/x", "created": s}
 os.makedirs(os.path.dirname(sys.argv[1]), exist_ok=True)
@@ -171,6 +177,7 @@ has "$out" "sala-test-front: left alone, not a background agent: it loads the ne
 has "$out" "sala-test-side: left alone, not a background agent" && ok "a side session is left alone" || bad "dry side: $out"
 has "$out" "sala-test-nomod: no sala mod to ask" && ok "a pane with no mod: said" || bad "dry nomod: $out"
 has "$out" "sala-test-sdk: skipped: on the sdk lane" && ok "an sdk-lane pane is skipped" || bad "dry sdk: $out"
+has "$out" "sala-test-served: skipped: a Remote Control served session" && ok "a Remote Control served session is skipped" || bad "dry served: $out"
 has "$out" "sala-test-cfg: no watched plugin in $TD/cfg/plugins/installed_plugins.json" && ok "a pane's own config directory is read" || bad "dry cfg: $out"
 [ ! -s "$HEARD" ] && [ ! -e "$STATE" ] && [ "$(logged plugins:)" = 0 ] && ok "a dry run asks nobody and writes nothing" || bad "dry wrote: heard $(heard); $(cat "$WLOG")"
 
@@ -203,11 +210,19 @@ nap 0.3; deploy demo@demo-market "$HOME/.claude" 0 1.3.0; pass >/dev/null
 : > "$HEARD"; deploy demo@demo-market "$TD/cfg" -1; pass >/dev/null
 [ "$(asks cfg)" = 1 ] && ok "an update in a pane's own config directory asks that pane" || bad "cfg: heard $(heard)"
 
+echo "== a version that was there when the claude started"
+reset; deploy demo@demo-market "$HOME/.claude" -3600; pass >/dev/null; out=$(dry)
+[ "$(asks back)" = 0 ] && has "$out" "sala-test-back: current" && ok "installed before the pane's claude started: not asked" || bad "before start: asked $(asks back); $out"
+nap 0.3; deploy demo@demo-market "$HOME/.claude" 0; pass >/dev/null
+[ "$(asks back)" = 0 ] && ok "recorded again with the same version: still not asked" || bad "rewritten: asked $(asks back); $(cat "$WLOG")"
+nap 0.3; deploy demo@demo-market "$HOME/.claude" 0 1.3.0; pass >/dev/null
+[ "$(asks back)" = 1 ] && ok "a newer version after it: asked" || bad "after start version: asked $(asks back); $(cat "$WLOG")"
+
 echo "== an answer that is no reload: counted, then given up on"
 reset; echo refused > "$TD/mode.back"
 for _ in 1 2 3 4 5; do SALA_PLUGIN_RELOAD_RETRY=0 pass >/dev/null; done
 [ "$(asks back)" = 3 ] && ok "three answers that are no reload: three requests, no fourth" || bad "tries: asked $(asks back); $(cat "$WLOG")"
-[ "$(logged 'sala-test-back: the reload did not run (answer 3 of 3 for this version): Plugins changed')" = 1 ] && [ "$(logged 'sala-test-back: not asked again for this version')" = 1 ] && ok "logged, with the words and the give-up" || bad "refusal log: $(cat "$WLOG")"
+[ "$(logged 'sala-test-back: the reload did not run (request 3 of 3 for this version): Plugins changed')" = 1 ] && [ "$(logged 'sala-test-back: demo@demo-market 1.2.0: not asked again after 3 requests')" = 1 ] && ok "logged, with the words and the give-up" || bad "refusal log: $(cat "$WLOG")"
 out=$(SALA_PLUGIN_RELOAD_RETRY=0 dry); has "$out" "sala-test-back: demo@demo-market 1.2.0: not asked again after 3" && ok "a dry run says why" || bad "gave up dry: $out"
 grep -q -- '--force' "$HEARD" && bad "--force went out" || ok "no request carries --force"
 nap 0.3; deploy demo@demo-market "$HOME/.claude" 0; SALA_PLUGIN_RELOAD_RETRY=0 pass >/dev/null
@@ -223,10 +238,14 @@ reset; echo later > "$TD/mode.back"; pass >/dev/null; pass >/dev/null
 out=$(dry); has "$out" "sala-test-back: asked 0 min ago, no reload confirmed: asked again after 30 min" && ok "a dry run says when it will be" || bad "later dry: $out"
 awk -F'\t' -v OFS='\t' '{ $2 = $2 - 1801; print }' "$STATE" > "$STATE.t" && mv "$STATE.t" "$STATE"; pass >/dev/null
 [ "$(asks back)" = 2 ] && [ "$(logged 'again, 30 min after the last request')" -ge 1 ] && ok "after 30 minutes: asked again" || bad "retry: asked $(asks back); $(cat "$WLOG")"
+for _ in 1 2 3 4; do SALA_PLUGIN_RELOAD_RETRY=0 pass >/dev/null; done
+[ "$(asks back)" = 3 ] && [ "$(logged 'sala-test-back: demo@demo-market 1.2.0: not asked again after 3 requests')" = 1 ] && ok "never answered: three requests per version, no fourth, said once" || bad "unanswered bound: asked $(asks back); $(cat "$WLOG")"
 
 echo "== a mod without the verb"
-reset; echo old > "$TD/mode.old"; pass >/dev/null; pass >/dev/null
-[ "$(asks old)" = 1 ] && [ "$(logged 'sala-test-old: its sala mod does not know reload')" = 1 ] && ok "answered unknown: said once, left alone" || bad "old: asked $(asks old); $(cat "$WLOG")"
+reset; echo old > "$TD/mode.old"; for _ in 1 2 3; do SALA_PLUGIN_RELOAD_RETRY=0 pass >/dev/null; done
+[ "$(asks old)" = 1 ] && [ "$(logged 'sala-test-old: its sala mod does not know reload')" = 1 ] && ok "answered unknown: asked once, said once" || bad "old: asked $(asks old); $(cat "$WLOG")"
+nap 0.3; deploy demo@demo-market "$HOME/.claude" 0 1.3.0; SALA_PLUGIN_RELOAD_RETRY=0 pass >/dev/null; out=$(dry)
+[ "$(asks old)" = 1 ] && has "$out" "sala-test-old: its sala mod does not know reload" && ok "a newer version does not ask that claude again" || bad "old after update: asked $(asks old); $out"
 
 echo "== a background agent that is exiting, being relaunched or asleep is skipped"
 U=$(uuid back); P=$(pid_of back)
@@ -244,6 +263,52 @@ printf 'sala-test-back\t%s\tsala-test-back\n' "$U" > "$SALA_SIDECAR"; sleeping_m
 out=$(only back); rc=$?; [ "$rc" = 1 ] && [ "$(asks back)" = 0 ] && has "$out" "asleep" && ok "--only honors it" || bad "only asleep: rc=$rc $out"
 rm -f "$SALA_SLEEP_DIR/$U" "$SALA_SIDECAR"
 out=$(SALA_NO_RELAUNCH=sala-test-back dry); has "$out" "sala-test-back: skipped: managed outside sala" && ok "SALA_NO_RELAUNCH: skipped" || bad "no relaunch: $out"
+export SALA_RC_SESSION=sala-test-back; skip_case "the Remote Control session" "the Remote Control session"; unset SALA_RC_SESSION
+U2=99999999-0000-4000-8000-000000000099   # the conversation the pane map holds, not the one the registry row is in
+printf 'sala-test-back\t%s\tsala-test-back\n' "$U2" > "$SALA_SIDECAR"; : > "$SALA_WAITING_DIR/$U2"; skip_case "a waiting flag under the pane map's id" "a relaunch waits for it (waiting flag)"; rm -f "$SALA_WAITING_DIR/$U2" "$SALA_SIDECAR"
+mkdir -p "$SALA_SET_DIR"; SET="$SALA_SET_DIR/1760000000-2"
+printf 'scope=test\nout=sala-test-back\n' > "$SET"; skip_case "an open relaunch set" "an open relaunch set (1760000000-2) waits for it"
+for st in running waiting; do
+    rm -f "$SET"; printf 'verb=recycle\nstate=%s\narg=sala-test-back\n' "$st" > "$SALA_STATE_DIR/ops/1760000000-3.op"; skip_case "a $st operation" "operation 1760000000-3 ($st) names it"
+done
+printf 'verb=recycle\nstate=done\narg=sala-test-back\n' > "$SALA_STATE_DIR/ops/1760000000-3.op"; printf 'scope=test\nout=sala-test-back\nclosed=1\n' > "$SET"
+: > "$HEARD"; rm -f "$STATE" "$RUN"/*.reload.json; pass >/dev/null
+[ "$(asks back)" = 1 ] && ok "a closed set and a done operation hold nobody" || bad "closed: asked $(asks back); $(cat "$WLOG")"
+rm -f "$SET" "$SALA_STATE_DIR/ops/1760000000-3.op"
+
+echo "== the whole pass stands aside"
+reset; out=$(SALA_TMUX_SOCKET="$TD/other.sock" pass; SALA_TMUX_SOCKET="$TD/other.sock" dry)
+[ ! -s "$HEARD" ] && has "$out" "not the fleet's tmux server: nothing is asked" && ok "another tmux server: nobody asked" || bad "other server: heard $(heard); $out"
+reset; printf 'reason=test\nowner_pid=%s\ntime=%s\n' "$$" "$(date +%s)" > "$SALA_LEDGER_FREEZE"
+pass >/dev/null; out=$(dry)
+[ ! -s "$HEARD" ] && has "$out" "standing aside: the pane map is frozen" && ok "the pane map frozen: nobody asked" || bad "frozen: heard $(heard); $out"
+rm -f "$SALA_LEDGER_FREEZE"
+
+echo "== idle wrap-up: a requested reload starts no new idle stretch"
+P=$(pid_of back)
+row() {  # <key=epoch seconds …> — those fields of back's registry row, in ms
+    python3 -I -c 'import json, sys
+f = sys.argv[1]; d = json.load(open(f))
+for a in sys.argv[2:]:
+    k, v = a.split("="); d[k] = int(v) * 1000
+json.dump(d, open(f, "w"))' "$HOME/.claude/sessions/$P.json" "$@"
+}
+turn_end() {  # <epoch s> — back's last turn ended then: the registry row's idle stamp and the Stop hook's record
+    row "statusUpdatedAt=$1"; mkdir -p "$SALA_BUSY_DIR"
+    printf 'id=t\nepoch=%s\nseen=\nseen_status=idle\ntasks=0\ncrons=0\nflip=%s000\n' "$1" "$1" > "$SALA_BUSY_DIR/$U"
+}
+wrapdry() { SALA_IDLE_WRAPUP=on SALA_IDLE_SETTLE=0 "$SALA" watch --wrapup --dry-run 2>&1 | grep '^sala-test-back:'; }
+printf 'sala-test-back\t%s\tsala-test-back\n' "$U" > "$SALA_SIDECAR"
+row "startedAt=$(( $(date +%s) - 7200 ))"
+reset; turn_end "$(( $(date +%s) - 3300 ))"; before=$(wrapdry)
+pass >/dev/null; row "statusUpdatedAt=$(date +%s)"; after=$(wrapdry)   # asked, and the command moved the stamp
+[ "$(asks back)" = 1 ] && has "$before" "the wrap-up would be typed now" && has "$after" "the wrap-up would be typed now" && ok "idle 55 minutes: wrapped up after a reload as before it" || bad "wrap: asked $(asks back); before '$before' after '$after'"
+reset; turn_end "$(( $(date +%s) - 4200 ))"; before=$(wrapdry)
+pass >/dev/null; row "statusUpdatedAt=$(date +%s)"; after=$(wrapdry)
+[ "$(asks back)" = 1 ] && has "$before" "past the warm window" && has "$after" "past the warm window" && ok "idle past the maximum age: left alone after a reload as before it" || bad "warm window: asked $(asks back); before '$before' after '$after'"
+turn_end "$(date +%s)"; after=$(wrapdry)
+has "$after" "of 3000s — not yet" && ok "a turn that ends afterwards starts a new idle stretch" || bad "after a turn: '$after'"
+rm -f "$SALA_BUSY_DIR/$U" "$SALA_SIDECAR"
 
 echo "== --only: one named background agent, with the setting off"
 reset; echo slow > "$TD/mode.back"
@@ -285,7 +350,7 @@ SALA_PLUGIN_RELOAD=on "$SALA" watch >/dev/null 2>&1
 
 echo "== the state file"
 [ "$(awk -F'\t' -v p="$(pid_of back):" 'index($1, p) == 1' "$STATE" | grep -c .)" = 1 ] && ok "one row per claude process" || bad "state: $(cat "$STATE")"
-printf '999999:1\t0\t0\t-\t0\t0\t-\t-\t-\t-\n' >> "$STATE"; nap 0.3; deploy demo@demo-market "$HOME/.claude" 0 1.3.0; pass >/dev/null
+printf '999999:1\t0\t0\t-\t0\t0\t-\t-\t-\t0\t0\t0\n' >> "$STATE"; nap 0.3; deploy demo@demo-market "$HOME/.claude" 0 1.3.0; pass >/dev/null
 grep -q '^999999:' "$STATE" && bad "a dead process's row stays: $(cat "$STATE")" || ok "a dead process's row goes at the next write"
 
 exit "$fail"

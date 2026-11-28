@@ -3,20 +3,28 @@
 # in it. sala reads the plugin install record and asks the pane's sala mod to run that command (mod verb `reload`,
 # mod/hooks/register.ts). No key is typed into a pane, --force is never added, and a pane whose mod cannot be asked is left alone:
 # it loads the new version at its next start.
-# WHO IS ASKED: only a pane of a BACKGROUND AGENT, a session nobody reads (the session registry's role back: back_lane_names back,
-# the test the back agents' lane rule uses). Every other pane (a front agent, a side session, a throwaway, a pane with no role,
-# the Remote Control session) is left alone and loads the new version at its next start. A background agent is skipped while it
-# is asleep, in SALA_NO_RELAUNCH, on the sdk lane, or exiting or being relaunched (paused for it, a waiting flag, the deferred
-# list, an open recycle set, a queued, running or waiting operation that names it). The whole pass stands aside while bare_busy does.
+# WHO IS ASKED: only a pane of a BACKGROUND AGENT, a session nobody reads: back_lane_names back, the test the back agents' lane
+# rule uses (a live session-registry row with no side whose role is back, or, for a row with no role, one that the project record,
+# else the roles file, counts as back). Every other pane (a front agent, a side session, a pane none of these calls a background
+# agent, the Remote Control session) is left alone and loads the new version at its next start. A background agent is skipped while
+# it is asleep, in SALA_NO_RELAUNCH, a Remote Control served session, on the sdk lane, or exiting or being relaunched (paused for
+# it, a waiting flag, the deferred list, an open recycle set, a queued, running or waiting operation that names it). The whole pass
+# stands aside while bare_busy does.
 # STALE: the newest `lastUpdated` of a plugin named in SALA_PLUGIN_RELOAD_IDS, in <the pane's config directory>/plugins/
-# installed_plugins.json, is later than both the start of the pane's claude and its last confirmed reload, and the installed
-# versions (each named entry's version and commit) are not the ones that reload was asked for: one confirmed reload per
-# plugin version, and a record that is only rewritten asks nobody again.
+# installed_plugins.json, is later than the pane's last confirmed reload, and the installed versions (each named entry's version
+# and commit) are neither the ones that reload was asked for nor ones a pass saw installed before the pane's claude started: one
+# confirmed reload per plugin version, and a record rewritten with the same versions asks nobody again (a pane with no confirmed
+# reload, which no pass saw between its start and the rewrite, can be asked once).
 # THE ASK: no idle gate (the command waits behind a running turn or an open dialog and leaves a typed draft alone). The mod answers
 # "accepted" at once and writes <sessionId>.reload.json {begun, ok, text} once the command has run; ok only for an answer that
-# starts "Reloaded:" (a reload that replaced the mod itself is answered ok by the mod's new copy). Not confirmed after SALA_PLUGIN_RELOAD_RETRY s (1800): asked again. Another answer: logged, asked again
-# after that long, at most SALA_PLUGIN_RELOAD_TRIES (3) such answers per plugin version. At most SALA_PLUGIN_RELOAD_MAX (10) panes are
-# asked per pass.
+# starts "Reloaded:" (a reload that replaced the mod itself is answered ok by the mod's new copy, and so is a copy loaded for another
+# reason while the request waits: mod/hooks/register.ts). Another answer is logged. With no reload confirmed the pane is asked again
+# SALA_PLUGIN_RELOAD_RETRY s (1800) later, at most SALA_PLUGIN_RELOAD_TRIES (3) requests per plugin version, whatever came of them
+# (no answer, another answer, a queued command that an interrupt dropped). A mod that answers that it does not know the verb is not
+# asked again while that claude runs. At most SALA_PLUGIN_RELOAD_MAX (10) panes are asked per pass.
+# IDLE WRAP-UP (lib/wrapup.sh): a reload moves the registry row's idle stamp, which wrap-up reads as the idle age. For a pane asked
+# here it reads the stamp of before the reload instead (reload_idle_stamp_r), so that a reload does not change what it decides.
+# Every other reader (a relaunch's idle check, idle sleep) sees the moved stamp, which the Stop hook's record is not current for.
 # KNOBS: SALA_PLUGIN_RELOAD is OFF by default; SALA_PLUGIN_RELOAD_IDS ("<plugin>@<marketplace> …", spaces or commas) is empty by
 # default, so no pane is stale until the config names a plugin. `--only <session>` asks that one background agent now, on or off
 # and stale or not (a trial), under the same exclusions, and waits up to SALA_PLUGIN_RELOAD_WAIT s (20) for the answer.
@@ -25,14 +33,17 @@
 : "${SALA_PLUGIN_RELOAD:=off}" "${SALA_PLUGIN_RELOAD_IDS:=}" "${SALA_PLUGIN_RELOAD_MAX:=10}" "${SALA_PLUGIN_RELOAD_RETRY:=1800}" "${SALA_PLUGIN_RELOAD_TRIES:=3}" "${SALA_PLUGIN_RELOAD_WAIT:=20}"
 SALA_PLUGIN_STATE="$SALA_STATE_DIR/plugin-reload.tsv"
 RELOAD_DRY=0; RELOAD_ONLY=""; RELOAD_GOT=""
+RELOAD_OLDMOD="its sala mod does not know reload (older than this sala): not asked again while this claude runs, it loads the new version at its next start"
 
 reload_on() { case "${SALA_PLUGIN_RELOAD:-off}" in on|1|yes|true) return 0;; esac; return 1; }   # off by default; only an explicit on turns it on
 _reload_shown() { [ "$RELOAD_DRY" = 1 ] || [ -n "$RELOAD_ONLY" ]; }   # a dry run and --only print their lines
 
-# THE FUNCTIONS BELOW read and write the caller's row (r_ask r_stamp r_sid r_done r_tries r_try r_why r_ver r_donev): the last
-# request's epoch second, the install stamp (ms) and session id it was for, the begun (ms) of the last confirmed reload, the
-# refusals counted and the versions they count for, the skip reason last logged, the versions last asked for and the versions
-# of the last confirmed reload ("versions": the hash _reload_stamp_r gives; "-" for none).
+# THE FUNCTIONS BELOW read and write the caller's row (r_ask r_stamp r_sid r_done r_asks r_why r_ver r_donev r_old r_first r_idle):
+# the last request's epoch second, the install stamp (ms) and session id it was for, the begun (ms) of the last confirmed reload,
+# the requests sent for the versions last asked for with no reload confirmed, the skip reason last logged, those versions, the
+# versions this process has (confirmed, or installed before it started; "versions": the hash _reload_stamp_r gives; "-" for none),
+# 1 once its mod answered that it does not know reload, the epoch second of the first request its mod took, and its idle stamp (ms)
+# as it stood at the last such request that found it idle.
 
 # _reload_say <session> <reason key> <words> — why a pane is not asked: printed by a dry run and --only, logged when the reason changes
 _reload_say() {
@@ -67,13 +78,39 @@ _reload_save() {
 }
 _reload_row_get() {  # <key>
     local row=${RL[$1]:-}
-    [ -n "$row" ] || row=$'0\t0\t-\t0\t0\t-\t-\t-\t-'
-    IFS=$'\t' read -r r_ask r_stamp r_sid r_done r_tries r_try r_why r_ver r_donev <<< "$row"
+    [ -n "$row" ] || row=$'0\t0\t-\t0\t0\t-\t-\t-\t0\t0\t0'
+    IFS=$'\t' read -r r_ask r_stamp r_sid r_done r_asks r_why r_ver r_donev r_old r_first r_idle <<< "$row"
 }
 _reload_row_put() {  # <key> — saved at once, only when the row changed
-    local row="$r_ask"$'\t'"$r_stamp"$'\t'"$r_sid"$'\t'"$r_done"$'\t'"$r_tries"$'\t'"$r_try"$'\t'"$r_why"$'\t'"$r_ver"$'\t'"$r_donev"
+    local row="$r_ask"$'\t'"$r_stamp"$'\t'"$r_sid"$'\t'"$r_done"$'\t'"$r_asks"$'\t'"$r_why"$'\t'"$r_ver"$'\t'"$r_donev"$'\t'"$r_old"$'\t'"$r_first"$'\t'"$r_idle"
     [ "${RL[$1]:-}" = "$row" ] && return 0
     RL[$1]=$row; _reload_save
+}
+
+# reload_idle_stamp_r <var> <claude-pid> <conversation> <registry statusUpdatedAt, ms> → in <var> the stamp idle wrap-up reads in
+# place of the registry's; empty to read the registry's. Only for a process whose mod took a request, and a stamp moved since the
+# first one: then the later of the idle flip the Stop hook recorded for the last turn (its time when no flip is recorded yet) and
+# the idle stamp seen at a request. A turn that ends after a reload writes a newer record, and the two stamps agree again; one that
+# ends without that hook (interrupted) is read from the turn before it.
+reload_idle_stamp_r() {
+    local _v=$1 _pid=$2 _conv=$3 _stamp=$4 _ticks _then
+    local r_ask r_stamp r_sid r_done r_asks r_why r_ver r_donev r_old r_first r_idle
+    local -A RL=()
+    printf -v "$_v" %s ""
+    [ -n "$_conv" ] && [[ $_stamp =~ ^[0-9]{13}$ ]] || return 0
+    _reload_load
+    [ "${#RL[@]}" -gt 0 ] || return 0
+    _ticks=$(proc_start_ticks "$_pid" 2>/dev/null) || _ticks=0
+    _reload_row_get "$_pid:$_ticks"
+    [ "$r_first" -gt 0 ] && [ "$_stamp" -ge $(( r_first * 1000 )) ] || return 0
+    _kv_first_r _then "$SALA_BUSY_DIR/$_conv" flip
+    if ! [[ $_then =~ ^[0-9]{13}$ ]]; then
+        _kv_first_r _then "$SALA_BUSY_DIR/$_conv" epoch
+        [[ $_then =~ ^[0-9]{10}$ ]] || return 0
+        _then=${_then}000
+    fi
+    [ "$r_idle" -le "$_then" ] || _then=$r_idle
+    [ "$_then" -ge "$_stamp" ] || printf -v "$_v" %s "$_then"
 }
 
 # _reload_stamp_r <var> <config dir> → "<epoch ms> <versions> <plugin id> <version>": the newest install or update of a watched plugin
@@ -106,7 +143,7 @@ if best: print(best[0], hashlib.sha256("\n".join(sorted(have)).encode()).hexdige
 # the request went to, or the current one) into the row, and removes it (a dry run leaves it). An answer begun before this process
 # started is an earlier one's. RELOAD_GOT: ok | refused for an answer to the last request, empty otherwise
 _reload_collect() {
-    local sess=$1 cur=$2 startms=$3 sid d f c ok begun text seen=" "
+    local sess=$1 cur=$2 startms=$3 sid d f c ok begun text of seen=" "
     RELOAD_GOT=""
     for sid in "$r_sid" "$cur"; do
         case "$sid" in -|""|null|*/*) continue;; esac
@@ -120,16 +157,14 @@ _reload_collect() {
             text=$(mod_reply_field "$c" text); text=${text//[$'\t\r\n']/ }; text=${text:0:200}
             if [ "$ok" = true ]; then
                 [ "$begun" -le "$r_done" ] || r_done=$begun
-                [ "$begun" -lt "$r_stamp" ] || r_donev=$r_ver
-                r_tries=0; r_why=-
+                [ "$begun" -lt "$r_stamp" ] || { r_donev=$r_ver; r_asks=0; }
+                r_why=-
                 _reload_event "$sess" "the reload ran: $text"
             else
-                # counted against the install it was asked for; an answer from before that install says nothing about it
+                # an answer from before the install last asked for says nothing about it
                 if [ "$begun" -ge "$r_stamp" ]; then
-                    [ "$r_try" = "$r_ver" ] || { r_try=$r_ver; r_tries=0; }
-                    r_tries=$((r_tries + 1))
-                    _reload_event "$sess" "the reload did not run (answer $r_tries of $SALA_PLUGIN_RELOAD_TRIES for this version): ${text:-no words}"
-                    [ "$r_tries" -lt "$SALA_PLUGIN_RELOAD_TRIES" ] || _reload_event "$sess" "not asked again for this version; it loads it at its next start, or is asked after the next one"
+                    of=" of $SALA_PLUGIN_RELOAD_TRIES"; [ "$r_asks" -le "$SALA_PLUGIN_RELOAD_TRIES" ] || of=""   # --only asks past the limit
+                    _reload_event "$sess" "the reload did not run (request $r_asks$of for this version): ${text:-no words}"
                 else
                     _reload_event "$sess" "an earlier reload did not run: ${text:-no words}"
                 fi
@@ -171,7 +206,7 @@ _reload_skip_r() {
 # _reload_ask <session> <claude-pid> <session id> <install stamp ms> <versions> <words> → 0 a request went out and was accepted (or, in a dry run,
 # would be sent), 4 sent with no reply yet, 1 sent and refused, 3 no mod to ask (nothing sent)
 _reload_ask() {
-    local sess=$1 pid=$2 sid=$3 ms=$4 vers=$5 words=$6 now start target rc reason
+    local sess=$1 pid=$2 sid=$3 ms=$4 vers=$5 words=$6 now start target rc reason st conv idle="" held
     _now_r now
     if [ "$RELOAD_DRY" = 1 ]; then
         start=$(( now - $(proc_etime "$pid" 2>/dev/null || echo 0) ))
@@ -179,15 +214,25 @@ _reload_ask() {
         case "$target" in "-"$'\t'*|"") _reload_say "$sess" nomod "no sala mod to ask (${target#*$'\t'}): it loads the new version at its next start"; return 3;; esac
         echo "$sess: would be asked to reload ($words)"; return 0
     fi
+    # an idle pane's stamp as it is before the command can move it, for idle wrap-up
+    registry_field_r st "$pid" status
+    if [ "$st" = idle ]; then
+        registry_field_r idle "$pid" statusUpdatedAt; registry_conv_r conv "$pid"
+        reload_idle_stamp_r held "$pid" "$conv" "$idle"; idle=${held:-$idle}
+        [[ $idle =~ ^[0-9]{13}$ ]] || idle=""
+    fi
     mod_request "$pid" reload; rc=$?
     [ "$rc" = 3 ] && { _reload_say "$sess" nomod "no sala mod to ask ($MOD_WHY): it loads the new version at its next start"; return 3; }
     mod_log "reload $sess via mod ($MOD_WHY)"
-    r_ask=$now; r_stamp=$ms; r_sid=${sid:--}; r_ver=$vers
+    [ "$r_ver" = "$vers" ] || r_asks=0
+    r_ask=$now; r_stamp=$ms; r_sid=${sid:--}; r_ver=$vers; r_asks=$((r_asks + 1))
     case "$rc" in
-        0) r_why=-; _reload_event "$sess" "asked to reload ($words)";;
-        4) r_why=-; _reload_event "$sess" "asked to reload ($words), $MOD_WHY: its answer is read at a later pass";;
+        0|4) r_why=-; r_old=0; r_idle=${idle:-$r_idle}
+             [ "$r_first" -gt 0 ] || r_first=$now
+             if [ "$rc" = 0 ]; then _reload_event "$sess" "asked to reload ($words)"
+             else _reload_event "$sess" "asked to reload ($words), $MOD_WHY: its answer is read at a later pass"; fi;;
         *) reason=$(mod_reply_field "$MOD_REPLY" reason)
-           if [ "$reason" = unknown ]; then _reload_say "$sess" oldmod "its sala mod does not know reload (older than this sala): it loads the new version at its next start"
+           if [ "$reason" = unknown ]; then r_old=1; _reload_say "$sess" oldmod "$RELOAD_OLDMOD"
            else _reload_say "$sess" "mod:$reason" "its sala mod refused the request (${reason:-no reason})"; fi;;
     esac
     return "$rc"
@@ -196,7 +241,7 @@ _reload_ask() {
 # one background agent's pane in a pass: <session> <claude-pid>. Uses the caller's RL, stampc, idv and acts
 _reload_pane() {
     local sess=$1 pid=$2 ticks key sid="" cfg stamp="" ms=0 vers=- plug="" ver="" now start why rc words i dirs
-    local r_ask r_stamp r_sid r_done r_tries r_try r_why r_ver r_donev
+    local r_ask r_stamp r_sid r_done r_asks r_why r_ver r_donev r_old r_first r_idle
     ticks=$(proc_start_ticks "$pid" 2>/dev/null) || ticks=0
     key="$pid:$ticks"; _reload_row_get "$key"
     registry_field_r sid "$pid" sessionId; [ "$sid" != null ] || sid=""
@@ -208,6 +253,8 @@ _reload_pane() {
         [ -z "$stamp" ] || read -r ms vers plug ver <<< "$stamp"
     fi
     _reload_collect "$sess" "$sid" $(( (start - 2) * 1000 ))
+    # versions installed before this claude started are the ones it loaded: kept, so that the record rewritten later asks nobody
+    if [ -n "$stamp" ] && [ "$ms" -le $(( start * 1000 )) ]; then r_donev=$vers; fi
     _reload_skip_r why "$sess" "$pid"
     if [ -n "$why" ]; then
         _reload_say "$sess" "skip:${why// /_}" "skipped: $why"
@@ -233,10 +280,12 @@ _reload_pane() {
     fi
     if [ -z "$stamp" ]; then
         _reload_say "$sess" nostamp "no watched plugin in $cfg/plugins/installed_plugins.json"
-    elif [ "$ms" -le $(( start * 1000 )) ] || [ "$ms" -le "$r_done" ] || [ "$vers" = "$r_donev" ]; then
+    elif [ "$ms" -le "$r_done" ] || [ "$vers" = "$r_donev" ]; then
         if [ "$RELOAD_DRY" = 1 ]; then echo "$sess: current ($plug $ver was there at its start or at its last reload)"; else r_why=-; fi
-    elif [ "$r_try" = "$vers" ] && [ "$r_tries" -ge "$SALA_PLUGIN_RELOAD_TRIES" ]; then
-        _reload_say "$sess" "gaveup:$vers" "$plug $ver: not asked again after $r_tries answers that were no reload; it loads at its next start or after the next update"
+    elif [ "$r_old" = 1 ]; then
+        _reload_say "$sess" oldmod "$RELOAD_OLDMOD"
+    elif [ "$r_ver" = "$vers" ] && [ "$r_asks" -ge "$SALA_PLUGIN_RELOAD_TRIES" ]; then
+        _reload_say "$sess" "gaveup:$vers" "$plug $ver: not asked again after $r_asks requests with no confirmed reload; it loads at its next start, or is asked after the next update"
     elif [ "$r_ask" -gt 0 ] && [ "$r_ver" = "$vers" ] && [ $(( now - r_ask )) -lt "$SALA_PLUGIN_RELOAD_RETRY" ]; then
         [ "$RELOAD_DRY" = 1 ] && echo "$sess: asked $(( (now - r_ask) / 60 )) min ago, no reload confirmed: asked again after $(( SALA_PLUGIN_RELOAD_RETRY / 60 )) min"
     elif [ "$acts" -ge "$SALA_PLUGIN_RELOAD_MAX" ]; then

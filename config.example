@@ -255,15 +255,16 @@
 #SALA_CLEAR_WAIT=20              # seconds to wait for the registry row to show the new conversation after /clear
 #SALA_CLEAR_TRIES=3              # /clear is typed this many times before the pane is recorded as failed (no second wrap-up until a new turn)
 #SALA_CLEAR_CONTEXT=on           # hook session-start, source clear: one line telling a cleared background agent who it is and where its mandate is. off = nothing printed
-#SALA_PLUGIN_RELOAD=off          # watch (lib/plugin-reload.sh): OFF by default; on|1|yes|true turns it on. When on, after an update of a plugin named below the pane of each BACKGROUND AGENT (role back in
-                                 #   the session registry, never a side session: sessions nobody reads) is asked through its sala mod to run /reload-plugins, so it gets the new hooks and skill text. Every other
-                                 #   pane is left alone and loads the new version at its next start; so is a background agent that is asleep, in SALA_NO_RELAUNCH, on the sdk lane, or exiting or being relaunched,
-                                 #   and a pane with no sala mod or an older one. Nothing is typed into a pane and --force is never added. See the list first: `sala watch --plugins --dry-run`; try one
+#SALA_PLUGIN_RELOAD=off          # watch (lib/plugin-reload.sh): OFF by default; on|1|yes|true turns it on. When on, after an update of a plugin named below the pane of each BACKGROUND AGENT (a session
+                                 #   nobody reads: the session registry's role back, or, with no role there, one the project record or the roles file counts as back; never a side session) is asked through its sala mod to
+                                 #   run /reload-plugins, so it gets the new hooks and skill text. Every other pane is left alone and loads the new version at its next start; so is a background agent that is asleep, in
+                                 #   SALA_NO_RELAUNCH, a Remote Control served session, on the sdk lane, or exiting or being relaunched, and a pane with no sala mod. A pane whose sala mod is older than this request is asked
+                                 #   once and not again while its claude runs. Nothing is typed into a pane and --force is never added. See the list first: `sala watch --plugins --dry-run`; try one
                                  #   background agent, on or off: `sala watch --plugins --only <session>`
 #SALA_PLUGIN_RELOAD_IDS=""        # the plugins watched, "<plugin>@<marketplace> …" (spaces or commas), as <config dir>/plugins/installed_plugins.json names them; empty = no pane is ever stale
 #SALA_PLUGIN_RELOAD_MAX=10        # panes asked per pass
 #SALA_PLUGIN_RELOAD_RETRY=1800    # seconds before a request with no confirmed reload is repeated
-#SALA_PLUGIN_RELOAD_TRIES=3       # answers that are no reload before that plugin version is given up on (until the next version, or the pane's next start)
+#SALA_PLUGIN_RELOAD_TRIES=3       # requests per plugin version with no confirmed reload, whatever came of them, before the pane is not asked again for it (until the next version, or its next start)
 #SALA_PLUGIN_RELOAD_WAIT=20       # seconds `sala watch --plugins --only <session>` waits for the answer
 #SALA_IDLE_SLEEP=off            # watch (lib/wrapup.sh sleep_tick): OFF by default; on|1|yes|true turns it on. When on, each watch run puts INACTIVE PROJECTS to sleep (`sala sleep --project`: every session of the
                                  #   project, front agents too, has its claude ended; its tmux session and pane-map row stay, `sala wake NAME` resumes it). A project sleeps only when it is quiet (no external anchor
