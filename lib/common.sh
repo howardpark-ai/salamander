@@ -2713,8 +2713,8 @@ relaunch_text() {  # <what words> [claude-pid] [over] [tmux session] → the lin
 # text points there or says less). The relaunch waits for the subagent in every case. The words add the pause only when one is to come: SALA_PAUSE_AFTER
 # above 0 and below SALA_HOLD_MAX (pause_within_cap), this relaunch not past the cap (`over`, or hold_over), the session in SALA_PAUSE_SCOPE (the
 # session is the argument, else the caller's own pane; none found with a scope that is not `all` counts as not in scope), the session not one that
-# is never paused (SALA_NO_PAUSE, or the pane of SALA_SKIP_PANE / SALA_NO_PAUSE_PANE). The refusals that depend on the pane at that moment (a person
-# attached, unsent text, a dialog, a sala op of its own) are one clause in the pause sentence; docs/recycle.md lists them all. With SALA_STOP_NOTICE off
+# is never paused (SALA_NO_PAUSE). The refusals that depend on the pane or the caller (the pane the recycle runs from, the pane that asked for the
+# relaunch, a person attached, unsent text, a dialog) are one clause in the pause sentence, because the callers do not know them; docs/recycle.md lists them all. With SALA_STOP_NOTICE off
 # there is no notice to count from, so the clock is the wait itself.
 subagents_block() {
     local l n=0 out="" a w pause=1 sess="${3:-}" u=""
@@ -2731,19 +2731,11 @@ subagents_block() {
         [ -n "$sess" ] || sess=$(ancestry_session 2>/dev/null) || sess=""
         if [ "${SALA_PAUSE_SCOPE:-all}" != all ]; then [ -n "$sess" ] && pause_scope_ok "$sess" || pause=0; fi
     fi
-    if [ "$pause" = 1 ] && [ -n "$sess" ]; then
-        # a pane pause_refusal_r never interrupts, whatever its state: SALA_NO_PAUSE, the pane this recycle runs from, the pane that asked for it
-        local pn=""
-        pause_no "$sess" && pause=0
-        if [ "$pause" = 1 ] && { [ -n "${SALA_SKIP_PANE:-}" ] || [ -n "${SALA_NO_PAUSE_PANE:-}" ]; }; then
-            pn=$(tmux display -p -t "$(tmux_win_t "$sess")" '#{pane_id}' 2>/dev/null) || pn=""
-            [ -z "$pn" ] || { [ "$pn" != "${SALA_SKIP_PANE:-}" ] && [ "$pn" != "${SALA_NO_PAUSE_PANE:-}" ]; } || pause=0
-        fi
-    fi
+    [ "$pause" = 0 ] || [ -z "$sess" ] || ! pause_no "$sess" || pause=0   # SALA_NO_PAUSE: never paused
     if [ "$pause" = 1 ]; then
         if pause_notice_off; then w="the relaunch follows once it ends; if it still runs $(hold_span "$a") into the wait, the pause stops it with the exit"
         else w="the relaunch follows once it ends; if it still runs $(hold_span "$a") after the notice, the pause stops it with the exit"; fi
-        w+=" unless a person is at the pane, the pane holds unsent text or a dialog is open"
+        w+=" unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, or the pane holds unsent text or a dialog is open"
     else w="no pause is tried for it, so the relaunch follows once it ends"; fi
     { printf 'Holding the relaunch: %s running in this session (%s):\n%s' "$(plural "$n" subagent)" "$w" "$out"
       printf '%s\n' "End one you do not need from this session (TaskStop <its id> when the CLI lists it, or let it finish); a subagent no task list shows ends only with its work."; } 2>/dev/null

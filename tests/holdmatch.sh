@@ -125,7 +125,7 @@ STOPS="the pause stops it with the exit"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
     && has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" && ok "pausing off: the relaunch notice names it and says it waits for its end, with no pause" || bad "notice: $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all relaunch_text recycle "$K1"); has "$n" "subagent builder: Build the package move" \
-    && has "$n" "if it still runs 1 min after the notice, $STOPS" && has "$n" "$STOPS unless a person is at the pane, the pane holds unsent text or a dialog is open" && ! has "$n" "$NOPAUSE" && ok "pausing on: the notice says when the pause stops it, unless a person, unsent text or a dialog is there" || bad "notice (pause on): $n"
+    && has "$n" "if it still runs 1 min after the notice, $STOPS" && has "$n" "$STOPS unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, or the pane holds unsent text or a dialog is open" && ! has "$n" "$NOPAUSE" && ok "pausing on: the notice says when the pause stops it, unless it is the recycle or requesting pane, a person, unsent text or a dialog is there" || bad "notice (pause on): $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_STOP_NOTICE=off relaunch_text recycle "$K1"); has "$n" "if it still runs 1 min into the wait, $STOPS" && ! has "$n" "after the notice" \
     && ok "stop notice off: the pause is counted from the wait, with no notice named" || bad "notice (notice off): $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_HOLD_MAX=60 relaunch_text recycle "$K1"); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \

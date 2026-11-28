@@ -191,10 +191,10 @@ recycles was counted back in only one and the other set stayed open. Now:
   - *When the pause stops a subagent.* A relaunch always waits for a running subagent to end; only a pause can stop one, and the text `sala` gives
     a session (the relaunch notice, `sala ready`: `subagents_block` in `lib/common.sh`, the one place that works it out) says so only when a pause
     is to come for that pane and relaunch. None comes when `SALA_PAUSE_AFTER` is `0`/`off` or `SALA_PAUSE_SCOPE=off`, when `SALA_PAUSE_AFTER` is at or
-    above `SALA_HOLD_MAX`, when the session is outside `SALA_PAUSE_SCOPE`, when the relaunch has waited past `SALA_HOLD_MAX`, or when the pane is
-    one of those that is never paused (`SALA_NO_PAUSE`, the pane the recycle runs from, the pane that asked for the relaunch). Where the pane's state at that
-    moment decides (a person attached within `SALA_PAUSE_QUIET`, unsent text, a dialog open, a `sala op` of its own), the text says the pause stops the
-    subagent unless a person is at the pane, the pane holds unsent text or a dialog is open. With `SALA_STOP_NOTICE=off` a pause still comes, counted from the start of the wait and with no notice.
+    above `SALA_HOLD_MAX`, when the session is outside `SALA_PAUSE_SCOPE`, when the relaunch has waited past `SALA_HOLD_MAX`, or when the session is
+    in `SALA_NO_PAUSE`. The callers of the text cannot tell which pane ran the recycle or asked for the relaunch, and the pane's state at that
+    moment decides the rest (a person attached within `SALA_PAUSE_QUIET`, unsent text, a dialog open), so it says the pause stops the subagent unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, or the pane holds unsent
+    text or a dialog is open (a pane running a `sala op` of its own is not named). With `SALA_STOP_NOTICE=off` a pause still comes, counted from the start of the wait and with no notice.
   - *The interrupt* is one Escape, sent only to a pane whose registry row says busy, that shows no dialog (a second Escape on an idle
     box can open the CLI's rewind menu) and whose own turn is seen running: the CLI's "esc to interrupt" hint below the input box, or,
     for a pane too narrow to show it, the in-session mod naming the main loop. **A busy row alone is no running turn**: it stays busy
