@@ -8,7 +8,10 @@ put in by the test), at 1280 x 800 and 390 x 844:
   - a press on reply puts the line over the composer, where it can be taken away; a message sent with it there names the line and takes its row off the list,
     one sent without it takes nothing, and a refused send or a command takes nothing;
   - the jump lights the reply in the thread;
-  - a press on confirm posts, the line leaves the file and the row leaves the list, the others staying;
+  - a press on confirm posts, the line leaves the file and the row leaves the list, the others staying; a second press while the first is on its way posts
+    nothing and says nothing;
+  - the reference over the composer goes when its line does (confirmed here or elsewhere, or the chat session set to another), from the browser's storage
+    too; one that Edit gave back from a message the server had stays;
   - a confirm the server refuses says so under the tabs, the row staying, and the next confirm that works takes the line of words away;
   - the bar's one (?) says what the open list holds: for the first list the note on the moves, the note on the done lines, or both on lines of their own (with
     nothing in it, the one on the moves), for the second list its own note; a read that changes which notes those are shuts the box, any other leaves it;
@@ -27,6 +30,7 @@ import pytest
 
 from conftest import transcript_file
 from sala_web import chatpage as CP
+from sala_web import motion as MO
 from test_board_items_ui import wait_for
 from test_chat_motion_done import filler_line, reply_line, write_motion
 from test_chat_onit_ui import HELP_BTN, MOVE_NOTE, MOVE_PANEL, MOVE_TAB, NOTE, ONIT_TAB, PIN, click, phone, waiting
@@ -129,6 +133,19 @@ def test_a_refused_confirm_says_so_and_the_row_stays(served, browser, monkeypatc
     assert browser.evaluate(ROWS)["err"] == [] and kept(served) == [LINKED, "Still open"]
 
 
+def test_a_double_press_on_confirm_posts_once_and_says_nothing(served, browser, monkeypatch):
+    open_mine(browser, served, monkeypatch, DESKTOP)
+    browser.evaluate("""(() => { const real = window.fetch.bind(window); window.__posts = 0;
+      window.fetch = (url, opts) => { if (!String(url).startsWith('api/chat/motion/confirm')) return real(url, opts);
+        window.__posts += 1; return new Promise((done) => { window.__go = () => real(url, opts).then(done); }); }; return ''; })()""")
+    click(browser, confirm_button(JUMPED))
+    click(browser, confirm_button(JUMPED))
+    assert browser.evaluate("window.__posts") == 1
+    browser.evaluate("window.__go(); ''")
+    assert wait_for(browser, f"document.querySelectorAll('#{MOVE_PANEL} .wait-row').length === 3", 15.0)
+    assert browser.evaluate(ROWS)["err"] == [] and browser.evaluate("window.__posts") == 1 and kept(served) == [LINKED, "Still open"]
+
+
 # The reference over the composer: whether it shows, and its line.
 REF = """(() => { const r = document.querySelector('#reply-ref');
   return [!r.hidden && r.getClientRects().length > 0, document.querySelector('#reply-ref-line').textContent]; })()"""
@@ -185,6 +202,49 @@ def test_a_reply_names_its_line_over_the_composer_and_once_sent_takes_that_row_a
     assert (last["text"], last["own"], last["reply"]["text"]) == (f"{HEAD}{JUMPED}\ngo on", "go on", JUMPED), last
     assert browser.evaluate(REF) == [False, ""]
     assert wait_for(browser, "document.querySelector('#chat').textContent.includes('In reply to the done')", 15.0)
+
+
+STORED = "localStorage.getItem('salaweb.reply.' + state.selected)"
+
+
+def test_the_reply_reference_goes_when_its_line_does(served, browser, monkeypatch):
+    open_mine(browser, served, monkeypatch, DESKTOP)
+    # confirmed here
+    click(browser, row_button(JUMPED, "reply"))
+    assert browser.evaluate(REF) == [True, JUMPED] and browser.evaluate(f"!!{STORED}") is True
+    click(browser, confirm_button(JUMPED))
+    assert wait_for(browser, f"document.querySelector('#reply-ref').hidden && {STORED} === null", 15.0), browser.evaluate(REF)
+    # confirmed on another device: the next read takes it away
+    click(browser, row_button(LINKED, "reply"))
+    browser.evaluate("loadChatMarks(); ''")
+    assert browser.evaluate(REF) == [True, LINKED]
+    line = next(r for r in MO.read_lines(served["settings"].motion_dir, served["name"]) if r["text"] == LINKED)
+    assert MO.confirm(served["settings"].motion_dir, served["name"], LINKED, line["at"]) == "ok"
+    browser.evaluate("loadChatMarks(); ''")
+    assert wait_for(browser, f"document.querySelector('#reply-ref').hidden && {STORED} === null", 15.0), browser.evaluate(REF)
+
+
+def test_the_reply_reference_goes_when_the_session_stops_being_the_chat(served, browser, monkeypatch):
+    open_mine(browser, served, monkeypatch, DESKTOP)
+    click(browser, row_button(JUMPED, "reply"))
+    assert browser.evaluate(REF) == [True, JUMPED]
+    monkeypatch.setenv("SALA_CHAT_SESSION", "another-chat")
+    browser.evaluate("loadChatMarks(); ''")
+    assert wait_for(browser, f"document.querySelector('#reply-ref').hidden && {STORED} === null", 15.0), browser.evaluate(REF)
+
+
+def test_an_edited_reply_keeps_its_reference_though_its_line_was_taken(served, browser, monkeypatch):
+    open_mine(browser, served, monkeypatch, DESKTOP)
+    click(browser, row_button(JUMPED, "reply"))
+    say(browser, "go on")
+    assert wait_for(browser, f"document.querySelectorAll('#{MOVE_PANEL} .wait-row').length === 3", 15.0), browser.evaluate(ROWS)
+    edit = "[...document.querySelectorAll('#chat > .msg.local .note-actions button')].find((b) => b.textContent === 'Edit')"
+    assert wait_for(browser, f"!!{edit}", 15.0)
+    click(browser, edit)
+    assert wait_for(browser, "getText() === 'go on'", 15.0) and browser.evaluate(REF) == [True, JUMPED]
+    browser.evaluate("window.__read = chatView.data; loadChatMarks(); ''")
+    assert wait_for(browser, "chatView.data !== window.__read && !chatView.reading", 15.0)
+    assert browser.evaluate(REF) == [True, JUMPED]
 
 
 # Every target of the first list (the moves' title links, each done row's result, reply and confirm button): its box, the pairs whose boxes cross, and, scrolled to the

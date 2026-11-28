@@ -385,7 +385,7 @@ async function saveList(key, compute) {
      switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
    Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to /s/<the session> (app.py). */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
-const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move" };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches
+const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move", confirming: new Set() };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches; confirming: the done lines whose confirm is on its way or taken
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
 // the owner's count in the first list: his moves (stackshot's list) and the session's done lines waiting for his confirm (api/chat `mine`)
 const chatMoveCount = (d) => (d.waiting || []).length + (d.mine || []).length;
@@ -414,6 +414,7 @@ function chatMarks(d) {
   if (!d || typeof d !== "object") return;
   const was = chatEntryOn(), label = chatLabelKey(), wasHere = isChatRow(state.current);   // wasHere: the open session wore the label before this answer
   chatView.data = d;
+  dropGoneReplyRef(d);
   if (d.configured) {
     const ids = new Set((d.waiting || []).map((w) => w.id));
     if (chatView.seen === null) chatView.seen = ids;
@@ -678,21 +679,30 @@ function chatMineRow(m, d) {
     meta.push(go);
   }
   const ok = el("button", { type: "button", class: "mine-confirm", ...tx("chat.mine.confirm") });
-  ok.addEventListener("click", () => confirmMine(m));
+  ok.addEventListener("click", () => confirmMine(d.session, m));
   const reply = el("button", { type: "button", class: "mine-reply", ...tx("chat.mine.reply"), ...tx("chat.mine.replyTip", null, "title") });
   reply.addEventListener("click", () => { setReplyRef(d.session, { text: m.text, at: m.at }); clearStatus(); focusEnd(); });
   meta.push(el("span", { class: "mine-acts" }, reply, ok));
   const subj = el("span", { class: "wait-subj" }, el("span", { class: "wait-title", text: m.text }), el("span", { class: "wait-meta" }, ...meta));
   return el("li", { class: "wait-row mine-row" }, subj);
 }
-// the owner's confirm: the server removes the line (POST, the same guard as the other posts). A refusal (already confirmed, no such line) or a failure says so, and the list is read again
-async function confirmMine(m) {
-  const u = chatView.ui;
+// the owner's confirm: the server removes the line (POST, the same guard as the other posts). A refusal (already confirmed, no such line) or a failure says so, and the list is read again.
+// One confirm a line: a second press while it is on its way, or while its row waits for the read that takes it off, posts nothing; after a failure the line can be pressed again
+async function confirmMine(session, m) {
+  const u = chatView.ui, key = JSON.stringify([m.text, m.at, m.done]);
+  if (chatView.confirming.has(key)) return;
+  chatView.confirming.add(key);
   u.waitNote.textContent = "";
   try {
     const r = await apiFetch("api/chat/motion/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: m.text, at: m.at }) }, { tries: 1 });
-    if (r.ok) { loadChatMarks(); return; }
+    if (r.ok) {
+      const ref = replyRef(session);
+      if (ref && ref.text === m.text && ref.at === m.at) setReplyRef(session, null);
+      loadChatMarks();
+      return;
+    }
   } catch { /* the failure is said below */ }
+  chatView.confirming.delete(key);
   u.waitNote.textContent = tl("chat.mine.fail");
   loadChatMarks();
 }
@@ -4060,7 +4070,8 @@ function toComposer(p) {
   }
   const cur = getText();
   if (state.selected === p.session) setText(p.text + (cur ? "\n" + cur : ""));
-  if (p.reply) setReplyRef(p.session, p.reply);   // it comes back as the reply it was
+  // it comes back as the reply it was. One the server had is marked `back`: its reference stays though its own reply took the line (dropGoneReplyRef)
+  if (p.reply) setReplyRef(p.session, p.mid ? { ...p.reply, back: true } : p.reply);
   for (const im of p.images) {
     state.uploads.push(im.file ? { id: ++uploadSeq, kind: "file", name: im.name, fileName: im.file.name, size: im.file.size, uploading: false }
                                : { id: ++uploadSeq, name: im.name, url: im.url, uploading: false });
@@ -4812,7 +4823,8 @@ function restoreDraft(name) {
   } catch { /* storage unavailable */ }
 }
 // The done line the composer is replying to ({text, at}), set by that row's Reply and kept per session beside its draft: the next message sent
-// there answers the line (send), and its × takes the reference away. Only a row's Reply sets one; nothing is read out of what is typed or quoted.
+// there answers the line (send), and its × takes the reference away. Only a row's Reply sets one (and Edit of a reply gives it back); nothing is
+// read out of what is typed or quoted. It goes when its line does (dropGoneReplyRef).
 const replyKey = (name) => "salaweb.reply." + name;
 const replyRefs = new Map();
 function replyRef(name) {
@@ -4820,7 +4832,7 @@ function replyRef(name) {
   if (!replyRefs.has(name)) {
     let ref = null;
     try { ref = JSON.parse(localStorage.getItem(replyKey(name))); } catch { /* storage unavailable, or not the reference */ }
-    replyRefs.set(name, ref && typeof ref.text === "string" && Number.isInteger(ref.at) ? { text: ref.text, at: ref.at } : null);
+    replyRefs.set(name, ref && typeof ref.text === "string" && Number.isInteger(ref.at) ? { text: ref.text, at: ref.at, ...(ref.back === true ? { back: true } : {}) } : null);
   }
   return replyRefs.get(name);
 }
@@ -4831,6 +4843,19 @@ function setReplyRef(name, ref) {
     else localStorage.removeItem(replyKey(name));
   } catch { /* storage unavailable */ }
   paintReplyRef();
+}
+// With each read of api/chat: a reference whose done line is no longer listed (confirmed here or on another device) goes, as does one of a session
+// that is not, or is no longer, the chat session. One that Edit gave back from a message the server had (`back`) stays while its session is the
+// chat session and its line is not listed (its own reply took it); once a read lists the line again, it is a reference like any other.
+function dropGoneReplyRef(d) {
+  for (const name of new Set([d.session, state.selected])) {
+    const ref = replyRef(name);
+    if (!ref) continue;
+    const here = d.configured && name === d.session;
+    const listed = here && (d.mine || []).some((m) => m.text === ref.text && m.at === ref.at);
+    if (listed && ref.back) setReplyRef(name, { text: ref.text, at: ref.at });
+    else if (!listed && !(here && ref.back)) setReplyRef(name, null);
+  }
 }
 function paintReplyRef() {
   const ref = replyRef(state.selected);

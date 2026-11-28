@@ -7,12 +7,16 @@
 #   done      by exact text and by number; the line stays, marked done (list says so), and the sentence says where it went; a done line is refused
 #             again; --link keeps an https, /path or page-anchor address; a bad link is refused (exit 2); an unknown line or number is refused; add of
 #             the same text after done starts a new open line and leaves the done one
-#   clear     takes the open lines off and leaves each done one with its time and link, saying how many stayed (also when the full list holds only done
+#   clear     (the chat session, which every section but "elsewhere" is run as) takes the open lines off and leaves each done one with its time and link, saying how many stayed (also when the full list holds only done
 #             lines, where a ninth is still refused); an emptied list says "nothing right now"; --json is an array of {n, text, at}
 #   kept      nothing expires a line (the clock injected): a month later it is listed and a write keeps it with its first time
 #   session   --for NAME names the session; with none and outside a session the command asks for it (exit 1); a name that is not one is refused;
 #             one session's lines are not another's; a file that is not the format reads as no lines
 #   parallel  several adds at once under the lock: every one lands, none is lost, the file is always whole JSON
+#   elsewhere a session that is not the chat session (another is set, or none): done takes the line off, so eight add and done leave room for a ninth;
+#             done lines left from when it was the chat session are taken off by done and by clear; the setting is read from the config file too, the
+#             what that file assigns counting over a value the shell had; a link is checked and not kept
+#   text      control characters, DEL and U+0080-U+009F among them, are not kept in a line
 #   usage     the help, a wrong verb, a missing argument (exit 2)
 # Usage: bash tests/motion.sh   (exit 0 = pass; a few seconds)
 set -u
@@ -23,6 +27,7 @@ exec 8< "$T"; flock -n 8 2>/dev/null   # systemd-tmpfiles' ageing skips a direct
 trap 'exec 8<&-; rm -rf "$T"' EXIT
 export HOME=$T/home SALA_CONFIG=/dev/null XDG_STATE_HOME=$T/state SALA_STATE_DIR=$T/state/salamander
 unset SALA_MOTION_DIR SALA_MOTION_NOW SALA_MOTION_SELF
+export SALA_CHAT_SESSION=chat-test   # the chat session: its done lines wait for the owner
 mkdir -p "$HOME"
 S="bash $ROOT/bin/salamander motion"
 D=$SALA_STATE_DIR/motion
@@ -109,7 +114,7 @@ out=$($S clear --for chat-test 2>&1)
 $S add "line 9" --for chat-test >/dev/null 2>"$T/err"; rc=$?
 has "$out" "cleared 0 lines" && has "$out" "8 done lines kept" && [ "$rc" = 1 ] && has "$(cat "$T/err")" "done ones stay" \
     && ok "a list full of done lines stays full through clear, and the ninth line's refusal says done ones stay" || bad "full of done: [$out] rc=$rc err=[$(cat "$T/err")]"
-has "$($S --help 2>&1)" "A done line the owner has not acknowledged stays" && ok "the help says clear leaves unacknowledged done lines" || bad "help on clear"
+has "$($S --help 2>&1)" "In the chat session a done line the owner has not acknowledged stays" && ok "the help says clear leaves the chat session's unacknowledged done lines" || bad "help on clear"
 rm -f "$D/chat-test.json"   # no command takes a done line off: the file is removed for the checks below
 $S add "one" --for chat-test >/dev/null
 out=$($S clear --for chat-test 2>&1)
@@ -152,6 +157,60 @@ for n in 1 2 3 4 5 6; do $S add "p$n" --for chat-par >/dev/null 2>&1 & done
 wait
 python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); t=sorted(x["text"] for x in d["lines"]); assert t==["p%d"%i for i in range(1,7)], t' "$D/chat-par.json" \
     && ok "six adds at once all land and the file is whole JSON" || bad "parallel: $(cat "$D/chat-par.json")"
+
+# -- elsewhere: a session whose lines no page shows ----------------------------------------------------------------------------------------
+W=work-test
+count() { $S list --json --for "$W" | python3 -I -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+for chat in chat-test ""; do
+    rm -f "$D/$W.json"; refused=""
+    for n in 1 2 3 4 5 6 7 8 9; do
+        SALA_CHAT_SESSION=$chat $S add "job $n" --for $W >/dev/null 2>&1 || refused="$refused add$n"
+        SALA_CHAT_SESSION=$chat $S done "job $n" --for $W >/dev/null 2>&1 || refused="$refused done$n"
+    done
+    [ -z "$refused" ] && [ "$(count)" = 0 ] && ok "elsewhere (chat session '$chat'): done takes the line off, nine add and done all go through" || bad "elsewhere '$chat':$refused $(cat "$D/$W.json")"
+done
+$S add "a" --for $W >/dev/null; $S add "b" --for $W >/dev/null
+out=$($S done 1 --link https://example.com/r --for $W 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "motion: done: a" && has "$out" "link is not kept" && [ "$($S list --for $W)" = "1. b" ] && ok "elsewhere: done N with a link takes the line off and says the link is not kept" || bad "elsewhere link: rc=$rc [$out]"
+$S done 1 --link "javascript:alert" --for $W >/dev/null 2>&1; [ $? = 2 ] && [ "$(count)" = 1 ] && ok "elsewhere: a bad link is still refused" || bad "elsewhere bad link"
+out=$($S clear --for $W 2>&1)
+[ "$out" = "motion: cleared 1 line for $W" ] && [ "$(count)" = 0 ] && ok "elsewhere: clear empties the list" || bad "elsewhere clear: [$out]"
+# eight done lines held from when the session was the chat session, two of them of one text
+held() {
+    rm -f "$D/$W.json"
+    for n in 1 2 3 4 5 6 7; do SALA_CHAT_SESSION=$W $S add "old $n" --for $W >/dev/null; SALA_CHAT_SESSION=$W $S done "old $n" --for $W >/dev/null; done
+    SALA_CHAT_SESSION=$W $S add "old 7" --for $W >/dev/null; SALA_CHAT_SESSION=$W $S done "old 7" --for $W >/dev/null
+}
+held
+SALA_CHAT_SESSION=$W $S add "next" --for $W >/dev/null 2>&1; [ $? = 1 ] && [ "$(count)" = 8 ] && ok "as the chat session, eight done lines fill the list" || bad "held setup: $(cat "$D/$W.json")"
+[ "$($S list --for $W | head -1)" = "1. old 1  [done, on no page: \`done\` or \`clear\` takes it off]" ] && ok "elsewhere: list says a held done line is on no page" || bad "held list: [$($S list --for $W | head -1)]"
+$S add "next" --for $W >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && has "$(cat "$T/err")" "sala motion done N" && has "$(cat "$T/err")" "sala motion clear" && ! has "$(cat "$T/err")" "owner" \
+    && ok "elsewhere: a full list of held done lines names the two ways out" || bad "held full: rc=$rc err=[$(cat "$T/err")]"
+$S done 1 --for $W >/dev/null 2>&1; rc=$?
+$S done "old 7" --for $W >/dev/null 2>&1; rc2=$?
+[ "$rc$rc2" = 00 ] && [ "$(count)" = 6 ] && $S add "next" --for $W >/dev/null 2>&1 && ok "elsewhere: done takes a held done line off, by number and by a text two lines hold" || bad "held done: rc=$rc$rc2 $(cat "$D/$W.json")"
+held
+out=$($S clear --for $W 2>&1)
+[ "$out" = "motion: cleared 8 lines for $W" ] && [ "$(count)" = 0 ] && ok "elsewhere: clear takes held done lines off too" || bad "held clear: [$out]"
+# the setting in sala's config file, as sala-web reads it; a changed setting counts at the next command
+printf 'export SALA_CHAT_SESSION="%s"   # the chat\n' "$W" > "$T/config"
+conf() { env -u SALA_CHAT_SESSION SALA_CONFIG="$T/config" bash "$ROOT/bin/salamander" motion "$@" --for $W; }
+conf add "from config" >/dev/null; conf done "from config" >/dev/null 2>&1; conf clear >/dev/null
+[ "$(count)" = 1 ] && ok "a chat session set in the config file keeps its done line" || bad "config chat: $(cat "$D/$W.json")"
+SALA_CONFIG="$T/config" $S clear --for $W >/dev/null
+[ "$(count)" = 1 ] && ok "what the config file assigns counts over a value the shell had" || bad "config over shell: $(cat "$D/$W.json")"
+printf 'SALA_CHAT_SESSION=another\n' > "$T/config"
+conf clear >/dev/null
+[ "$(count)" = 0 ] && ok "after the config file names another session, clear empties the list" || bad "config change: $(cat "$D/$W.json")"
+
+# -- text -----------------------------------------------------------------------------------------------------------------------------------
+$S add "$(printf 'a\x7fb\xc2\x9bc\xc2\x85d\x01e')" --for $W >/dev/null 2>&1
+[ "$($S list --for $W)" = "1. abc de" ] && ok "control characters, DEL and U+0080-U+009F among them, are not kept" || bad "control characters: $(cat "$D/$W.json")"
+printf '{"v":1,"lines":[{"text":"x\\u009by","at":%s}]}' "$NOW" > "$D/chat-test.json"
+$S done "xy" --for chat-test >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && python3 -I -c 'import json,sys; assert json.load(open(sys.argv[1]))["lines"][0]["text"]=="xy"' "$D/chat-test.json" \
+    && ok "a stored line with such a character is cleaned when it is marked done" || bad "stored control character: rc=$rc $(cat "$D/chat-test.json")"
 
 # -- usage -----------------------------------------------------------------------------------------------------------------------------------
 out=$($S --help 2>&1); rc=$?; [ "$rc" = 0 ] && has "$out" "sala motion add" && ok "--help prints the usage" || bad "help: rc=$rc"

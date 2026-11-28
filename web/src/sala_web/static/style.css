@@ -848,7 +848,7 @@ details.notice { background: transparent; }
 #reply-ref[hidden] { display: none; }
 #reply-ref .rr-label { flex: none; font-weight: 600; }
 #reply-ref-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-#reply-ref-drop { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+#reply-ref-drop { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 17px; cursor: pointer; }
 #reply-ref-drop:hover { background: var(--hover); }
 #reply-ref-drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (pointer: coarse) { #reply-ref-drop { width: 44px; height: 44px; } }

@@ -114,6 +114,19 @@ def test_a_reply_that_fails_removes_nothing(env, lines):
     assert env.post("yes again", reply=ANSWERED).json()["message"]["state"] == "queued" and lines() == without(ANSWERED)
 
 
+def test_a_tmux_failure_holds_the_reply_and_its_line_leaves(env, lines):
+    async def no_tmux(*_a, **_k):
+        raise AP.T.TmuxError("no server")
+
+    real = AP.T.capture
+    env.monkeypatch.setattr(AP.T, "capture", no_tmux)
+    r = env.post("yes", reply=ANSWERED, cid="c1")
+    assert r.status_code == 200 and (r.json()["message"]["state"], r.json()["message"]["reason"]) == ("held", "tmux"), r.text
+    assert lines() == without(ANSWERED)
+    env.monkeypatch.setattr(AP.T, "capture", real)
+    assert until(lambda: env.pane.submitted == [HEAD + TOPIC + "\nyes"]), env.pane.submitted
+
+
 def test_a_line_that_cannot_be_written_stays_and_the_reply_is_still_taken(env, lines, monkeypatch):
     def full(*_a):
         raise OSError("no space")

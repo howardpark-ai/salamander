@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import time
 import urllib.error
@@ -22,6 +23,7 @@ import pytest
 
 from conftest import NAME, SID, transcript_file
 from sala_web import chatpage as CP
+from sala_web import config as CF
 from sala_web import motion as MO
 from test_addresses import run_node
 
@@ -227,6 +229,32 @@ ANCHORS = ["#s=chat-a", "#s=a%2Fb", "#lane=subscription-1", "#sessions", "#sched
 TAKEN = ANCHORS + ["https://example.com/r", "https://example.com/r#nope", "/", "/mockup/4", "/s/chat-a#x"]
 REFUSED = ["#", "#nope", "#s=", "#lane=", "#lane=a&b", "#session", "#sessions2", "#searching", "#side", "#new?x", "s=chat-a", "mockup/4", "//example.com/x",
            "/\\example.com/x", "http://example.com/r", "javascript:alert", "#s=a b", "https://", "", "/" + "x" * 500]
+
+
+SETTINGS = [None, "", "SALA_CHAT_SESSION=chat-a\n", 'export SALA_CHAT_SESSION="chat-a"   # note\n', "  SALA_CHAT_SESSION='chat-a'\n",
+            "SALA_CHAT_SESSION=chat-a # note\n", "SALA_CHAT_SESSION=old\nSALA_CHAT_SESSION=chat-a\n", "SALA_CHAT_SESSION=chat-a\nSALA_CHAT_SESSION=\n",
+            "#SALA_CHAT_SESSION=chat-a\n", ': "${SALA_CHAT_SESSION:=chat-a}"\n', "SALA_CHAT_SESSION=two words\n", "SALA_CHAT_SESSION=$HOME\n",
+            "SALA_CHAT_SESSION=~\n", 'SALA_CHAT_SESSION="chat-a\n']
+
+
+@pytest.mark.parametrize("env", [None, "", "chat-env", " chat-env ", "no good"])
+@pytest.mark.parametrize("config", SETTINGS)
+def test_the_cli_and_the_page_name_the_same_chat_session(tmp_path, monkeypatch, env, config):
+    path = tmp_path / "config"
+    if config is not None:
+        path.write_text(config)
+    monkeypatch.setenv("SALA_CONFIG", str(path))
+    if env is None:
+        monkeypatch.delenv("SALA_CHAT_SESSION", raising=False)
+    else:
+        monkeypatch.setenv("SALA_CHAT_SESSION", env)
+    assert CLI.chat_session() == CF.chat_session()
+
+
+def test_no_line_the_cli_keeps_holds_what_a_reply_is_refused_for():
+    for code in [*range(0x20), *range(0x7F, 0xA0)]:
+        kept = CLI.clean_text(f"a{chr(code)}b")
+        assert kept in ("ab", "a b") and not re.search(r"[\x00-\x1f\x7f-\x9f]", kept), (code, kept)
 
 
 @pytest.mark.parametrize("link", TAKEN)

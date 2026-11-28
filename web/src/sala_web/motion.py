@@ -4,7 +4,7 @@ One small JSON file per session, <sala state>/motion/<session>.json: {"v": 1, "l
 (absent while open), "link": str (absent unless `motion done --link` gave one)}]}. The CLI is the writer (an exclusive lock, a temporary file renamed
 into place). This module reads, and its one write is the owner's acknowledgement of a done line (`confirm`, for the Confirm tap and for a reply to
 the line): it takes the same lock and writes the same way, and removes the line. An open line stays until the session marks it done or clears it, a
-done one until the owner acknowledges it: nothing here ages one out.
+done one (the CLI keeps one only for the chat session) until the owner acknowledges it: nothing here ages one out.
 `at` is when the line was first set; `done` is when the session marked it done. At most 8 lines are shown, each at most 120 characters (a longer one
 in a hand-made file is cut, with an ellipsis; a non-string, a time no clock says or a malformed row is skipped). No model writes or filters these
 lines: what the session set is what the page shows.

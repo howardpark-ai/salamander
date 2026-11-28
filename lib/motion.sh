@@ -14,18 +14,20 @@ usage: sala motion add "<line>" [--for NAME]
 
   add     puts a line on the session's list: one line of text, at most 120 characters (a longer one is refused, never cut). At most 8 lines are
           kept; a ninth is refused with a sentence. Adding a line already open changes nothing: it keeps the time it was first added. After a
-          line is done, the same text added again starts a new open line; the done one stays until the owner confirms it or replies to it.
-  done    marks a line done, by its exact text or by its number in `list`. The line is not removed: it waits, with the time it was done and its
+          line is done in the chat session, the same text added again starts a new open line; the done one stays.
+  done    marks a line done, by its exact text or by its number in `list`. For any session but the chat session this takes the line off: no
+          page shows its lines. The chat session's (setting SALA_CHAT_SESSION) line is not removed: it waits, with the time it was done and its
           result link, in the owner's "my turn" list on the chat page until he confirms it or replies to it there. --link URL: the result's address, one of: https,
           an in-app path /..., or one of the page's anchors (#s=SESSION, #lane=ID, #sessions, #schedules, #machines, #usage, #new, #search,
           #search?QUERY, #side=...); anything else is refused. Without --link the page links the first chat reply at or after the done time.
-  clear   takes the open lines off. A done line the owner has not acknowledged stays, and the sentence says how many stayed.
-  list    the lines on the list, numbered ("nothing right now" when there are none); a done line is marked as waiting for the owner's confirm or
-          reply; --json: the same as an array of {n, text, at, done, link}.
+  clear   empties the list. In the chat session a done line the owner has not acknowledged stays, and the sentence says how many stayed; any
+          other session's list is emptied, done lines left from when it was the chat session included.
+  list    the lines on the list, numbered ("nothing right now" when there are none); a done line is marked; --json: the same as an array of
+          {n, text, at, done, link}, done and link null when there is none.
 
-  The session is the one this command runs in; --for NAME says another's (and is required outside a session). A done line stays until the owner
-  confirms it or replies to it: no command here takes it off and nothing expires it. The lines are the session's own words: nothing else writes
-  them and no model filters them.
+  The session is the one this command runs in; --for NAME says another's (and is required outside a session). While a session is the chat
+  session its done line stays until the owner confirms it or replies to it: no command here takes it off and nothing expires it. The lines are
+  the session's own words: nothing else writes them and no model filters them.
   Stored as one small file per session under $SALA_STATE_DIR/motion (mode 700, files 600), written whole and renamed into place.
 USAGE
 }
