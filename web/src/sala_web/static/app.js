@@ -710,8 +710,13 @@ function paintChatStrip() {
   // chatanswer.js (in the page only with the setting SALA_CHAT_LAYER) draws these rows itself, so one of them can hold the item's answer frame
   if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);
   else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
-  // the done lines follow the owner's moves, in the same list (strip() keeps only the moves' rows, so these are put after it)
-  u.waitList.append(...(d.mine || []).map((m) => chatMineRow(m, d)));
+  // the done lines follow the owner's moves, in the same list (strip() keeps only the moves' rows, so these are put after it). With a move to answer the list
+  // is a flex column that strip() orders by a number on each of its rows, so a done row takes the number after the last move's: with none it would sort among them
+  for (const m of d.mine || []) {
+    const row = chatMineRow(m, d);
+    row.style.order = String(waiting.length);
+    u.waitList.append(row);
+  }
   const now = Date.now();
   u.onitList.replaceChildren(...(d.motion || []).map((m) => chatBackRow(m, now)));
   paintChatWait();

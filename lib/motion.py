@@ -200,7 +200,7 @@ def main(argv):
                 print("motion: already listed, nothing changed (%d of %d)" % (len(lines), MAX_LINES))
                 return 0
             if len(lines) >= MAX_LINES:
-                die("%d lines are already listed for %s (the most there is room for, done ones included): take one off with `sala motion clear` or wait for the owner to confirm a done one" % (len(lines), name))
+                die("%d lines are already listed for %s (the most there is room for, done ones included): wait for the owner to confirm a done one, or empty the list with `sala motion clear` (done ones included)" % (len(lines), name))
             lines.append({"text": text, "at": now()})
             save(d, path, lines)
             print("motion: added (%d of %d): %s" % (len(lines), MAX_LINES, text))

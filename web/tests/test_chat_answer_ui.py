@@ -313,6 +313,20 @@ def test_a_row_opens_to_its_frame_by_a_tap_one_at_a_time_and_keeps_it(served, br
     assert frames.count("1") == 1 and frames.count("2") == 1, frames.loads
 
 
+@pytest.mark.parametrize("size", [PHONE, DESKTOP], ids=["phone", "desktop"])
+def test_a_done_line_stands_after_every_move_in_a_list_with_moves_to_answer(served, browser, monkeypatch, frames, size):
+    rows = [frames.row(1), frames.row(2, "Pick a venue")]
+    open_answer(browser, served, monkeypatch, rows, size=size)
+    seen = (f"{ROWS}.map((r) => [r.getBoundingClientRect().top, r.classList.contains('mine-row') ? 'done' : r.querySelector('.wait-id').textContent])"
+            ".sort((a, b) => a[0] - b[0]).map((x) => x[1])")
+    change(browser, mine=[{"text": "Draw slide 4", "at": 1, "done": 2}])
+    wait(browser, f"{ROWS}.length === 3")
+    assert browser.evaluate(seen) == ["item#1", "item#2", "done"], browser.evaluate(seen)
+    change(browser, waiting=[rows[1], rows[0], frames.row(3, "Name the demo")])
+    wait(browser, f"{ROWS}.length === 4")
+    assert browser.evaluate(seen) == ["item#2", "item#1", "item#3", "done"], browser.evaluate(seen)
+
+
 def test_no_repaint_and_no_growing_thread_moves_or_remakes_a_live_frame(served, browser, monkeypatch, frames):
     rows = [frames.row(1), frames.row(2, "Pick a venue"), frames.row(3, "Name the demo")]
     open_answer(browser, served, monkeypatch, rows, replies=("item#1 is ready for your pick.\n[card: item#1]",))
