@@ -1,7 +1,7 @@
 """The second list of the chat session's strip ("On it") and its "my turn" list: the lines a session set for itself with `sala motion` (lib/motion.py, docs/subcommands.md).
 
 One small JSON file per session, <sala state>/motion/<session>.json: {"v": 1, "lines": [{"text": str, "at": epoch seconds, "done": epoch seconds
-(absent while open), "link": str (absent unless `motion done --link` gave one)}]}. The CLI is the writer (an exclusive lock, a temporary file renamed
+(absent while open), "link": str (absent unless `motion done --link` gave one), "item": str (absent unless `motion add --item` named the board item)}]}. The CLI is the writer (an exclusive lock, a temporary file renamed
 into place). This module reads, and its one write is the owner's acknowledgement of a done line (`confirm`, for the Confirm tap and for a reply to
 the line): it takes the same lock and writes the same way, and removes the line. An open line stays until the session marks it done or clears it, a
 done one (the CLI keeps one only for the chat session) until the owner acknowledges it: nothing here ages one out.
@@ -25,6 +25,7 @@ MAX_CHARS = 120
 MAX_FILE = 64 * 1024
 LINK_MAX = 500
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+ITEM_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9#._-]{0,79}")   # the same rule as lib/motion.py: a board item's shown id
 # an https address; a path on this site ("//host", and "/\host" which a browser reads the same way, are another site); or one of the page's own "#..." views,
 # the forms static/address.js reads (any other anchor would open the app's root)
 LINK_RE = re.compile(r"https://\S+|/(?![/\\])\S*|#(?:sessions|schedules|machines|usage|new|search(?:\?\S*)?|side=\S*|(?:s|lane)=[^&\s]+)")
@@ -52,6 +53,8 @@ def _rows(doc: object) -> list[dict]:
         if len(text) > MAX_CHARS:
             text = text[: MAX_CHARS - 1].rstrip() + "…"
         row: dict = {"text": text, "at": at}
+        if isinstance(r.get("item"), str) and ITEM_RE.fullmatch(r["item"]):
+            row["item"] = r["item"]
         done = r.get("done")
         if done is not None:
             if isinstance(done, bool) or not isinstance(done, int) or not 0 < done < 10**11:

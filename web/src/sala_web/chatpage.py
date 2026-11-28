@@ -119,6 +119,30 @@ def waiting(board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
     return out
 
 
+def on_it(lines: list[dict], board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
+    """The open lines of the second list. A line that names a board item (`item`, set by `sala motion add --item`) carries it as {"id", "url"} when the
+    same sources the first list is drawn from know the item with an address (stackshot's Your move list, then every item of the board feed); a
+    line whose item is unknown, or that names none, carries no `item`, and the page draws it as plain text."""
+    known: dict[str, str] = {}
+    sessions = board_doc.get("sessions") if isinstance(board_doc, dict) else None
+    for entry in sessions.values() if isinstance(sessions, dict) else []:
+        for it in entry.get("items", []) if isinstance(entry, dict) else []:
+            if isinstance(it, dict) and it.get("id") and it.get("url"):
+                known.setdefault(str(it["id"]), str(it["url"]))
+    for w in your_move or []:
+        if w.get("id") and w.get("url"):
+            known[str(w["id"])] = str(w["url"])
+    out = []
+    for x in lines:
+        if "done" in x:
+            continue
+        row = {k: v for k, v in x.items() if k != "item"}
+        if x.get("item") in known:
+            row["item"] = {"id": x["item"], "url": known[x["item"]]}
+        out.append(row)
+    return out
+
+
 REPLY_WINDOW_FIRST = 2 << 20     # the first look back from the end of a transcript for a reply at or after a done time
 REPLY_WINDOW_MAX = 32 << 20      # and the most it reads (a done line whose reply is further back links nothing)
 
@@ -272,4 +296,4 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
     return {"configured": True, "session": name, "name": display, "present": present, "busy": status in ("busy", "waiting"),
             "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
             "waiting": waiting(board_doc, your_move), "group": group,
-            "motion": [x for x in lines if "done" not in x], "mine": mine}
+            "motion": on_it(lines, board_doc, your_move), "mine": mine}

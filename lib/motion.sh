@@ -2,7 +2,7 @@
 # session's in its strip under "On it" (web/README.md). Sourced by bin/salamander; the work is lib/motion.py (standard library, no model call).
 motion_usage() {
     cat <<'USAGE'
-usage: sala motion add "<line>" [--for NAME]
+usage: sala motion add "<line>" [--item ID] [--for NAME]
        sala motion done "<line>"|N [--link URL] [--for NAME]
        sala motion clear [--for NAME]
        sala motion list [--json] [--for NAME]
@@ -13,7 +13,8 @@ usage: sala motion add "<line>" [--for NAME]
   A line is one short topic in the owner's language, such as "research on X".
 
   add     puts a line on the session's list: one line of text, at most 120 characters (a longer one is refused, never cut). At most 8 lines are
-          kept; a ninth is refused with a sentence. Adding a line already open changes nothing: it keeps the time it was first added. After a
+          kept; a ninth is refused with a sentence. --item ID: the board item the line belongs to (its shown id, such as demo#12); the chat page links the
+          line to that item when the board knows the id. Adding a line already open changes nothing but its item: it keeps the time it was first added. After a
           line is done in the chat session, the same text added again starts a new open line; the done one stays.
   done    marks a line done, by its exact text or by its number in `list`. For any session but the chat session this takes the line off: no
           page shows its lines. The chat session's (setting SALA_CHAT_SESSION) line is not removed: it waits, with the time it was done and its
@@ -23,7 +24,7 @@ usage: sala motion add "<line>" [--for NAME]
   clear   empties the list. In the chat session a done line the owner has not acknowledged stays, and the sentence says how many stayed; any
           other session's list is emptied, done lines left from when it was the chat session included.
   list    the lines on the list, numbered ("nothing right now" when there are none); a done line is marked; --json: the same as an array of
-          {n, text, at, done, link}, done and link null when there is none.
+          {n, text, at, done, link, item}, done, link and item null when there is none.
 
   The session is the one this command runs in; --for NAME says another's (and is required outside a session). While a session is the chat
   session its done line stays until the owner confirms it or replies to it: no command here takes it off and nothing expires it. The lines are

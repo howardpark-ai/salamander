@@ -84,6 +84,14 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### "On it" lines that belong to a board item link to it: `web/tests/test_chat_onit.py` +3, `web/tests/test_chat_onit_ui.py` (browser) +2, `tests/motion.sh` +7 (Sat Nov 28th 2026)
+
+The path guarded: the "On it" rows were plain text, so the owner could not open the item a promise was about; a link that resolved wrongly would send him to another item, and a line with no item must not get one.
+Held (`test_chat_onit.py`, no browser): `GET /api/chat` gives an open line its `item` as `{id, url}` taken from the Your move list, else from the board feed; a line whose item neither knows, a stored id that is no id, and a done line carry none, and no raw `item` string leaks; in node, a row with an item is the first list's row (same node tree: `wait-id` label, `wait-link` with `target=_blank` and `rel="noopener noreferrer"`) and a row without one is still the plain `wait-title`.
+Held (`test_chat_onit_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it): the linked row has the same id label, link classes, address, target, rel, colour and underline as the first list's row, and the line without an item has no link; the link's colour and underline stay the same as the first list's in both themes.
+Held (`tests/motion.sh`): `--item` is stored on its line only and `list --json` carries it; the same line again with the same item changes nothing, with another replaces it without a second line; a bad id, a missing id and `--item` on `done` are refused with exit 2.
+Not covered, and why: an item the board does not list (a closed one) shows no link, since the page has no address for it and does not ask the board from the browser.
+
 ### `tests/feedbackdrain.sh` new, 31; `tests/op.sh` +6, one check extended (Sat Nov 28th 2026)
 
 The paths guarded: the drain presses keys in a live pane, where a wrong key sends a transcript or deletes an unsent draft; Esc at the exit's drafts gate deletes the drafts; a draft the drain cannot send must not keep a pane from its relaunch. In the queue, an operation judged stuck starts a `claude -p` and raises an alarm.

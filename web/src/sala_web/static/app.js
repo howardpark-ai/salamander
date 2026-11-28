@@ -620,10 +620,11 @@ function chatExactText(seconds, now) {
   const d = new Date(seconds * 1000);
   return CHAT_YMD.format(d) === CHAT_YMD.format(new Date(now)) ? CHAT_HM.format(d) + " " + zoneLabel(d) : sleptAt(d.toISOString());
 }
-// a row of the second list: one line of the session's own (`at`: when it was first set), the topic as the first list draws a title with no address (plain text),
-// then since when, in the tone of its age. The since text carries the days, so a late row shows them once. All of it is set as text.
+// a row of the second list: one line of the session's own (`at`: when it was first set), the topic as the first list draws a title: plain text, or with the board
+// item the line names (`item`, as the server resolved it: id and address) the same id label and link as a row of the first list; then since when, in the tone of its age.
+// The since text carries the days, so a late row shows them once. All of it is set as text.
 function chatBackRow(m, now) {
-  const row = chatWaitRow({ subject: m.text }, false);
+  const row = chatWaitRow({ subject: m.text, id: m.item && m.item.id, url: m.item && m.item.url }, false);
   row.classList.add("back-row");
   row.line = m;
   row.meta = el("span", { class: "wait-meta" });
