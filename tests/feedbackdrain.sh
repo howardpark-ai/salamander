@@ -10,6 +10,9 @@
 #     gate sends the drafts and the exit goes on.
 #   THE RELAUNCH: `revive` over a pane whose draft cannot be sent relaunches it, the draft still queued; nothing is asked of
 #     the owner.
+#   THE DRAIN'S OWN STAMP: the panel moves the row's idle stamp, and the same `revive` that sent the draft relaunches the pane,
+#     also one whose Stop hook record says nothing is in flight over a long-lived child. A turn after the send, running or
+#     already over, and a record a turn wrote during the send: the pane is not read as idle.
 # No process is killed by name; the cleanup ends this suite's own fakes with kill_fake_claude (exe and HOME checked).
 # Usage: bash tests/feedbackdrain.sh   (exit 0 = pass)
 set -u
@@ -119,12 +122,50 @@ tui_send "$P" "/exit"; waitfor 'drafts_gate_up "$P"' 20 || bad "j: no gate"
 end j
 
 echo "== a relaunch goes on over a draft that cannot be sent"
-U=$(uuid 11); mk r "$U" FAKE_SEND=fail; fake_up sala-test-r || exit 1; PR=$(cpid r)
+U=$(uuid 11); mk r "$U" FAKE_SEND=fail FAKE_PANEL_STAMP=1; fake_up sala-test-r || exit 1; PR=$(cpid r)
 drafts "$U" kept-r
 out=$(SALA_RESUME_WAIT=20 SALA_EXIT_WAIT=30 "$SALA" revive --force --only sala-test-r 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
 ! alive "$PR" && [ "$(starts "$U")" = 2 ] && NR=$(cpid r) && [ -n "$NR" ] && ok "revive: the session relaunched on its conversation" || bad "no relaunch ($rc, starts $(starts "$U"))"
 [ "$(ndrafts)" = 1 ] && [ "$(count r '^discard')" = 0 ] && [ "$(count r '^sent')" = 0 ] && ok "the draft is still queued after the relaunch" || bad "$(ndrafts) left: $(panel r)"
 has "$out" "feedback draft(s) not sent" && has "$out" "the drafts stay queued" && ! has "$out" "by hand" && ok "the output says so and asks nothing of the owner" || bad "output: $out"
 end r
+
+echo "== the drain's own stamp is not activity"
+# record <uuid> <id> <flip>: the Stop hook's record of a turn that left nothing in flight
+record() { mkdir -p "$SALA_BUSY_DIR"; printf 'id=%s\nflip=%s\ntasks=0\ncrons=0\n' "$2" "$3" > "$SALA_BUSY_DIR/$1"; }
+relaunch() { SALA_IDLE_SETTLE=12 SALA_RESUME_WAIT=20 SALA_EXIT_WAIT=30 "$SALA" revive --force --only "sala-test-$1" 2>&1; }
+# relaunched <n> <name> <session> <record: yes|no> <knob…>: one `revive` sends the draft and relaunches the pane
+relaunched() {
+    local n="$1" what="$2" u pid out rec="$4"; u=$(uuid "$3"); shift 4
+    mk "$n" "$u" FAKE_PANEL_STAMP=1 "$@"; fake_up "sala-test-$n" || { bad "$what: the pane did not come up"; return; }
+    pid=$(cpid "$n"); drafts "$u" "own-$n"
+    [ "$rec" = no ] || record "$u" "turn-$n" "$(registry_field "$pid" statusUpdatedAt)"
+    out=$(relaunch "$n"); echo "$out" | sed 's/^/    /'
+    [ "$(count "$n" "^sent own-$n transcript=no\$")" = 1 ] && ! alive "$pid" && [ "$(starts "$u")" = 2 ] \
+        && ok "$what: the draft sent and the pane relaunched in the same run" || bad "$what (starts $(starts "$u")): $out"
+    end "$n"
+}
+relaunched s "drain then relaunch" 12 no
+relaunched t "drain then relaunch, a record of nothing in flight over a long-lived child" 13 yes FAKE_CHILD=1
+# left <n> <name> <session> <skip words> <after ms,turn ms>: a turn after the send holds the pane
+left() {
+    local n="$1" what="$2" u pid out why="$4"; u=$(uuid "$3")
+    mk "$n" "$u" FAKE_PANEL_STAMP=1 FAKE_PANEL_TURN="$5"; fake_up "sala-test-$n" || { bad "$what: the pane did not come up"; return; }
+    pid=$(cpid "$n"); drafts "$u" "real-$n"
+    out=$(relaunch "$n"); echo "$out" | sed 's/^/    /'
+    [ "$(count "$n" "^sent real-$n transcript=no\$")" = 1 ] && alive "$pid" && [ "$(starts "$u")" = 1 ] && [[ $out =~ $why ]] && has "$out" "/exit not sent" \
+        && ok "$what: the draft sent, the pane left alone" || bad "$what (starts $(starts "$u")): $out"
+    end "$n"
+}
+left u "a turn running after the send" 14 "registry says 'busy'" 5000,30000
+# a turn this short is read as ended (a new idle stamp), or as running when the one-second look lands inside it
+left v "a short turn after the send" 15 "idle for only|registry says 'busy'" 5000,50
+U=$(uuid 16); mk w "$U" FAKE_PANEL_STAMP=1; fake_up sala-test-w || exit 1; P=$(paneid w); PW=$(cpid w)
+drafts "$U" one-w; WAS=$(registry_field "$PW" statusUpdatedAt); record "$U" before-w "$WAS"
+drain_mark MARK "$PW" "$U"; "$SALA" feedback drain "$P" "$U"
+record "$U" during-w "$WAS"; drain_settle "$PW" "$U" "$MARK"; why=$(is_idle_reason "$PW")
+[ "$MARK" = "$WAS before-w" ] && has "$why" "idle for only" && grep -qx "flip=$WAS" "$SALA_BUSY_DIR/$U" \
+    && ok "a record written during the send: no wait, the record left as it is" || bad "mark '$MARK', why '$why': $(slurp "$SALA_BUSY_DIR/$U")"
+end w
 
 [ "${fail:-0}" = 0 ] && echo "feedbackdrain: pass" || { echo "feedbackdrain: FAIL"; exit 1; }

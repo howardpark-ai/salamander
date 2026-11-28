@@ -25,7 +25,9 @@
  * nothing, as before) · FAKE_NO_CLEAR=1 (a /clear is typed and logged and nothing changes) · `/clear` (probed on 2.1.312: the SAME registry row, same pid, name and nameSource kept, gets a NEW
  * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG) ·
  * FAKE_DRAFTS_PANEL=<tests/fake-drafts-panel.py> (the feedback drafts: /feedback runs its panel in the pane, and a /exit with a
- * queued draft of this conversation stops at its exit gate; the script's header names its own knobs). */
+ * queued draft of this conversation stops at its exit gate; the script's header names its own knobs) · FAKE_PANEL_STAMP=1 (the row
+ * says waiting while /feedback's panel is open, then idle with a fresh stamp, as the CLI's) · FAKE_PANEL_TURN=<after ms>,<turn ms>
+ * (that long after the panel closed a turn starts and runs that long, then idle with a fresh stamp). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -287,7 +289,17 @@ int main(int argc, char **argv) {
               write_row(sid, "busy", (long)time(NULL)); nanosleep(&ts, NULL); write_row(sid, "idle", (long)time(NULL));
               continue;
           } }
-        if (!strcmp(line, "/feedback\n") && getenv("FAKE_DRAFTS_PANEL")) { drafts_panel("panel", sid); continue; }
+        if (!strcmp(line, "/feedback\n") && getenv("FAKE_DRAFTS_PANEL")) {
+            if (getenv("FAKE_PANEL_STAMP")) write_row(sid, "waiting", (long)time(NULL));
+            drafts_panel("panel", sid);
+            if (getenv("FAKE_PANEL_STAMP")) write_row(sid, "idle", (long)time(NULL));
+            long after = 0, run = 0; const char *pt = getenv("FAKE_PANEL_TURN");
+            if (pt && sscanf(pt, "%ld,%ld", &after, &run) == 2) {
+                struct timespec a = { after / 1000, (after % 1000) * 1000000L }, r = { run / 1000, (run % 1000) * 1000000L };
+                nanosleep(&a, NULL); write_row(sid, "busy", (long)time(NULL)); nanosleep(&r, NULL); write_row(sid, "idle", (long)time(NULL));
+            }
+            continue;
+        }
         if (!strcmp(line, "/exit\n") && !getenv("FAKE_IGNORE_EXIT")) {
             if (drafts_panel("gate", sid)) continue;
             if (!exit_dialog()) continue;                                      /* the dialog dismissed: the session stays */

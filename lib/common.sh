@@ -6935,6 +6935,32 @@ scrub_text() {   # text that holds none of the words or shapes the patterns need
 # the caller says so and goes on (the draft is a file that outlives the relaunch), and its /exit stops at the drafts gate,
 # which drafts_gate_pass passes.
 send_feedback_drafts() { "$SALA_BIN" feedback drain "$1" ${2:+"$2"}; }
+# THE DRAIN'S OWN STAMP. The /feedback panel moves the registry row's statusUpdatedAt, so right after sala's own send an idle pane
+# reads "idle for only 2s", and the Stop hook's record, filed under the old stamp, is no longer read. drain_mark before the
+# drain, drain_settle after it and before the idle check.
+# drain_mark <var> <claude-pid> <uuid> → in <var>, "<idle stamp> <record id or ->" of a pane that is idle and has a draft queued; else empty
+drain_mark() {
+    local _dm="" _did=""
+    printf -v "$1" '%s' ""
+    drafts_queued "$3" || return 0
+    registry_field_r _dm "$2" statusUpdatedAt; _kv_first_r _did "$SALA_BUSY_DIR/$3" id
+    [ -n "$(is_idle_reason "$2")" ] || printf -v "$1" '%s' "$_dm ${_did:--}"
+}
+# drain_settle <claude-pid> <uuid> <mark> — a marked pane that is idle under a new stamp, with no turn's record written since: the old
+# stretch's record moves to that stamp and the settle is waited out. A stamp that moves again ends the wait: the idle check judges it.
+drain_settle() {
+    local was id st stamp now age i
+    read -r was id <<< "$3"; [ -n "$was" ] || return 0
+    registry_field_r st "$1" status; registry_field_r stamp "$1" statusUpdatedAt
+    [ "$st" = idle ] && [ "$stamp" != "$was" ] || return 0
+    _kv_first_r now "$SALA_BUSY_DIR/$2" id; [ "${now:--}" = "$id" ] || return 0   # a turn ended during the drain
+    if _busy_current "$1" "$2" "$was" >/dev/null; then busy_stamp "$2" "$id" "$stamp" || :; fi
+    for ((i = 0; i < SALA_IDLE_SETTLE; i++)); do
+        _stamp_age_r age "$stamp"; [ "$age" -lt "$SALA_IDLE_SETTLE" ] || break
+        sleep 1
+        registry_field_r now "$1" statusUpdatedAt; [ "$now" = "$stamp" ] || break
+    done
+}
 # THE DRAFTS GATE AND PANEL (the CLI's own screens; lib/feedback.sh describes them).
 # drafts_panel_up <pane> → 0 when the /feedback drafts panel is showing, in any state: its header or one of its footers (a
 # long review scrolls the header off, and its first view has no footer)

@@ -87,6 +87,10 @@ recycles was counted back in only one and the other set stayed open. Now:
   The skip line names its cause, never only "busy": `registry says 'busy' (a turn is running for 12 min; in flight when its last turn ended: 4 subagents, 6 monitors and 1 shell)`
   (counted from the Stop hook's record, else the subagents the transcripts show), `registry says 'waiting' (a dialog is open: the pane waits for an answer)`,
   `background work is running: 4 subagents, 6 monitors and 1 shell are in flight` (the mod's own list); the retry worker's round lines carry the same text.
+- **The drain's own send is not activity**: a sweep sends a pane's queued feedback drafts just before it re-checks and types `/exit`, and the
+  `/feedback` panel moves the row's idle stamp. A pane that was idle before the send and is idle after it has the settle (`SALA_IDLE_SETTLE`)
+  waited out, the Stop hook's record of that idle stretch moved to the new stamp, and is relaunched in the same run. It is left alone as
+  before when its row turns busy or is stamped again during the wait, or a turn's Stop hook wrote a new record during the send.
 - **A refusal the mod cannot explain** (a mod loaded before its turn list was reconciled names no holder and does not know the probe): every
   refusal for a turn is counted per session (`refused/<uuid>` under the state directory). After `SALA_STALE_TURN_AFTER` (3) of them, while the
   registry, the Stop hook's record, the child processes and the subagents' transcripts all read the pane as idle, the next try goes by
