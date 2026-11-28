@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 65
+contract-version: 67
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -326,6 +326,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **63** — Thu Nov 26th 2026. Interface 40 (the owner's whole Your move list): sala-web now also reads the answer's `group`, `{"en", "ko"}`, stackshot's own name for the group, and draws it in the chat strip's words (the pinned line, its titles, the drawer chip) in place of its own copy, which stays only as the fallback. Optional: an older stackshot with no `group`, or one that is malformed, leaves the strip on sala's own words. `items` is read as before.
 - **64** — Thu Nov 26th 2026. New interface 41 (the open items the chat session is the contact of or an observer on): sala-web reads `GET /client/involved?key=<the configured chat session name>` for a second tab, On it, of the chat page's pinned strip. An item the strip's first list shows is left out of that tab. Optional: while the read is unavailable (a server without it answers 404) the strip is as before. Interfaces 10 and 40 are unchanged.
 - **65** — Thu Nov 26th 2026. Interface 41 (the open items the chat session is the contact of or an observer on) is retired: sala-web no longer calls `GET /client/involved`. The chat page's second tab, On it, lists what the chat session has promised to report back (its own `sala motion` lines, read from sala's state directory), which no other repository writes or reads. `GET /api/chat` drops `onIt`. Interfaces 10 and 40 are unchanged, and nothing on stackshot's side has to change.
+- **67** — Sat Nov 28th 2026. Interfaces 20, 21 and 34 (a project's contact): it is the front `-main` entry of the record's agents map, as the main agent was before, and with none the lead, the one entry not marked front and marked `front: false`; the entry's `role` is not used. With a lead and no front `-main`, a new name's project is found through the lead's name, and the role word cut by that name goes into the register command, sala's own `post project-agent` for a `--project` spawn and for a renamed side session, and a side session started about an item sends its summary to the lead. A project with a front `-main` agent answers as before. The record's keys, the routes, the arguments and the exit codes are unchanged, and nothing on stackshot's side has to change.
 
 ## How each entry reads
 
@@ -777,8 +778,12 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `surface` (version 47) is the entry's other optional field and sala does read it: absent means `sala` (only an absent field: an explicit empty string or `null` is no value and is refused like any other), `slack` is a front agent that answers the owner on Slack, and any other value is refused
   (`tag --auto` leaves the whole row as it is, no project and no role written, and says why, for a row with a role as well as one without; a back agent named `slack` is left too, and a row whose role is back is never made slack; `spawn` reads the same entry before it chooses the start directory, so a registered Slack agent spawned without `--surface` starts in the Slack brief's directory, a `--surface` that conflicts with the entry is refused, and an entry whose surface sala cannot use (an empty one included) refuses the spawn too, with the reason and the project record named; that lookup, `sessions record-surface`, reads only the project record and never the session registry, so a registry that is missing, corrupt or unreadable changes nothing; a record that is missing, stale or does not list the name refuses nothing, the flag alone decides, and `SALA_SESSIONS=off` does not stop the read). `sala sessions tag --auto` copies it onto the session's row, a record without it clears a stale `slack`.
   `front` is true for a top-level entry of the page's `agents:` map and false for one under `background:`; `role` is the part
-  of the name after the project's name (`alex-builder` → `builder`); the project's main agent is the front entry whose
-  name ends in `-main`. `page_owed` is optional: stackshot writes the record directly and answers `page_owed: false` for an agent registered now, so a true value only survives in an older record
+  of the name after the project's name (`alex-builder` → `builder`). The project's **contact**, as sala reads it, is the front entry whose
+  name ends in `-main` (the first by name of several), and with none its **lead**: the one entry of the `agents` map not marked
+  front, when it is marked `front: false` (none, several, or a sole one with no `front` mark: no lead). `role` never decides the
+  lead. For sala the project's name is the contact's without its `-main` or `-engineer` ending; a lead named otherwise is still
+  the contact but gives no project name. A new name's project is the one whose name, followed by a dash, is the longest start of
+  it (read off every front `-main` entry, and only with none off the lead; two projects tying is no answer). `page_owed` is optional: stackshot writes the record directly and answers `page_owed: false` for an agent registered now, so a true value only survives in an older record
   (there it marked an agent whose page line was still owed; sala treats such an agent as listed, as before). Before version 55 sala read the file alone (no client call); now the file is the copy for when stackshot cannot be reached.
   `client.py get project <key>` returns one project's live record; only `sala sessions`' read-back after a registration uses it (interface 21), before it falls back to the copy.
 - **Reading rule (sala)**: the record answers only when it is readable JSON of schema 1, `generated` is at most
@@ -786,7 +791,9 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   name on the project's agents map and `front` agreeing with `R` is **listed** (an agent with `page_owed` counts as listed:
   its registration is the point; the dry run says the line is owed); the name absent is **not listed** (exit 3, the
   `REGISTER: <key>` line and, under it, the `post project-agent` register command with the project, the name, the role (the
-  part of the name after the project's name, from the project's main agent; `<role>` when the record gives none),
+  part of the name after the project's name, which the project's contact gives; `<role>` when it gives none or the name does not
+  start with it and a dash; where sala sends the call itself, for a `--project` spawn or a side session's rename, it takes the name's last
+  dash-part there instead),
   `--front` or `--back` and the mandate's first line (`"<one line>"` when the spawn had none); no instruction to edit the
   page's agents map, which reaches no reader once a project has a record; nobody is messaged (version 49); a spawn never calls it, `sala rename` of a side session does, since version 14); the name present with the other `front` is refused with exit 1 and the
   record's role. For a plain spawn only a listing matters: a name on any project's map is listed. Anything else the record cannot answer (file missing or unreadable, another schema,
