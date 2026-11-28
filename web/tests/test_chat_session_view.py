@@ -27,6 +27,7 @@ from sala_web.app import STATIC
 from conftest import NAME
 
 INDEX = (STATIC / "index.html").read_text(encoding="utf-8")
+ATTACH_JS = (STATIC / "attach.js").read_text(encoding="utf-8")   # builds the attach button, its menu and the file input
 APP_JS = (STATIC / "app.js").read_text(encoding="utf-8")
 STYLE = (STATIC / "style.css").read_text(encoding="utf-8")
 EN = (STATIC / "i18n-en.js").read_text(encoding="utf-8")
@@ -125,7 +126,8 @@ def test_what_waits_on_the_owner_is_in_a_pinned_bar_before_the_strip_in_the_pane
 
 
 def test_the_composer_is_sala_s_own_and_nothing_here_draws_another():
-    ids = re.findall(r'\sid="([^"]+)"', INDEX)
+    # the page's markup is index.html plus what attach.js builds into the composer row (the attach control)
+    ids = re.findall(r'\sid="([^"]+)"', INDEX + ATTACH_JS)
     assert len(ids) == len(set(ids)), sorted({i for i in ids if ids.count(i) > 1})
     for one in ("composer", "composer-editor", "attach", "file-input", "send", "chips"):
         assert ids.count(one) == 1, one
