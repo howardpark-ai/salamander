@@ -558,7 +558,7 @@ The row carries no board count, and neither do the session header and the Overvi
 agent's row carries a filled accent (orange) count of the replies it has written since the owner last opened it, at the
 row's far right (after the ⋯ when that shows). Each turn that ends in a reply adds one; a turn still running does not count
 yet. Above 9 it reads **9+**. A folded project or scope header carries the total of the sessions inside it (9+ above 9
-there too). The open session never has one, and background agents never get one, nor does a session with no project or a
+there too). The chat session's entry (*The chat session in sala's own view*, below) wears the same pill at its far right, after its red waiting count, and the Unread total still leaves that session out. The open session never has one, and background agents never get one, nor does a session with no project or a
 quick session (only stackshot's role `front` counts). The pill is 18 px tall, at least 20 px wide, 11 px type at weight
 600, `--accent-text` on `--accent` (white on the light orange, the dark panel colour on the dark one, 5.7:1 and 6.5:1); its `aria-label` reads "3 unread replies in <session>" ("More than 9 unread replies in ..."
 above 9). The server decides, so the phone and the desktop agree (`unread.py`): `unread_count` is the number of replies in
@@ -1855,8 +1855,11 @@ The chat session is meant to be sala's own view of a session, opened on the sess
 view, extended. So the header, the thread, the composer (box, attach button, image paste), the spacing, the buttons and the spinner of a working session are the ones every session has, from the same code. What the chat session adds is this
 list, and a difference outside it is a defect:
 
-- **Its entry**, the first line of the sidebar's views, above New session: a chat-bubble icon, the session's display name (`GET /api/chat`, so `SALA_CHAT_NAME`), a small "chat", a dot while it works and a red count of what waits on the owner
-  (the red of the Your move chips, not the orange unread count). It is hidden when no chat session is set, links to `/s/<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
+- **Its entry**, the first line of the sidebar's views, above New session: a chat-bubble icon, the session's display name (`GET /api/chat`, so `SALA_CHAT_NAME`), a small "chat", a dot while it works, a red count of what waits on the owner
+  (the red of the Your move chips; it reads 99+ above 99) and, at the far right, the orange unread count every other row wears (the same `.ucount` and count rule, 9+ above 9, none at zero; the open session shows none). The
+  red count sits just left of the orange one. Neither holds explaining text: each carries a tooltip, "N items in <list>" ("N item in <list>" for one) on the red one and "N unread replies" ("N unread reply" for one, "More than 9 unread
+  replies" above 9) on the orange one. A phone has no hover, so a touch tap on a count shows its tooltip as a small bubble under it (`chipTipShow`, `.chip-tip`) and does not open the session; a second tap on the same count, a
+  tap anywhere else, a scroll of the sidebar or 4 s hides it. A mouse click on a count opens the session like the rest of the row. It is hidden when no chat session is set, links to `/s/<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
   The marks are read from `GET /api/chat` every 25 s while the page is visible, whether or not the session is open. While the entry exists the session's own row is left out of the list (the Overview still lists it) and its unread
   replies stay out of the Unread total. A long name is cut with an ellipsis.
 - **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Your move, On it (above), and the kept-back switch with its
