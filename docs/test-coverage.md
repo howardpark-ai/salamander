@@ -826,6 +826,16 @@ Not covered, and why: a physical phone's browser, status bar and the installed a
 stubs are small); the Quick session and lane pages in `test_look_browser.py` (they call sala's CLI, which tests do not run; the lane page has its own tests); that the page looks right
 (judged by eye from screenshots at 390 and 1280 px against the page at `/v2/` before the switch, there is no pixel test).
 
+### `web/tests/test_update_banner_top_edge.py` new, 1: a closed phone drawer is hidden, so no fixed box lies over the top of the screen (Sat Nov 28th 2026)
+
+On an iPhone the update strip under the status bar sometimes came out blurred and its taps went wrong. The phone's sidebar drawer is `position: fixed`, top-anchored and screen-tall, and
+was closed by a transform alone, so it stayed rendered; iOS 26 WebKit reads such a box as a top bar and softens the top of the screen for it. The closed drawer is now `visibility: hidden`
+(held back until the slide ends; opening shows it at once). A wrong answer is a closed drawer that is still visible, a rendered fixed box touching the top, a Reload that a point on it does not hit,
+or an opened drawer that stays hidden.
+Held in a headless Chromium at 412 x 915 with the strip shown: closed, the drawer is fixed, off to the left, hidden, no rendered fixed box touches the top, and the point at Reload's centre
+hits Reload; with `side-open` it is visible and on screen; closed again it is hidden once the slide ends. The test fails on the old stylesheet. Not covered, and why: the iOS blur itself and the
+installed app (no iPhone can be driven from this box; the cause is pinned, not the pixels).
+
 ### `web/tests/test_update_banner_look.py` new, 2: the update strip is the card gray and Reload the solid accent, in both themes (Tue Nov 10th 2026)
 
 The "sala was updated. Reload" strip mixed the orange accent 14% into the page background, which comes out brown on the dark theme, and its Reload was an outlined button. The strip
