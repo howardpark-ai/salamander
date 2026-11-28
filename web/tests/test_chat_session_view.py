@@ -259,15 +259,16 @@ def test_the_strips_strings_are_in_both_languages(key):
 # The second list's help line is behind a (?), not drawn under the list (the browser side is test_chat_onit_ui.py).
 def test_the_second_lists_help_line_is_the_one_the_owner_chose_in_both_languages_as_escapes():
     en = re.search(r'"chat\.onit\.note": "([^"]*)"', EN).group(1)
-    assert en == "This is what the assistant has said it will report back on in this chat. Once it has, it leaves the list."
+    assert en == "What the assistant has said it will report back on in this chat. When it is done, the line moves to the {group} list."
     assert re.search(r'"chat\.onit\.help": "About this list"', EN)
     ko_note = re.search(r'"chat\.onit\.note": "([^"]*)"', KO).group(1)
     ko_help = re.search(r'"chat\.onit\.help": "([^"]*)"', KO).group(1)
     assert ko_note.isascii() and ko_help.isascii() and "\\u" in ko_note and "\\u" in ko_help, "Korean stays escapes in the file"
-    # the sentence the owner chose, in code points (the file holds no Hangul)
+    # the first sentence, the owner's own, in code points (the file holds no Hangul)
     want = "".join(chr(c) for c in (0xC774, 0x20, 0xCC44, 0xD305, 0xC5D0, 0xC11C, 0x20, 0xACB0, 0xACFC, 0xB97C, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xAE30, 0xB85C, 0x20, 0xD55C, 0x20,
-                                    0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xACE0, 0x20, 0xB098, 0xBA74, 0x20, 0xBAA9, 0xB85D, 0xC5D0, 0xC11C, 0x20,
-                                    0xBE60, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E))
+                                    0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20))
+    # and, once done, that the line moves to the first list, by its served name
+    want += "".join(chr(c) for c in (0xB05D, 0xB098, 0xBA74, 0x20)) + "{group}" + "".join(chr(c) for c in (0x20, 0xBAA9, 0xB85D, 0xC73C, 0xB85C, 0x20, 0xC62E, 0xACA8, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E))
     assert json.loads('"' + ko_note + '"') == want
 
 
@@ -285,8 +286,12 @@ def test_the_help_line_is_a_pressed_button_and_a_hidden_box_never_a_line_under_t
     assert "tabs, help, chevron, pop" in build, "in the bar, not among the tabs"
     paint_bar = body_of(APP_JS, "function paintChatBar(")
     assert "u.help.hidden = !open;" in paint_bar and "chatHelp(false)" in paint_bar, "it goes with its list"
-    assert 'key = chatView.waitTab === "onit" ? "chat.onit.note" : "chat.wait.note"' in paint_bar and "chatHelpText(key)" in paint_bar, "each list says its own note"
-    assert 'u.pop.getAttribute("data-i18n") !== key' in paint_bar, "another list's box is shut"
+    assert "parts = chatHelpParts(group)" in paint_bar and "chatHelpText(parts)" in paint_bar, "each list says its own lines"
+    assert 'u.pop.getAttribute("data-says") !== JSON.stringify(parts)' in paint_bar, "a box whose lines are no longer these is shut"
+    pick = body_of(APP_JS, "function chatHelpParts(")
+    assert 'if (chatView.waitTab === "onit") return [["chat.onit.note", { group }]];' in pick, "the second list says its own note, with the first list\'s name"
+    assert 'moves || !done ? [["chat.wait.note"]] : []' in pick and 'done ? [["chat.mine.note"]] : []' in pick, "the first says the moves\' note, the done lines\' or both"
+    assert 'el("span", tx(key, vars))' in body_of(APP_JS, "function chatHelpText("), "worded again on a language change"
     assert '"aria-expanded", String(on)' in body_of(APP_JS, "function chatHelp(")
 
 
@@ -331,7 +336,7 @@ def test_the_open_list_has_no_heading_and_the_panel_is_named_by_its_tab_s_words(
     assert '"aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote);' in build, "the panel starts with the list, no heading"
     assert 'u.wait.setAttribute("aria-label", u.moveLine.textContent)' in body_of(APP_JS, "function paintChatWait()")
     assert EN_T["chat.wait.note"] and KO_T["chat.wait.note"], "the note is in both tables"
-    assert '"chat.wait.note"' in body_of(APP_JS, "function paintChatBar("), "the first list's note is behind the (?), not under the list"
+    assert '"chat.wait.note"' in body_of(APP_JS, "function chatHelpParts("), "the first list's note is behind the (?), not under the list"
 
 
 def test_a_row_hangs_from_its_dot_and_the_box_is_a_clean_cover():

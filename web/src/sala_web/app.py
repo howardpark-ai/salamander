@@ -21,8 +21,13 @@ none itself):
                                   {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
                                   kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
                                   stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines, what it has promised to
-                                  report back: [{text, at: when first set}], motion.py)}; with no
+                                  report back: [{text, at: when first set}], motion.py), mine (its done lines, the owner's "my turn" list:
+                                  [{text, at, done: when marked done, link (the result's address, when given), jump (a transcript cursor for
+                                  transcript?around= of the first reply at or after done, when no link)}]); with no
                                   session set just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
+  POST /api/chat/motion/confirm   {"text", "at"} -> the owner's confirm of a done line in "my turn" (motion.py confirm): the line is removed
+                                  -> {"ok": true}. 409 when no such done line (not done, or already confirmed), 404 with no chat session,
+                                  400 for a bad body, 403 cross-origin, 415 without application/json
   GET  /api/chat/thread           the chat session's own thread (chatthread.py, whose docstring is the rule): the owner's messages and the replies to them and
                                   nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)
                                   -> {session, messages, offset, before, start, busy, cards} (an older, newer or around page carries that read's own paging
@@ -236,9 +241,12 @@ none itself):
                                   the text into the pane, then Enter (with a dialog
                                   open: an option number or "esc" is sent as that one key)
   GET  /api/outbox/<name>         the messages the server holds for a session (outbox.py): {"messages": [{id, state, reason, ...}]}
-  POST /api/outbox/<name>         {"text", "uploads", "cid"?} -> typed at once when the pane can take it, else HELD and typed when it can,
+  POST /api/outbox/<name>         {"text", "uploads", "cid"?, "reply"?} -> typed at once when the pane can take it, else HELD and typed when it can,
                                   in order (a dialog is open, the terminal's box holds text, no input box, asleep, no pane); a lone option
-                                  number or "esc" over a dialog is pressed at once; a `!` command is refused (400: it goes through /send)
+                                  number or "esc" over a dialog is pressed at once; a `!` command is refused (400: it goes through /send).
+                                  "reply" ({"text", "at"}, a done line of the chat session as GET /api/chat sent it) makes the message a reply
+                                  to that line: it is typed with the line quoted in front of it, is never pressed as a key, and once taken
+                                  (not failed) removes that done line and no other (400: another session, a slash command, a bad shape)
   POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed). A queued one (sent to a
                                   busy pane, not yet read) is taken back too: Up pulls the pane's whole queue into the input box, the
                                   others are cleared out and sent again in order. Text already in the input line is cleared first (and
@@ -253,7 +261,8 @@ none itself):
                                   that the transcript does not show yet, a dialog, a line that can not be cleared, a queue that does not
                                   read back as sala's, an upload in it, an Up that took nothing back, or an Up that can not be confirmed:
                                   then those messages are failed with their text kept); 409 tooLate when the session already took it
-  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it (a queued one as in cancel), then the new text joins at the end (409 as above)
+  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it (a queued one as in cancel), then the new text joins at the end (409 as
+                                  above); a reply stays a reply to its line
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
                                   laneOrder, agentsGroup, agentsFolded, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
@@ -340,6 +349,7 @@ from starlette.staticfiles import StaticFiles
 from . import board as B
 from . import chatkeep as CK
 from . import chatpage as CP
+from . import motion as MO
 from . import chatthread as CTH
 from . import yourmove as YM
 from . import wheresight as WS
@@ -811,6 +821,35 @@ def create_app(settings: Settings | None = None) -> Starlette:
             now_ms=int(time.time() * 1000),
             motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
+
+    async def api_chat_confirm(request: Request) -> Response:
+        # the owner's confirm of a done line in the "my turn" list (motion.py confirm): removes that line. Body {"text", "at"} (the line as GET /api/chat
+        # sent it); the session is the configured one, never named by the body. 404 when the chat session is not set, 409 for a line that is not
+        # done or is already confirmed (or no such line): nothing is written then. Same guards as the other POSTs: the origin check and JSON.
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "chat/motion/confirm takes application/json")
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > 4096:
+                return _err(413, "body too large")
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return _err(400, "body must be JSON")
+        text = body.get("text") if isinstance(body, dict) else None
+        at = body.get("at") if isinstance(body, dict) else None
+        if not isinstance(text, str) or not text or len(text) > MO.MAX_CHARS or isinstance(at, bool) or not isinstance(at, int):
+            return _err(400, 'body must be {"text": "<line>", "at": <seconds>}')
+        name = chat_session()
+        if not name:
+            return _err(404, "no chat session is set")
+        result = await run_in_threadpool(lambda: MO.confirm(settings.motion_dir, name, text, at))
+        if result != "ok":
+            return _err(409, "no done line to confirm (not done, already confirmed, or no such line)")
+        return JSONResponse({"ok": True})
 
     def _page(name: str, base: str = "./") -> Response:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.
@@ -2180,12 +2219,34 @@ def create_app(settings: Settings | None = None) -> Starlette:
             except T.TmuxError:
                 return None
 
-    async def _enqueue(name: str, s: S.Session, text: str, names: list[str], cid: str | None) -> dict | None:
-        e, created = outbox.add(name, text, names, cid)
+    def _reply_ref(name: str, raw: object, text: str) -> dict | Response:
+        """The done line a message says it answers, as the body carried it: {"text", "at"}. Only the chat session's lines can be answered, and
+        not by a command: the line goes in front of the message, which would turn a slash command into plain words."""
+        line = raw.get("text") if isinstance(raw, dict) else None
+        at = raw.get("at") if isinstance(raw, dict) else None
+        if (not isinstance(line, str) or not line or len(line) > MO.MAX_CHARS or line != " ".join(line.split())
+                or re.search(r"[\x00-\x1f\x7f-\x9f]", line) or isinstance(at, bool) or not isinstance(at, int)):
+            return _err(400, 'reply must be {"text": "<line>", "at": <seconds>}')
+        if name != chat_session():
+            return _err(400, "only a line of the chat session can be replied to")
+        if text.lstrip().startswith("/"):
+            return _err(400, "a command cannot be a reply to a line")
+        return {"text": line, "at": at}
+
+    async def _enqueue(name: str, s: S.Session, text: str, names: list[str], cid: str | None, reply: dict | None = None) -> dict | None:
+        e, created = outbox.add(name, text, names, cid, reply)
         if created:
             outbox_kick.set()
             await _pump_name(name, s)   # try it now: the answer says where the message is
-        return _view(name, e["id"])
+        view = _view(name, e["id"])
+        # a reply the server has taken (held, typed or read) is the owner's answer to its line: that done line, and no other, leaves the list.
+        # The kept message's own reference counts, so a repeated cid clears what that message names. A message that failed clears nothing
+        if view and view.get("reply") and view["state"] not in (OB.FAILED, OB.WITHDRAWN):
+            try:
+                await run_in_threadpool(MO.confirm, settings.motion_dir, name, view["reply"]["text"], view["reply"]["at"])
+            except OSError as ex:   # the message is taken all the same: the line stays, to be confirmed by hand
+                log.warning("outbox: %s: the line replied to was not cleared: %s", name, type(ex).__name__)
+        return view
 
     async def outbox_get(request: Request) -> Response:
         name = _outbox_name(request)
@@ -2196,7 +2257,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def outbox_post(request: Request) -> Response:
         """A message from a page. 200 {ok, message, messages}: `message.state` says where it is (held with its reason, queued, delivered or failed);
         a lone option number or esc that answers a dialog open now is pressed at once and not kept ({ok, dialogAnswer}); a `!` command is refused
-        here (400, bang: true) and goes through api/s/<pid>/send, which holds nothing."""
+        here (400, bang: true) and goes through api/s/<pid>/send, which holds nothing. With `reply` (_reply_ref) the message answers a done line
+        of the chat session: it is always kept (never pressed as a key), names the line, and takes it off the list once taken (_enqueue)."""
         if _cross_origin(request):
             return _err(403, "cross-origin request refused")
         if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
@@ -2214,11 +2276,16 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return got
         text, names, paths = got
         cid = body.get("cid") if isinstance(body.get("cid"), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body["cid"]) else None
+        reply = None
+        if body.get("reply") is not None:
+            reply = _reply_ref(name, body["reply"], text)
+            if isinstance(reply, Response):
+                return reply
         try:
-            passed = await _dialog_pass(s, text, paths)
+            passed = None if reply else await _dialog_pass(s, text, paths)
             if passed is not None:
                 return passed
-            view = await _enqueue(name, s, text, names, cid)
+            view = await _enqueue(name, s, text, names, cid, reply)
         except T.TmuxError as e:
             return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "message": view, "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
@@ -2543,6 +2610,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         old = outbox.get(name, request.path_params["mid"])
         if old is None:
             return _err(404, "no such message")
+        reply = old.get("reply")   # an edited reply still answers its line
+        if reply:
+            reply = _reply_ref(name, reply, text)
+            if isinstance(reply, Response):
+                return reply
         if old["state"] in (OB.QUEUED, OB.TYPING):
             try:
                 refusal = await _take_back(name, s, old["id"])
@@ -2555,7 +2627,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         except OB.TooLate as late:
             return _too_late(name, late.entry)
         try:
-            view = await _enqueue(name, s, text, names, None)
+            view = await _enqueue(name, s, text, names, None, reply)
         except T.TmuxError as e:
             return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "message": view, "withdrawn": old["id"], "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
@@ -3200,6 +3272,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/chat", chat_page),
         Route("/api/chat", api_chat),
         Route("/api/chat/thread", api_chat_thread),
+        Route("/api/chat/motion/confirm", api_chat_confirm, methods=["POST"]),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),
         # everything under /mockup (any method, any depth) is answered by mockup_page, so no answer of this prefix lacks the sandbox headers

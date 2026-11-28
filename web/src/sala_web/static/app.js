@@ -373,7 +373,8 @@ async function saveList(key, compute) {
      count that matters). The Overview still lists it. The marks are read every CHAT_MARKS_MS while the page is visible, whether or not the session is open;
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
    - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
-     what the session has promised to report back, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the
+     what the session has promised to report back, and the kept-back switch with its count (a done line's Reply also puts that line over the composer,
+     #reply-ref, until the message is sent or the reference removed). It is on screen while the open session has the `chat` flag (the
      server marks the session in api/sessions, sessions.py). The two lists are PINNED: #chat-strip-wait is sticky at the top of the pane, a bar of two tabs,
      the owner's moves ("<group> · 3"; the group's name is the one stackshot serves) and "On it" (api/chat `motion`: the lines the session set itself with
      `sala motion`, each on the list until the session marks it done), with a chevron: one list open at a time, height-capped, and the bar drawn while either
@@ -384,8 +385,10 @@ async function saveList(key, compute) {
      switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
    Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to /s/<the session> (app.py). */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
-const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move" };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches
+const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move", confirming: new Set() };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches; confirming: the done lines whose confirm is on its way or taken
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
+// the owner's count in the first list: his moves (stackshot's list) and the session's done lines waiting for his confirm (api/chat `mine`)
+const chatMoveCount = (d) => (d.waiting || []).length + (d.mine || []).length;
 // the session row the entry stands for: hidden from the list while the entry exists
 const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
 const chatSelected = () => { const s = state.selected && state.byName.get(state.selected); return !!(s && s.chat === true); };
@@ -411,6 +414,7 @@ function chatMarks(d) {
   if (!d || typeof d !== "object") return;
   const was = chatEntryOn(), label = chatLabelKey(), wasHere = isChatRow(state.current);   // wasHere: the open session wore the label before this answer
   chatView.data = d;
+  dropGoneReplyRef(d);
   if (d.configured) {
     const ids = new Set((d.waiting || []).map((w) => w.id));
     if (chatView.seen === null) chatView.seen = ids;
@@ -448,7 +452,7 @@ function paintChatEntry() {
   const group = chatGroupName(d.group);
   // the tooltip is painted here only: its text takes {group}, and the markup's applier has no served name to fill it with
   a.title = tl("ui.side.chatTip", { group });
-  const waiting = (d.waiting || []).length, busy = d.present === "live" && !!d.busy;
+  const waiting = chatMoveCount(d), busy = d.present === "live" && !!d.busy;
   const dot = a.querySelector(".dot"), chip = a.querySelector(".wchip");
   dot.hidden = !busy;
   dot.title = tl("chat.state.busy");
@@ -513,11 +517,19 @@ function buildChatStrip() {
   $("#chat-strip").replaceChildren(kept);
   chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, help, pop, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
 }
-// the text of the (?) box for the open list, set on the box and the button as the language's words (tx), so a language change words them again
-function chatHelpText(key) {
-  const u = chatView.ui, text = tx(key), label = tx("chat.onit.help", null, "aria-label");
-  u.pop.textContent = text.text;
-  u.pop.setAttribute("data-i18n", key);
+// the lines of the open list's (?), each [key] or [key, vars]: the second list has its own note, which names the first list (where a done line goes); the
+// first has the note on the owner's moves, the note on the done lines to confirm, or both, by what the list holds (with nothing in it, the one on the moves)
+function chatHelpParts(group) {
+  if (chatView.waitTab === "onit") return [["chat.onit.note", { group }]];
+  const d = chatView.data || {}, moves = (d.waiting || []).length, done = (d.mine || []).length;
+  return [...(moves || !done ? [["chat.wait.note"]] : []), ...(done ? [["chat.mine.note"]] : [])];
+}
+// the box says each line on its own, built anew only when the lines change, so a read leaves an open box alone (SalaI18n.apply re-words the lines on a
+// language change); the (?) has one name for every list
+function chatHelpText(parts) {
+  const u = chatView.ui, says = JSON.stringify(parts), label = tx("chat.onit.help", null, "aria-label");
+  if (u.pop.getAttribute("data-says") !== says) u.pop.replaceChildren(...parts.map(([key, vars]) => el("span", tx(key, vars))));
+  u.pop.setAttribute("data-says", says);
   for (const [k, v] of Object.entries(label)) u.help.setAttribute(k, v);
 }
 // the (?) of the bar, there only while a list is open: shows that list's note in a small box under the bar, or hides it again
@@ -548,7 +560,7 @@ function chatTabKeys(e) {
 }
 // the pinned bar and its two lists, the owner's moves and the session's own lines: not drawn with nothing in either; a list shows only while it is opened
 function paintChatWait() {
-  const u = chatView.ui, d = chatView.data || {}, n = (d.waiting || []).length, onIt = d.motion || [];
+  const u = chatView.ui, d = chatView.data || {}, n = chatMoveCount(d), onIt = d.motion || [];
   const shown = n > 0 || onIt.length > 0, open = chatView.waitOpen && shown;
   $("#chat-strip-wait").hidden = !shown;
   u.wait.hidden = !(open && chatView.waitTab === "move");
@@ -559,12 +571,12 @@ function paintChatWait() {
 }
 // the two tabs, their counts, the late dot and the chevron; the second list's own lines
 function paintChatBar(onIt, n, group, open) {
-  const u = chatView.ui, key = chatView.waitTab === "onit" ? "chat.onit.note" : "chat.wait.note";
+  const u = chatView.ui, parts = chatHelpParts(group);
   u.onit.hidden = !(open && chatView.waitTab === "onit");
   u.help.hidden = !open;
-  // the box follows the list: another list's (?) text, or a list shut, closes it
-  if (u.help.hidden || u.pop.getAttribute("data-i18n") !== key) chatHelp(false);
-  if (!u.help.hidden) chatHelpText(key);
+  // the box follows its text: another list's (?) text, other lines in the open list's, or a list shut, closes it
+  if (u.help.hidden || u.pop.getAttribute("data-says") !== JSON.stringify(parts)) chatHelp(false);
+  if (!u.help.hidden) chatHelpText(parts);
   const now = Date.now(), late = onIt.filter((m) => chatBackTone(m, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
   u.onitLine.textContent = tl("chat.onit.line", { n: onIt.length });
   u.onitTab.setAttribute("aria-label", lateTip ? u.onitLine.textContent + ", " + lateTip : u.onitLine.textContent);
@@ -654,6 +666,46 @@ function refreshChatOnit() {
   paintChatWait();
 }
 setInterval(refreshChatOnit, 60000);
+// a done line of the session's own, in the owner's list: its text, "done", the result (the given link, else a jump to the reply's place in the chat), a reply
+// button (the composer's next message answers this line) and the confirm button. The link is the server's (lib/motion.py takes only https, a path or one of this page's anchors); all of it is set as text or as an attribute value, never as markup.
+function chatMineRow(m, d) {
+  const meta = [el("span", { class: "mine-state", ...tx("chat.mine.done") })];
+  if (m.link) {
+    const web = m.link.startsWith("https://");
+    meta.push(el("a", { class: "wait-link mine-result", href: m.link, text: tl("chat.mine.result"), ...(web ? { target: "_blank", rel: "noopener noreferrer" } : {}) }));
+  } else if (m.jump) {
+    const go = el("button", { type: "button", class: "wait-link mine-result", text: tl("chat.mine.result") });
+    go.addEventListener("click", () => openAt(d.session, m.jump.uuid, { pos: m.jump.pos, session: m.jump.session }));
+    meta.push(go);
+  }
+  const ok = el("button", { type: "button", class: "mine-confirm", ...tx("chat.mine.confirm") });
+  ok.addEventListener("click", () => confirmMine(d.session, m));
+  const reply = el("button", { type: "button", class: "mine-reply", ...tx("chat.mine.reply"), ...tx("chat.mine.replyTip", null, "title") });
+  reply.addEventListener("click", () => { setReplyRef(d.session, { text: m.text, at: m.at }); clearStatus(); focusEnd(); });
+  meta.push(el("span", { class: "mine-acts" }, reply, ok));
+  const subj = el("span", { class: "wait-subj" }, el("span", { class: "wait-title", text: m.text }), el("span", { class: "wait-meta" }, ...meta));
+  return el("li", { class: "wait-row mine-row" }, subj);
+}
+// the owner's confirm: the server removes the line (POST, the same guard as the other posts). A refusal (already confirmed, no such line) or a failure says so, and the list is read again.
+// One confirm a line: a second press while it is on its way, or while its row waits for the read that takes it off, posts nothing; after a failure the line can be pressed again
+async function confirmMine(session, m) {
+  const u = chatView.ui, key = JSON.stringify([m.text, m.at, m.done]);
+  if (chatView.confirming.has(key)) return;
+  chatView.confirming.add(key);
+  u.waitNote.textContent = "";
+  try {
+    const r = await apiFetch("api/chat/motion/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: m.text, at: m.at }) }, { tries: 1 });
+    if (r.ok) {
+      const ref = replyRef(session);
+      if (ref && ref.text === m.text && ref.at === m.at) setReplyRef(session, null);
+      loadChatMarks();
+      return;
+    }
+  } catch { /* the failure is said below */ }
+  chatView.confirming.delete(key);
+  u.waitNote.textContent = tl("chat.mine.fail");
+  loadChatMarks();
+}
 function chatWaitRow(w, tagNew = true) {
   // the board id (as stackshot wrote it) is a plain label before the title; the whole title is the one link to the item (no url: plain text). A row with no subject
   // shows the id as its title, once.
@@ -671,6 +723,13 @@ function paintChatStrip() {
   // chatanswer.js (in the page only with the setting SALA_CHAT_LAYER) draws these rows itself, so one of them can hold the item's answer frame
   if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);
   else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
+  // the done lines follow the owner's moves, in the same list (strip() keeps only the moves' rows, so these are put after it). With a move to answer the list
+  // is a flex column that strip() orders by a number on each of its rows, so a done row takes the number after the last move's: with none it would sort among them
+  for (const m of d.mine || []) {
+    const row = chatMineRow(m, d);
+    row.style.order = String(waiting.length);
+    u.waitList.append(row);
+  }
   const now = Date.now();
   u.onitList.replaceChildren(...(d.motion || []).map((m) => chatBackRow(m, now)));
   paintChatWait();
@@ -2608,6 +2667,7 @@ function leaveSession() {
   clearStatus();
   state.selected = null;
   state.current = null;
+  paintReplyRef();
   state.modelInfo = null; updateModelLine();
   state.termLoadedFor = null;
   $("#terminal-pane").replaceChildren();
@@ -2760,6 +2820,7 @@ function selectSession(name, { force = false } = {}) {
   $("#sleep-band").hidden = true;
   if (!document.hidden) markRead(name, { force: true });  // opening a session reads its latest reply
   if (switching) restoreDraft(name);
+  paintReplyRef();
   state.modelInfo = null; updateModelLine();
   const s = state.byName.get(name);
   perfMark("select", { session: name || "", live: !!s, force });
@@ -3818,7 +3879,7 @@ function matchPending(m, live) {
     if (p.ob && !first) return false;
     // an older identical prompt is not this one (once the server has the message, its time is the transcript's clock: little slack)
     if (!Number.isNaN(ts) && ts < p.sentAt - (p.mid ? 5000 : 120000)) return false;
-    const pt = normText(p.text);
+    const pt = normText(p.sent || p.text);
     if (!pt && !t) return p.images.length === n;
     // a long prompt may come back truncated (TEXT_LIMIT): compare the start
     return pt === t || (pt.length >= 40 && t.length >= 40 && pt.slice(0, 200) === t.slice(0, 200));
@@ -3852,7 +3913,8 @@ function pendingNode(p) {
   if (sentFiles.length) box.append(el("div", { class: "sent-files" }, ...sentFiles.map((im) =>
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
       im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
-  if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(p.text, linkNodes)));
+  const shown = p.sent || p.text;   // a reply shows the line it answers, quoted, as the transcript's copy will
+  if (shown.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(shown, linkNodes)));
   if (waits && p.status !== "held") box.append(SalaWaiting.line(p));
   else if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));   // a "!" command from here on, until "held"
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
@@ -4008,6 +4070,8 @@ function toComposer(p) {
   }
   const cur = getText();
   if (state.selected === p.session) setText(p.text + (cur ? "\n" + cur : ""));
+  // it comes back as the reply it was. One the server had is marked `back`: its reference stays though its own reply took the line (dropGoneReplyRef)
+  if (p.reply) setReplyRef(p.session, p.mid ? { ...p.reply, back: true } : p.reply);
   for (const im of p.images) {
     state.uploads.push(im.file ? { id: ++uploadSeq, kind: "file", name: im.name, fileName: im.file.name, size: im.file.size, uploading: false }
                                : { id: ++uploadSeq, name: im.name, url: im.url, uploading: false });
@@ -4383,14 +4447,20 @@ function send() {
   // the server's outbox takes the message, so it can be edited or cancelled while it waits. Not a "!" command; nor, to a live session with
   // nothing waiting ahead of it, a slash command; nor what follows a message this page holds itself (the order is kept)
   const behind = state.pending.some((x) => x.session === s.name && x.status === "held");
-  const ob = !behind && !isBang(text) && (!!asleep || !SalaWaiting.isSlash(text) || SalaWaiting.active(s.name));
+  // a reply to a done line goes through the outbox alone, which names the line: no command, and nothing ahead of it that only this page holds
+  const reply = replyRef(s.name);
+  if (reply && (isBang(text) || SalaWaiting.isSlash(text))) { setStatus(() => tl("chat.reply.command"), "error"); return; }
+  if (reply && behind) { setStatus(() => tl("chat.reply.behind"), "error"); return; }
+  const ob = !behind && !isBang(text) && (!!reply || !!asleep || !SalaWaiting.isSlash(text) || SalaWaiting.active(s.name));
   const hold = !ob && (!!asleep || behind);
   const p = { id: ++pendingSeq, session: s.name, text, images: ups.map((u) => ({ name: u.name, url: u.url, file: u.kind === "file" ? { name: u.fileName, size: u.size } : null })),
-              status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}) };
+              status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}),
+              ...(reply ? { reply, sent: SalaWaiting.replyText(reply.text, text) } : {}) };
   state.pending.push(p);
   setText("");
   quotedText = null;
   clearDraft(s.name);   // sent: nothing to come back to
+  if (reply) setReplyRef(s.name, null);   // it left with the message: a bubble that fails keeps it, for Retry and Edit
   state.uploads = []; renderChips();
   clearStatus();
   redrawPending(p);
@@ -4752,6 +4822,47 @@ function restoreDraft(name) {
     if (t && !getText()) { setText(t); refreshSendButton(); }
   } catch { /* storage unavailable */ }
 }
+// The done line the composer is replying to ({text, at}), set by that row's Reply and kept per session beside its draft: the next message sent
+// there answers the line (send), and its × takes the reference away. Only a row's Reply sets one (and Edit of a reply gives it back); nothing is
+// read out of what is typed or quoted. It goes when its line does (dropGoneReplyRef).
+const replyKey = (name) => "salaweb.reply." + name;
+const replyRefs = new Map();
+function replyRef(name) {
+  if (!name) return null;
+  if (!replyRefs.has(name)) {
+    let ref = null;
+    try { ref = JSON.parse(localStorage.getItem(replyKey(name))); } catch { /* storage unavailable, or not the reference */ }
+    replyRefs.set(name, ref && typeof ref.text === "string" && Number.isInteger(ref.at) ? { text: ref.text, at: ref.at, ...(ref.back === true ? { back: true } : {}) } : null);
+  }
+  return replyRefs.get(name);
+}
+function setReplyRef(name, ref) {
+  replyRefs.set(name, ref);
+  try {
+    if (ref) localStorage.setItem(replyKey(name), JSON.stringify(ref));
+    else localStorage.removeItem(replyKey(name));
+  } catch { /* storage unavailable */ }
+  paintReplyRef();
+}
+// With each read of api/chat: a reference whose done line is no longer listed (confirmed here or on another device) goes, as does one of a session
+// that is not, or is no longer, the chat session. One that Edit gave back from a message the server had (`back`) stays while its session is the
+// chat session and its line is not listed (its own reply took it); once a read lists the line again, it is a reference like any other.
+function dropGoneReplyRef(d) {
+  for (const name of new Set([d.session, state.selected])) {
+    const ref = replyRef(name);
+    if (!ref) continue;
+    const here = d.configured && name === d.session;
+    const listed = here && (d.mine || []).some((m) => m.text === ref.text && m.at === ref.at);
+    if (listed && ref.back) setReplyRef(name, { text: ref.text, at: ref.at });
+    else if (!listed && !(here && ref.back)) setReplyRef(name, null);
+  }
+}
+function paintReplyRef() {
+  const ref = replyRef(state.selected);
+  $("#reply-ref").hidden = !ref;
+  $("#reply-ref-line").textContent = ref ? ref.text : "";
+}
+$("#reply-ref-drop").addEventListener("click", () => { setReplyRef(state.selected, null); clearStatus(); focusEnd(); });
 // leaving the session the composer belongs to (another session, the Overview): its text is kept and the box emptied
 function leaveComposer() {
   if (!state.selected) return;
@@ -4765,7 +4876,7 @@ function leaveComposer() {
 function keptForSignIn() {
   const unsent = state.pending.filter((p) => !p.hold && !p.mid && (p.status === "failed" || p.status === "sending")).map((p) => ({   // one with a mid is on the server
     session: p.session, text: p.text, at: p.sentAt, error: p.status === "failed" ? p.error : tl("app.pend.noNet"), ...(p.ob ? { cid: p.cid } : {}),
-    images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
+    ...(p.reply ? { reply: p.reply } : {}), images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
   const files = state.uploads.filter((u) => u.name).map((u) => ({ name: u.name, fileName: u.fileName || u.name, size: u.size }));
   const text = getText(), long = state.selected && text.length > DRAFT_MAX ? { session: state.selected, text } : null;
   return unsent.length || files.length || long ? { unsent, files, long } : null;
@@ -4773,7 +4884,8 @@ function keptForSignIn() {
 function restoreFromSignIn(kept) {
   for (const m of kept.unsent) {
     const p = { id: ++pendingSeq, session: m.session, text: m.text, status: "failed", error: m.error, sentAt: m.at,
-                ...(m.cid ? { ob: true, cid: m.cid } : {}), images: m.images.map((im) => ({ ...im, url: null })) };
+                ...(m.cid ? { ob: true, cid: m.cid } : {}), images: m.images.map((im) => ({ ...im, url: null })),
+                ...(m.reply ? { reply: m.reply, sent: SalaWaiting.replyText(m.reply.text, m.text) } : {}) };
     state.pending.push(p);
     redrawPending(p);
     if (p.session === state.selected) $("#chat").append(p.node);

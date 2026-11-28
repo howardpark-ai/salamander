@@ -23,6 +23,10 @@
   const isSlash = (text) => /^\s*\//.test(String(text || ""));
   const inPane = (p) => p.state === "queued" || p.state === "typing";
   const newCid = () => Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  // the message the session receives for a reply to a done line, the same text as outbox.py reply_text: the page knows it before the server answers,
+  // for the bubble and for matching the transcript's copy
+  const replyText = (line, own) => '> In reply to the done "On it" line: ' + line +
+    (own.trim() ? (/^ {0,3}>/.test(own) ? "\n\n" : "\n") + own : "");
 
   // a message that waits to be read: any bubble of this page but a failed one and a "!" command's (which nothing reads as a message)
   const waits = (p) => p.status !== "failed" && !isBang(p.text);
@@ -108,7 +112,8 @@
 
   function fromServer(name, m) {
     const p = { id: ++pendingSeq, session: name, ob: true, restored: true, mid: m.id, cid: m.cid, text: m.text, status: "waiting", state: m.state, sentAt: m.created,
-                images: (m.uploads || []).map((n) => ({ name: n, url: null, file: { name: n, size: 0 } })) };
+                images: (m.uploads || []).map((n) => ({ name: n, url: null, file: { name: n, size: 0 } })),
+                ...(m.reply ? { reply: m.reply, text: m.own, sent: m.text } : {}) };   // a reply: `text` is the sender's own words, `sent` what is typed
     state.pending.push(p);
     apply(p, m);
     redraw(p);
@@ -187,8 +192,9 @@
     state.sending = true; refreshSendButton();
     try {
       const r = await fetch(url(p.session), { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name), cid: p.cid }) });
+        body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name), cid: p.cid, ...(p.reply ? { reply: p.reply } : {}) }) });
       const d = await r.json().catch(() => ({}));
+      if (p.reply && r.ok && d.ok) loadChatMarks();   // the server took the reply: its line has left the done list
       if (r.ok && d.ok && d.dialogAnswer) {   // a key that answered a dialog: it never shows in the transcript, so no bubble waits for it
         dropPending(p);
         setStatus(() => (d.dialogAnswer === "Escape" ? tl("app.st.dialogEsc") : tl("app.st.dialogKey", { key: d.dialogAnswer })), "ok");
@@ -278,5 +284,5 @@
     toComposer(p);
   }
 
-  window.SalaWaiting = { newCid, isSlash, waits, active, line, repaint, sync, refresh, tick, unsent, forget, firstSeen, post, retry, edit };
+  window.SalaWaiting = { newCid, replyText, isSlash, waits, active, line, repaint, sync, refresh, tick, unsent, forget, firstSeen, post, retry, edit };
 })();

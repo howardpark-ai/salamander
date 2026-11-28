@@ -1,6 +1,6 @@
 """The chat strip's words for the owner's group are the ones stackshot serves, with sala's own copy only as the fallback.
 
-The rule: the group's name in the chat session's pinned strip (the first tab's words, the chevron's expand and collapse titles, the panel's label) and on the sessions-drawer entry
+The rule: the group's name in the chat session's pinned strip (the first tab's words, the chevron's expand and collapse titles, the panel's label, the second list's help line) and on the sessions-drawer entry
 (its tooltip and its chip) is a parameter, `{group}`, filled from `group: {en, ko}` of GET /api/chat (the answer of stackshot's `GET /client/your-move`, yourmove.py). A rename in stackshot reaches
 every one of those words with no change here. sala's own copy ("chat.group") is used only when no group is served, a served one is malformed (not both words, a word
 under 1 or over 40 characters once stripped, a control character, markup), or the page is Korean and the served `ko` equals the served `en` (stackshot has no Korean
@@ -36,9 +36,10 @@ SERVED_EN = "Decide"
 SERVED_KO = cp(0xACB0, 0xC815)                # a made-up Korean label for the renamed group
 GROUP = {"en": SERVED_EN, "ko": SERVED_KO}
 
-# the keys that carry the group's name as a parameter: the strip's line and titles, and the entry's tooltip and chip title
-GROUP_KEYS = {"chat.strip.line", "chat.strip.expand", "chat.strip.collapse", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"}
-KEY_HEADS = ("chat.strip.", "ui.side.chatTip", "ui.side.chatWait")
+# the keys that carry the group's name as a parameter: the strip's line and titles, the second list's help line (it says where a done line goes), and the
+# entry's tooltip and chip title
+GROUP_KEYS = {"chat.strip.line", "chat.strip.expand", "chat.strip.collapse", "chat.onit.note", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"}
+KEY_HEADS = ("chat.strip.", "chat.onit.note", "ui.side.chatTip", "ui.side.chatWait")
 
 
 def piece(pattern: str) -> str:
@@ -48,7 +49,8 @@ def piece(pattern: str) -> str:
 
 
 MODEL = r"""
-const mkEl = () => ({ hidden: false, textContent: "", title: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null; }, removeAttribute(k) { delete this.attrs[k]; },
+const el = (tag, attrs) => ({ tag, ...attrs });
+const mkEl = () => ({ hidden: false, textContent: "", title: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null; }, removeAttribute(k) { delete this.attrs[k]; }, replaceChildren(...kids) { this.kids = kids; },
   classList: { toggle() {}, remove() {} } });
 const parts = { ".label": mkEl(), ".dot": mkEl(), ".wchip": mkEl() };
 const side = mkEl(); side.querySelector = (s) => parts[s];
@@ -60,21 +62,26 @@ let entryOn = true;
 const chatEntryOn = () => entryOn;
 const chatView = { data: null, waitOpen: false, waitTab: "move", waitRove: "move", ui: Object.fromEntries(
   ["wait", "onit", "onitSum", "onitList", "onitNone", "moveTab", "moveLine", "onitTab", "onitLine", "lateDot", "chevron", "help", "pop"].map((k) => [k, mkEl()])) };
-const chatHelp = () => {};   // the (?) of the second list: not under test here
+const chatHelp = () => {};   // opening and shutting the (?) box: not under test here (its lines are: chatHelpParts, chatHelpText)
 %(group_word)s
 %(group_name)s
 %(entry)s
 %(wait)s
 %(help_text)s
+%(count)s
+%(late)s
 %(bar)s
 // what app.js wires on a language change: the entry and the strip are painted again from what they already hold
 SalaI18n.onChange(() => { paintChatEntry(); paintChatWait(); });
 const read = () => ({ line: chatView.ui.moveLine.textContent, aria: chatView.ui.wait.attrs["aria-label"], title: chatView.ui.chevron.title,
-                      tip: side.title, chip: parts[".wchip"].title, chipAria: parts[".wchip"].attrs["aria-label"], lang: SalaI18n.lang });
+                      tip: side.title, chip: parts[".wchip"].title, chipAria: parts[".wchip"].attrs["aria-label"], note: (chatView.ui.pop.kids || []).map((k) => k.text).join(" | "),
+                      noteVars: (chatView.ui.pop.kids || []).map((k) => k["data-i18n-vars"] || "").join(""), lang: SalaI18n.lang });
 function paint(c) {
   SalaI18n.setLang(c.lang);
-  chatView.data = { session: "demo-one", name: "Demo", waiting: Array.from({ length: c.n }, (_, i) => ({ id: "demo#" + (i + 1) })), group: c.group };
+  chatView.data = { session: "demo-one", name: "Demo", waiting: Array.from({ length: c.n }, (_, i) => ({ id: "demo#" + (i + 1) })), group: c.group,
+                    mine: Array.from({ length: c.mine || 0 }, () => ({})), motion: Array.from({ length: c.motion || 0 }, () => ({})) };
   chatView.waitOpen = !!c.open;
+  chatView.waitTab = c.tab || "move";
   paintChatEntry(); paintChatWait();
   return read();
 }
@@ -89,7 +96,9 @@ def run_cases(cases: list[dict], page_lang: str = "en") -> list:
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
-        "help_text": piece(r"function chatHelpText\(key\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpParts\(group\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
+        "count": piece(r"const chatMoveCount = .*?;\n"),
+        "late": piece(r"// A row of the second list is late.*?function chatBackTone\(m, now\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
         "cases": json.dumps(cases),
     }
@@ -111,6 +120,30 @@ def test_a_served_group_is_the_name_in_every_word_of_the_strip_in_both_languages
     assert closed["tip"] == (KO_T if lang == "ko" else EN_T)["ui.side.chatTip"].replace("{group}", name), closed
     for out in (closed, opened):
         assert OWN_EN not in " ".join(out.values()) and OWN_KO not in " ".join(out.values()), out        # none of sala's own words is left
+
+
+@needs_node
+@pytest.mark.parametrize("group,lang,name", [(GROUP, "en", SERVED_EN), (GROUP, "ko", SERVED_KO), (None, "en", OWN_EN), (None, "ko", OWN_KO)])
+def test_the_second_list_s_help_line_names_the_first_list_where_a_done_line_goes(group, lang, name):
+    got = run_cases([{"group": group, "lang": lang, "n": 3, "open": True, "tab": "onit"}])[0]
+    assert got["note"] == (KO_T if lang == "ko" else EN_T)["chat.onit.note"].replace("{group}", name) and name in got["note"], got
+    assert json.loads(got["noteVars"]) == {"group": name}, got      # the line holds the name, so the static applier never words it with a bare {group}
+
+
+# what the one (?) says, by the open list and what the first one holds: the moves (n), the done lines waiting for a confirm (mine)
+STATES = {"moves": (3, 0, "move", ["chat.wait.note"]), "moves and done lines": (3, 2, "move", ["chat.wait.note", "chat.mine.note"]),
+          "done lines": (0, 2, "move", ["chat.mine.note"]), "an empty first list": (0, 0, "move", ["chat.wait.note"]),
+          "the second list, done lines in the first": (3, 2, "onit", ["chat.onit.note"])}
+
+
+@needs_node
+@pytest.mark.parametrize("lang", ["en", "ko"])
+@pytest.mark.parametrize("state", STATES)
+def test_the_one_help_box_says_the_notes_of_what_the_open_list_holds(state, lang):
+    n, mine, tab, keys = STATES[state]
+    got = run_cases([{"group": None, "lang": lang, "n": n, "mine": mine, "motion": 1, "open": True, "tab": tab}])[0]
+    table, own = (KO_T, OWN_KO) if lang == "ko" else (EN_T, OWN_EN)
+    assert got["note"] == " | ".join(table[k].replace("{group}", own) for k in keys), (state, got)
 
 
 @needs_node
@@ -192,7 +225,9 @@ def test_a_change_of_language_repaints_the_strip_and_the_chip_in_the_other_langu
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
-        "help_text": piece(r"function chatHelpText\(key\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpParts\(group\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
+        "count": piece(r"const chatMoveCount = .*?;\n"),
+        "late": piece(r"// A row of the second list is late.*?function chatBackTone\(m, now\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
     } + """
 const out = [paint({ group: %s, lang: "en", n: 3 })];
@@ -214,7 +249,9 @@ def test_before_the_first_answer_and_with_no_chat_session_the_entry_is_hidden_wi
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
-        "help_text": piece(r"function chatHelpText\(key\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpParts\(group\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
+        "count": piece(r"const chatMoveCount = .*?;\n"),
+        "late": piece(r"// A row of the second list is late.*?function chatBackTone\(m, now\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
     } + """
 const out = [], keep = () => out.push({ hidden: side.hidden, tip: side.title });
@@ -242,7 +279,7 @@ def test_the_markup_s_applier_can_never_draw_the_placeholder():
     assert not [k for k in named if {k, k + ".one", k + ".other"} & takes], named & takes
     opening = re.search(r'<a id="side-chat"[^>]*>', INDEX).group(0)
     assert " title=" not in opening and "data-i18n-title" not in opening and "{group}" not in INDEX, opening
-    assert not re.search(r'tx\("(chat\.strip\.|ui\.side\.chat(Tip|Wait))', APP_JS), "and no element built in script marks one of them either"
+    assert not re.search(r'tx\("(chat\.strip\.|chat\.onit\.note|ui\.side\.chat(Tip|Wait))', APP_JS), "and no element built in script marks one of them either"
 
 
 # ── the text: no stray hard-coded copy, no other view's string takes the parameter ─────────────
@@ -282,6 +319,6 @@ def test_the_served_name_is_drawn_as_text_only_and_the_group_reaches_the_strip_t
 
 
 def test_the_group_parameter_is_given_only_by_these_calls_of_app_js():
-    calls = [line.strip() for line in APP_JS.splitlines() if "tl(" in line and re.search(r"\{[^}]*\bgroup\b", line)]
-    assert len(calls) == 4, calls      # the tooltip, the chip, the first tab's words and the chevron's title (the second tab's name takes the same place there)
+    calls = [line.strip() for line in APP_JS.splitlines() if ("tl(" in line or '["chat.onit.note"' in line) and re.search(r"\{[^}]*\bgroup\b", line)]
+    assert len(calls) == 5, calls      # the tooltip, the chip, the first tab's words, the second list's help line and the chevron's title (the second tab's name takes the same place there)
     assert all(any(head in c for head in KEY_HEADS) for c in calls), calls
