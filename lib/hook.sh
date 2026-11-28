@@ -26,14 +26,15 @@
 #                               defer the call, park the question, answer it on resume (lib/question.sh, lib/question.py)
 #   salamander hook session-start   SessionStart hook (matcher "*", docs/session-registry.md): record a fresh start of
 #                               this pane's session in the registry: source clear → why clear, resume → resume, startup → start,
-#                               compact → nothing. The row is SALA_SESSION_ID (spawn puts it in the pane's shell, so every claude started
+#                               compact → nothing recorded. The row is SALA_SESSION_ID (spawn puts it in the pane's shell, so every claude started
 #                               there inherits it) — but only for the claude IN that row's own pane (the fleet's tmux server, TMUX_PANE the
 #                               row's first pane: a throwaway on a private server, in another session, pane or window, or outside tmux
 #                               records nothing and prints nothing, one line in sessions.log) — else the pane's tmux
 #                               session name. Exit 0 always, prints nothing (a SessionStart hook's stdout is read as context) — except
 #                               for TWO cases, each one additionalContext line: source clear in a live BACK-role row names the agent and
 #                               its project and sends it to its mandate (below; SALA_CLEAR_CONTEXT=off prints nothing); and a
-#                               conversation that starts on another lane than it last ran on is told so (THE LANE NOTE, below)
+#                               conversation that starts on another lane than it last ran on is told so, and again at a compact
+#                               start before its next turn (THE LANE NOTE, below)
 #   salamander hook subagent-stop   SubagentStop hook (matcher "*"): once a subagent has handed back, SIGTERM the background
 #                               shells it started and left running under the pane's claude and every process those shells started
 #                               (children in groups and sessions of their own too), then any process of the user whose stdout / stderr is that
@@ -86,8 +87,10 @@
 # moved yet: the new lane waits in <session id>.next, and the next turn (`prompt` at its start, `stop` at its end) moves it
 # over the record. Until then every start on another lane than the record says it again. The line carries the time of the
 # start that says it: the CLI adds no SessionStart context whose text the conversation already holds (measured on 2.1.332), so
-# without it a move made a second time would be dropped while the record moved. A compact start says nothing: measured on the
-# same CLI, a line said at the resume before a typed /compact is in the next turn's request. An unreadable lane ("?") says and
+# without it a move made a second time would be dropped while the record moved. A compact start says the waiting line again,
+# with its own time, and nothing when none waits: measured on the same CLI, a typed /compact as the first thing after the resume
+# of a conversation with one earlier turn sent the line only inside the compaction request, and the next turn held none of it
+# (with more earlier turns it was kept). A /compact runs neither `prompt` nor `stop`, so the note still waits. An unreadable lane ("?") says and
 # records nothing, a headless `claude -p` (sdk-cli) neither tells nor moves anything, and lib/revive.sh writes a missing
 # record from the process it is about to close. `prompt` pays one glob test while no note waits.
 #
@@ -106,18 +109,23 @@ _row_check() {
     return 0
 }
 
-# _lane_start <session id> <claude pid, or ""> — session-start's half of THE LANE NOTE: prints the hook's JSON when the
-# conversation runs on another lane than it last ran on. common.sh is sourced by the caller.
+# _lane_start <session id> <claude pid, or ""> [compact] — session-start's half of THE LANE NOTE: prints the hook's JSON when the
+# conversation runs on another lane than it last ran on; at a compact start, only while a note waits for a turn, the waiting one
+# again. common.sh is sourced by the caller.
 _lane_start() {
     local f="$SALA_STATE_DIR/lane-ran/$1" now was="" t
-    rm -f "$f.next"                                    # a note no turn came for: decided afresh against the record
-    now=$(proc_lane "${2:-}")
-    [ "$now" != "?" ] || return 0
-    { IFS= read -r was < "$f"; } 2>/dev/null || :
-    [ "$was" != "$now" ] || return 0
-    mkdir -p "${f%/*}" 2>/dev/null || return 0
-    [ -n "$was" ] || { printf '%s\n' "$now" > "$f"; return 0; }   # first sight of this conversation: nothing to compare with
-    printf '%s\n' "$now" > "$f.next" || return 0
+    if [ "${3:-}" = compact ]; then
+        { IFS= read -r now < "$f.next" && IFS= read -r was < "$f"; } 2>/dev/null || return 0
+    else
+        rm -f "$f.next"                                    # a note no turn came for: decided afresh against the record
+        now=$(proc_lane "${2:-}")
+        [ "$now" != "?" ] || return 0
+        { IFS= read -r was < "$f"; } 2>/dev/null || :
+        [ "$was" != "$now" ] || return 0
+        mkdir -p "${f%/*}" 2>/dev/null || return 0
+        [ -n "$was" ] || { printf '%s\n' "$now" > "$f"; return 0; }   # first sight of this conversation: nothing to compare with
+        printf '%s\n' "$now" > "$f.next" || return 0
+    fi
     t="[sala] This session moved from the $(lane_shown "$was") lane to the $(lane_shown "$now") lane at its relaunch (noted $(date '+%Y-%m-%d %H:%M:%S %z')): start new subagents and do not resume ones started before the move."
     t="${t//\\/\\\\}"; t="${t//\"/\\\"}"
     printf '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s"}}\n' "$t"
@@ -279,7 +287,7 @@ case "${1:-}" in
         # SessionStart (phase 2): the explicit signal that a pane's session began a conversation. The hook input carries
         # session_id (the conversation, a claude session id), source (startup | resume | clear | compact) and cwd. It must never fail
         # a start, and a SessionStart hook's stdout is added to the model's context, so all output goes to /dev/null except the context
-        # lines named in the usage text above, and the exit status is 0 on every path. Nothing runs for compact (the conversation is the same) or for a headless `claude -p`
+        # lines named in the usage text above, and the exit status is 0 on every path. Nothing runs for compact (the conversation is the same) but a waiting lane note, nor for a headless `claude -p`
         # (CLAUDE_CODE_ENTRYPOINT=sdk-cli: a run a session starts inherits SALA_SESSION_ID, and is not the session). The same goes for
         # an interactive claude that is not in the row's own pane (below, THE ROW'S OWN PANE): it inherited the id from a shell and is not the session.
         [ -t 0 ] && { echo "salamander hook session-start reads the SessionStart hook input on stdin (a settings.json hook)" >&2; exit 0; }
@@ -296,8 +304,12 @@ if isinstance(s, str) and isinstance(src, str) and re.fullmatch(r"[0-9A-Za-z_-]{
 PY
         _out=$(printf '%s' "$_in" | python3 -I -S -c "$_py" 2>/dev/null) || exit 0
         IFS=$'\t' read -r _sid _src <<< "$_out"
-        case "${_src:-}" in clear) _why=clear ;; resume) _why=resume ;; startup) _why=start ;; *) exit 0 ;; esac
+        case "${_src:-}" in clear) _why=clear ;; resume) _why=resume ;; startup) _why=start ;; compact) _why="" ;; *) exit 0 ;; esac
         [ -n "${_sid:-}" ] || exit 0
+        if [ -z "$_why" ]; then                   # compact: the same conversation, nothing to record; a lane note no turn has had yet is said again
+            [ -e "${XDG_STATE_HOME:-$HOME/.local/state}/salamander/lane-ran/$_sid.next" ] || exit 0
+            . "$SALA_ROOT/lib/common.sh"; _lane_start "$_sid" "" compact >&3; exit 0
+        fi
         . "$SALA_ROOT/lib/common.sh"
         _lane_start "$_sid" "$(own_claude_pid 2>/dev/null)" >&3   # THE LANE NOTE: the conversation's, whichever pane it is in
         _target="${SALA_SESSION_ID:-}"

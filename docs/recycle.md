@@ -156,7 +156,8 @@ recycles was counted back in only one and the other set stayed open. Now:
   conversation comes back (a recycle, a revive, a retry after a resume that failed, the sdk lane's fallback, an unpark, a wake, a resume by
   hand). The record moves once a turn has run (`hook prompt` at its start, `hook stop` at its end); a session closed with no turn kept
   nothing of the line and hears it at the next start, from the lane it last ran on to the one it is then on, and nothing when that is the
-  same lane. A conversation with no record yet gets one from the relaunch that is about to close its claude. All three hooks must be
+  same lane. A `/compact` before that turn hears it again: the compaction's own start says the waiting line, with its own time, because a
+  conversation with one earlier turn kept the first one only in the compaction request. A conversation with no record yet gets one from the relaunch that is about to close its claude. All three hooks must be
   registered; a process whose environment cannot be read (macOS) and a headless `claude -p` are told nothing.
 - **The pane's claude, and "relaunched".** The pane's claude is the one nearest the pane's own process (that process itself, or the fewest
   parent steps below it), so a claude it started (a nested `claude -p`, a fork before its exec) is never taken for it, whatever its pid (pids

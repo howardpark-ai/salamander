@@ -15,7 +15,7 @@
 # lock), sessions_prepare/sessions_abandon, and `salamander hook session-start` per source, with garbage on stdin and as the fallback by
 # the pane's tmux session name (a private tmux server, no claude). The spawn and unpark halves are tests/sessions-spawn.sh.
 # THE LANE NOTE (lib/hook.sh): `hook session-start`, `prompt` and `stop` under a stand-in claude (a shell with a registry row
-# and a lane's variables): a start on another lane than the conversation last ran on says so, again until a turn runs.
+# and a lane's variables): a start on another lane than the conversation last ran on says so, again (a compact start too) until a turn runs.
 # PHASE 3 (Thu Oct 22nd 2026, the end of this file): the heartbeat's session-registry.json (contents, `written` refreshed every run, atomic,
 # nothing published when off / missing / corrupt and the last good file kept with one log line) and `sala sessions resolve` (id, prefix,
 # transcript, name, alias, role:; retired with and without --live; ambiguous = exit 2 with every candidate id, none = exit 1; read-only).
@@ -405,6 +405,9 @@ lstart "$API" resume "$L1"
 [ "$LRC" = 0 ] && told subscription-1 api && [ "$(ran "$L1")" = subscription-1/api ] && ok "a resume on another lane: one SessionStart context line naming both lanes; the record waits for a turn" || bad "moved: rc=$LRC '$LOUT' $(ran "$L1")"
 lstart "$API" resume "$L1"
 told subscription-1 api && ok "closed with no turn (the CLI kept nothing of it): the next start says it again" || bad "again: '$LOUT' $(ran "$L1")"
+o1=$LOUT; sleep 1.1   # the line's time has whole seconds
+lstart "$API" compact "$L1"
+[ "$LRC" = 0 ] && told subscription-1 api && [ "$LOUT" != "$o1" ] && [ "$(ran "$L1")" = subscription-1/api ] && ok "a compact before the next turn (with one earlier turn the CLI keeps the line only in the compaction request): says the waiting line again, in a new text, and it still waits" || bad "compact while waiting: rc=$LRC '$LOUT' '$o1' $(ran "$L1")"
 lturn "$API" prompt "$L2"
 [ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = subscription-1/api ] && ok "another conversation's prompt leaves it waiting" || bad "other prompt: rc=$LRC '$LOUT' $(ran "$L1")"
 lturn "$API" prompt "$L1"; o1=$LOUT r1=$LRC; r2=$(ran "$L1"); lstart "$API" resume "$L1"
@@ -417,7 +420,11 @@ lstart "$API" resume "$L1"
 lstart "$BED" resume "$L1"; lturn "$BED" stop "$L1"
 [ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = bedrock/ ] && ok "a turn's end (the stop hook) moves the record too" || bad "stop: rc=$LRC '$LOUT' $(ran "$L1")"
 lstart "$S1" compact "$L1"
-[ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = bedrock/ ] && ok "compact: nothing said or recorded" || bad "compact: rc=$LRC '$LOUT' $(ran "$L1")"
+[ "$LRC" = 0 ] && [ -z "$LOUT" ] && [ "$(ran "$L1")" = bedrock/ ] && ok "a compact with no note waiting: nothing said or recorded" || bad "compact: rc=$LRC '$LOUT' $(ran "$L1")"
+L5=33333333-0000-4000-8000-0000000000c5
+lstart "$API" startup "$L5"; lturn "$API" stop "$L5"; lstart "$BED" resume "$L5"; o1=$LOUT; lstart "$BED" compact "$L5"; o2=$LOUT r2=$(ran "$L5")
+lturn "$BED" prompt "$L5"; lstart "$BED" compact "$L5"
+( LOUT=$o1; told api bedrock ) && ( LOUT=$o2; told api bedrock ) && [ "$r2" = api/bedrock ] && [ -z "$LOUT" ] && [ "$(ran "$L5")" = bedrock/ ] && ok "a move to the bedrock lane: told at the resume and again at a compact before the turn; the turn moves the record, a later compact says nothing" || bad "to bedrock: '$o1' '$o2' $r2 '$LOUT' $(ran "$L5")"
 lstart CLAUDE_CODE_ENTRYPOINT=sdk-cli resume "$L1"; o1=$LOUT r2=$(ran "$L1")
 lstart "$API" resume "$L1"; lturn CLAUDE_CODE_ENTRYPOINT=sdk-cli prompt "$L1"; r3=$(ran "$L1"); lturn CLAUDE_CODE_ENTRYPOINT=sdk-cli stop "$L1"
 [ -z "$o1" ] && [ "$r2" = bedrock/ ] && [ "$r3" = bedrock/api ] && [ "$(ran "$L1")" = bedrock/api ] && ok "a headless claude -p is told nothing and moves nothing" || bad "sdk-cli: '$o1' $r2 $r3 $(ran "$L1")"
