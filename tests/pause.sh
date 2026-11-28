@@ -311,7 +311,7 @@ rm -f "$PD/$UJ".*; revive_only sala-test-j
 has "$OUT" 'sent it a stop notice' && ok "the first pass says it sent a stop notice and holds the messages" || bad "j notice line: $OUT"
 [ -e "$PD/$UJ.notified" ] && [ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 0 ] && [ "$(starts "$UJ")" = 1 ] && ok "before the deadline: notice only, no Escape, no /exit, not relaunched" || bad "j before: escs $(escs "$UJ") starts $(starts "$UJ") $(ls "$PD")"
 waitfor '[ "$(nsock "$UJ")" -ge 1 ]' 40 && has "$(slurp "$FAKE_SOCK_LOG")" 'leave a note with' && has "$(slurp "$FAKE_SOCK_LOG")" 'sala ready' && ok "the notice reached the pane at once and tells it to stop, leave a note and end with sala ready" || bad "j notice not delivered: $(tail -2 "$FAKE_SOCK_LOG" 2>/dev/null)"
-[ "$(grep -cF "$(printf '\t[stop] ')" "$NOTES")" = 0 ] && ok "the notice is one-time: retired once delivered" || bad "j notice stays: $(cat "$NOTES")"
+waitfor '[ "$(grep -cF "$(printf "\t[stop] ")" "$NOTES")" = 0 ]' 40 && ok "the notice is one-time: retired once delivered" || bad "j notice stays: $(cat "$NOTES")"
 wait_lock; revive_only sala-test-j; n1=$(nsock "$UJ")
 [ "$(nsock "$UJ")" = "$n1" ] && [ "$(escs "$UJ")" = 0 ] && ok "a second pass inside the wait sends no second notice" || bad "j second notice: $(nsock "$UJ")"
 age_clock "$UJ" 100; wait_lock; revive_only sala-test-j
