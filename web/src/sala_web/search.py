@@ -28,6 +28,7 @@ call is not found.
 
 Role (front / background / unknown): the registry row's `role` when it has one (`spawn --role`); else what stackshot says of that
 name (the project pages' agents map, the same answer the Overview's Role column shows: `roles`; a keeper is a mark on one front or back agent and counts with that agent's role, while the old `keeper` role counts as background);
+else front for a session with no agent role (a row marked `no_role` that has a project and is no side session: the owner's own, `spawn --role none`);
 else "unknown", which is its own bucket in the filter, never a dropped result. A subagent shows its agent's role.
 """
 
@@ -142,6 +143,8 @@ def role_of(row: dict, roles: dict[str, dict]) -> str:
         found = ROLE_OF.get(str((r or {}).get("role") or "")) if isinstance(r, dict) else None
         if found:
             return found
+    if row.get("no_role") and not row.get("side") and isinstance(row.get("project"), str) and row["project"]:
+        return "front"   # a session with no agent role (`spawn --role none`) is the owner's own and shows as a front agent does (unread.py counts_unread)
     return "unknown"
 
 

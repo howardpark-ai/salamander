@@ -996,7 +996,7 @@ op_shape() {
             [ -z "$forkof$item$agents" ] || { op_bad "--fork-of, --item and --agents go with --side"; return 1; }
             page_key_ok "$project" || { op_bad "spawn needs --project <page key> — <dir>/<slug> with the dir one of ${SALA_PAGE_DIRS// /, }, lowercase letters, digits and dashes (projects/site-redesign, projects/demo) — not '${project:-nothing}'"; return 1; }
             case "$role" in front|back|none) ;; *) op_bad "spawn needs --role front, --role back or --role none, not '${role:-nothing}'"; return 1;; esac
-            [ -z "$surface_set" ] || case "$surface" in sala) surface="" ;; slack) [ "$role" = front ] || { op_bad "a slack agent is a front agent: --surface slack goes with --role front, not --role $role"; return 1; } ;; *) op_bad "--surface takes sala or slack, not '$surface'"; return 1;; esac
+            [ -z "$surface_set" ] || case "$surface" in sala) [ "$role" != none ] || { op_bad "--surface sala conflicts with --role none: a session with no agent role answers nowhere but sala and has no surface to set; drop --surface (it goes with --role front or back)"; return 1; }; surface="" ;; slack) [ "$role" = front ] || { op_bad "a slack agent is a front agent: --surface slack goes with --role front, not --role $role"; return 1; } ;; *) op_bad "--surface takes sala or slack, not '$surface'"; return 1;; esac
         fi
         [ -z "$mkind" ] || [ -n "$mandate" ] || { op_bad "$mkind needs a file or text, not an empty argument"; return 1; }
         [ "$role" = back ] && [ -z "$mandate" ] && { op_bad "a back agent needs --mandate FILE|TEXT (a background agent reads its mandate at its first prompt, and nobody briefs it)"; return 1; }

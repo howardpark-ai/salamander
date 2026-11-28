@@ -333,6 +333,16 @@ def test_the_role_comes_from_the_registry_then_stackshot_then_unknown(tree):
     assert {x["uuid"]: x["role"] for x in tree.run("needle")["results"]}["m"] == "back"
 
 
+def test_a_session_with_no_agent_role_is_a_front_agent_in_the_search():
+    row = {"id": "x", "name": "own", "project": "projects/alpha", "no_role": "1"}
+    assert SR.role_of(row, {}) == "front"                                                  # the owner's own session: found by the default boxes
+    assert SR.role_of({**row, "project": None}, {}) == "unknown"                           # no project: nobody knows what it is
+    assert SR.role_of({**row, "side": "fork"}, {}) == "unknown"                            # a quick session is not the owner's own
+    assert SR.role_of({"id": "x", "name": "own", "project": "projects/alpha"}, {}) == "unknown"   # no mark: an unplaced row
+    assert SR.role_of(row, {"own": {"role": "back"}}) == "back"                            # stackshot's word wins
+    assert SR.role_of({**row, "role": "back"}, {}) == "back"                               # a row that has a role is that role
+
+
 def test_a_transcript_with_no_row_is_its_own_agent(tree):
     tree.write(SID_LOOSE, text("user", "needle headless", 1, "h"))
     r = tree.run("needle")["results"][0]

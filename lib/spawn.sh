@@ -409,6 +409,8 @@ if [ "$SURFACE_GIVEN" = 1 ]; then
     if [ "$SURFACE_OPT" = slack ]; then
         [ "$ROLE" = front ] || die "a slack agent is a front agent: --surface slack goes with --role front, not --role $ROLE"
         SURFACE=slack
+    elif [ "$ROLE" = none ]; then
+        die "--surface sala conflicts with --role none: a session with no agent role answers nowhere but sala and has no surface to set; drop --surface (it goes with --role front or back)"
     fi
 fi
 if [ "$NEW_OPT" = 1 ]; then

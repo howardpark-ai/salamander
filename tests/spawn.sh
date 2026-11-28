@@ -228,6 +228,10 @@ list projects/foo gamma-foo-listed "a listed agent"
 run gamma-foo-listed --project projects/foo --role none --dry-run
 [ "$RC" != 0 ] && has "$OUT" "'gamma-foo-listed' is on a project's agents map" && has "$OUT" "a session with no agent role takes a name the record does not list" && ok "--role none on a name the record lists as an agent: refused with the record's reason" || bad "role none listed: rc=$RC — $OUT"
 unlist gamma-foo-listed
+run gamma-foo-sess --project projects/foo --role none --surface sala --dry-run
+[ "$RC" = 1 ] && has "$OUT" "--surface sala conflicts with --role none" && ! has "$OUT" "[dry-run]" && ok "--role none --surface sala: refused (exit 1), nothing planned" || bad "role none surface sala: rc=$RC — $OUT"
+run gamma-foo-sess --project projects/foo --role none --surface slack --dry-run
+[ "$RC" = 1 ] && has "$OUT" "a slack agent is a front agent" && ok "--role none --surface slack: refused as before" || bad "role none surface slack: rc=$RC — $OUT"
 # a record that cannot answer is no answer: the listed-name check fails closed (exit 6, no pane), as every other project spawn does; SALA_AGENT_CHECK=off is the one way past
 for how in missing stale garbage; do
     recbreak "$how"
@@ -544,7 +548,8 @@ rm -f "$SURFREC"
 
 echo "== the surface through the queue: the shape, the plan, the marker's arguments"
 for args in "spawn x --project projects/foo --role back --mandate m --surface slack --from t --words x" "spawn x --project projects/foo --role front --surface telegram --from t --words x" \
-            "spawn x --project projects/foo --role front --surface --from t --words x" "spawn x --side --fork-of gamma-foo-fr --surface slack --from t --words x"; do
+            "spawn x --project projects/foo --role front --surface --from t --words x" "spawn x --side --fork-of gamma-foo-fr --surface slack --from t --words x" \
+            "spawn x --project projects/foo --role none --surface sala --from t --words x"; do
     eval "enq $args"; [ "$RC" = 2 ] && has "$OUT" "✗" && ok "refused (exit 2): op ${args% --from*}" || bad "op $args: rc=$RC — $OUT"
 done
 [ "$(queued)" = 0 ] && ok "nothing queued by those" || bad "left: $(ls "$OPS" 2>/dev/null)"

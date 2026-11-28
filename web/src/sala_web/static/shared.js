@@ -28,10 +28,12 @@ function applyLaneNames(doc) {
 }
 // </lane-words>
 // <unread-words> (the tests run what is between these two markers in node)
-// The unread reply count of one session as the side panel shows it: only a front agent has one (the server sends every other role 0, and a
-// Slack agent, surface "slack", 0 as well), and the open session never does (opening it reads its replies). A server that sends `unread`
-// but no count reads as 1.
-const unreadOfSession = (s, selected) => (s && s.role === "front" && s.surface !== "slack" && s.name !== selected ? (Number.isInteger(s.unread_count) ? s.unread_count : s.unread ? 1 : 0) : 0);
+// The unread reply count of one session as the side panel shows it: a front agent has one, and so has a session the owner works with that has a
+// project and no role (`sala spawn --role none`: no role, no `side`; unread.py counts_unread is the same rule). The server sends every other
+// session 0, a Slack agent (surface "slack") and a quick (side) session included, and the open session never has one (opening it reads its
+// replies). A server that sends `unread` but no count reads as 1.
+const countsUnread = (s) => !!s && s.surface !== "slack" && (s.role === "front" || (!s.role && !!s.project && !s.side));
+const unreadOfSession = (s, selected) => (countsUnread(s) && s.name !== selected ? (Number.isInteger(s.unread_count) ? s.unread_count : s.unread ? 1 : 0) : 0);
 const unreadTotal = (sessions, selected) => sessions.reduce((t, s) => t + unreadOfSession(s, selected), 0);
 // The "Unread only" filter: the sessions of one project it keeps. An agent with an unread reply stays; so does the open one, until the
 // owner leaves it (its replies count as read the moment it opens, so without this the row would vanish under the pointer).
