@@ -356,12 +356,18 @@ growing to 40vh and scrolling past it, in the app's colour variables (light and 
   before its marker, since the indent is drawn with the marker); Shift+Tab takes up to two leading spaces off those lines,
   and with none to take nothing happens, the key still taken. The key that makes a new line (Shift+Enter; Enter itself in
   touch mode) on a list line continues it: the same indent and the next marker (`- ` and `* ` as they are, a number counting
-  up, the items below not renumbered), the text after the caret moved behind it, a selection within the line replaced; on an
+  up), the text after the caret moved behind it, a selection within the line replaced; on an
   empty item it ends the list, the marker and its indent gone and the line left empty; a selection across lines, or a range from
   the line's start, is a plain break. Escape then Tab leaves the box (CodeMirror's tab-focus mode, armed for two seconds by
   Escape; the next Tab is the browser's, the focus moving on); any other key, or the focus coming back, arms the editor's Tab
   again. Ctrl+Left/Right cross a line break instead of stopping at it (otherwise the editor's word moves), Ctrl+Up/Down jump a
   line; Shift extends. Every edit is one dispatch (one undo step, `userEvent` set); Ctrl+Z and Ctrl+Y are the editor's.
+- **Numbered lists** are renumbered after Tab, Shift+Tab and the new-line key, over the run of consecutive list lines around the
+  caret (a blank or plain line ends a run; `-` and `*` items are not touched): a nested list counts from 1 and the outer list
+  goes on, so `1. a`, Tab on `2.` gives `  1.`, and Shift+Tab takes the next outer number. The run's first number stays as
+  typed (`9.` alone stays `9.`, Enter after it gives `10.`). The counting is `renumberLists` of the MIT-licensed `overtype`
+  package, vendored as one function (*The bundle*); only digits are rewritten, in the same transaction as the key, so one Ctrl+Z
+  takes both back. There is no indent button for a phone, which has no Tab key.
 - **Text in**: a paste or a drop of text is the editor's own, plain text only (it reads `text/plain`, never the HTML flavour), in
   one undo step; formatting commands (`beforeinput` of the `format*` kinds, `insertLink`) are refused. A line break that arrives as
   an insertion with no Enter key before it (`insertLineBreak` or `insertParagraph` from a script, or an IME that commits `"\n"` as
@@ -462,7 +468,8 @@ holds the cause (a model of `resetDoc` running the real functions in node) and `
 `versions`). The repo has no npm build, so it is built in a scratch directory and the output committed, the way `marked.min.js`
 and `purify.min.js` are vendored, with no CDN at runtime. The recipe, the pinned versions, the lockfile, the license and how to
 rebuild are in `web/vendor-src/cm6-composer/README.md`; a change to `entry.js` or to a version is a rebuild and a commit of the
-bundle with it. It is MIT; CodeMirror needs no other file at runtime (its styles are injected by the script).
+bundle with it. The one function that counts a numbered list is `renumberLists` of `overtype` 2.8.0 (MIT, Copyright (c) 2025 David Miranda), vendored
+as `renumber-lists.js` with its notice (`LICENSE-overtype`, and the bundle's banner). It is MIT; CodeMirror needs no other file at runtime (its styles are injected by the script).
 
 ### Timing
 

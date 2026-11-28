@@ -22,7 +22,7 @@ insertion; `web/README.md`). The comments in `entry.js` say how each rule is imp
 text that is sent: the dot and the indent of a list item are drawn, never typed.
 
 There is no markdown parser in it: the list rule is the composer's own regular expression (`LIST_RE`), as it was before
-CodeMirror. (`@codemirror/commands` brings `@codemirror/language` and the lezer packages along; the bundle is 268 KB minified,
+CodeMirror. The one borrowed piece is the numbered-list counting, `renumber-lists.js` (below). (`@codemirror/commands` brings `@codemirror/language` and the lezer packages along; the bundle is 269 KB minified,
 88 KB gzipped.)
 
 ## Pinned versions
@@ -40,12 +40,26 @@ Transitive packages were resolved with `npm install --before=2026-10-01T00:00:00
 pinned in `package-lock.json`: `@codemirror/language` 6.12.4; `@lezer/common` 1.5.3, `highlight` 1.2.5, `lr` 1.4.10;
 `@marijn/find-cluster-break` 1.0.4, `crelt` 1.0.7, `style-mod` 4.1.4, `w3c-keyname` 2.2.8.
 
+## The renumbering (`renumber-lists.js`)
+
+`renumberLists` is `MarkdownParser.renumberLists` from `overtype` 2.8.0 (`src/parser.js`, https://github.com/panphora/overtype, MIT,
+Copyright (c) 2025 David Miranda), copied as one function: the only changes are `export function` for `static` and a local
+constant for `this.LIST_PATTERNS.numbered` (the same regular expression). It keeps one counter per indent width and clears the
+deeper ones, so `1. a`, `  2. b`, `  5. c`, `3. d` becomes `1. a`, `  1. b`, `  2. c`, `2. d`. It was vendored, not imported
+(`import "overtype/parser"`), because the package's parser module pulls its three scanners in, and the bundle with it measured
+294,524 bytes (96,680 gzipped, `gzip -9`) against 269,462 (88,251) for the copy, with `@floating-ui` and `markdown-actions` added to the
+lockfile unused. The version is 2.8.0 because the newest release must be two weeks old: 2.9.0 (Nov 14th 2026, 15:40 UTC) was
+under that on Nov 28th 2026, and 2.8.0 (Nov 14th 2026, 03:41 UTC) was the newest that was not and has the function. The
+glue in `entry.js` (`renumberEdits`, `dispatchRenumbered`) is sala's: the run of consecutive list lines, the run's first number
+kept as typed, digit-only edits in the key's own transaction. Its `LICENSE-overtype` is the package's text, and the bundle's banner
+names it.
+
 ## Rebuild
 
 In a scratch directory outside the repo (node 24, npm 11 were used):
 
 ```sh
-cp entry.js package.json package-lock.json banner.txt /path/to/scratch/ && cd /path/to/scratch
+cp entry.js renumber-lists.js package.json package-lock.json banner.txt /path/to/scratch/ && cd /path/to/scratch
 npm ci --no-audit --no-fund        # exactly the lockfile's versions
 npm run build                      # esbuild: iife, global cm6Composer, es2020, minified, the banner on top
 cp dist/cm6-composer.min.js <repo>/web/src/sala_web/static/vendor/cm6-composer.min.js
@@ -57,11 +71,13 @@ change it in `package.json`, `npm install --save-exact` (with `--before=<date>` 
 in), commit the lockfile with the new bundle, and update `banner.txt`, the `versions` export in `entry.js`, the table above
 and `VERSIONS` in `web/tests/test_composer_cm6.py`. A change to `entry.js` is a rebuild and a commit of the bundle with it.
 
-The bundle committed with this recipe: 268,115 bytes, 87,676 gzipped (`gzip -9`), sha256
-`7a8366c8eb356c4453d43c32f6e7252289524f2389ea0c1fac3a0555c70c6691`. It was rebuilt from the committed lockfile in a fresh directory
+The bundle committed with this recipe: 269,462 bytes, 88,251 gzipped (`gzip -9`), sha256
+`c144d7042bf9385b19d4e8100bb15b0a9baefb4a9eaac694a4787a962bace98e`. It was rebuilt from the committed lockfile in a fresh directory
 with the commands above and came out byte for byte the same.
 
 ## License
+
+`renumber-lists.js` is MIT too, Copyright (c) 2025 David Miranda (`LICENSE-overtype`).
 
 CodeMirror and lezer are MIT, copyright (C) 2018-2021 by Marijn Haverbeke and others: `LICENSE` here is their text (copied from
 `@codemirror/view`), and the bundle's banner names the packages and points to this directory. `crelt`, `style-mod`,

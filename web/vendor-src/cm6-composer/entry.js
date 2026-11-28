@@ -10,13 +10,15 @@
 //   3. the caret never lands inside the marker ("- ", "1. "): the range is atomic for arrows, taps and programmatic moves;
 //      and (a caret in front of the bullet felt awkward)
 //      it never rests before it either: a caret at a list line's start is put at the end of the marker, the item's text;
-//   4. Tab indents (a list item nests), Shift+Tab outdents.
+//   4. Tab indents (a list item nests), Shift+Tab outdents;
+//   5. a numbered list is renumbered after those keys and after Enter (a nested list counts from 1, the outer list goes on).
 //
 // The rules below are the composer's own from before CodeMirror (app.js had them as tabKey, listBreak and ctrlArrow, with
 // the tests in web/tests/test_composer_lists.py), so the move changes how a list is drawn, not what the keys do.
 
-import { Compartment, EditorSelection, EditorState, Prec, RangeSetBuilder, StateField } from "@codemirror/state";
+import { ChangeSet, Compartment, EditorSelection, EditorState, Prec, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
+import { renumberLists } from "./renumber-lists.js";
 import { history, historyKeymap, insertNewline, standardKeymap } from "@codemirror/commands";
 
 // On Android CodeMirror (6.43) hands the keyboard to the browser's EditContext API instead of the contenteditable. The
@@ -165,6 +167,38 @@ const endEmptyItem = (view) => {
   return true;
 };
 
+// Numbered lists. The counting is the library's: renumberLists (renumber-lists.js, MarkdownParser.renumberLists of the
+// MIT-licensed package overtype 2.8.0; its notice is in the banner and in LICENSE-overtype), one counter per indent width, deeper counters cleared. What is sala's is
+// only this glue: the run of consecutive list lines around a line (a blank or other line ends it), the run's first number kept
+// as typed (the library counts from 1: that offset is added back on the lines at the first line's indent), and the result
+// taken as digit-only edits, so the text, the spaces and the caret stay put and the key and its renumbering are one change.
+function renumberEdits(doc, lineNo) {
+  let a = lineNo, b = lineNo;
+  while (a > 1 && LIST_RE.test(doc.line(a - 1).text)) a--;
+  while (b < doc.lines && LIST_RE.test(doc.line(b + 1).text)) b++;
+  const lines = [];
+  for (let n = a; n <= b; n++) lines.push(doc.line(n));
+  const out = renumberLists(lines.map((l) => l.text).join("\n")).split("\n");
+  const top = LIST_RE.exec(lines[0].text);
+  const start = top && top[3] !== undefined ? Number(top[3]) - 1 : 0;
+  const edits = [];
+  lines.forEach((line, i) => {
+    const m = LIST_RE.exec(line.text), got = /^ *(\d+)\./.exec(out[i]);
+    if (!m || m[3] === undefined || !got) return;
+    const next = String(Number(got[1]) + (m[1].length === top[1].length ? start : 0));
+    if (next !== m[3]) edits.push({ from: line.from + m[1].length, to: line.from + m[1].length + m[3].length, insert: next });
+  });
+  return edits;
+}
+
+// Dispatch a key's edit with the renumbering of the run around the caret in the same transaction (one undo step). spec is
+// a dispatch spec whose selection is an EditorSelection in the document after spec.changes.
+function dispatchRenumbered(view, spec) {
+  const changes = view.state.changes(spec.changes), doc = changes.apply(view.state.doc);
+  const fix = ChangeSet.of(renumberEdits(doc, doc.lineAt(spec.selection.main.head).number), doc.length);
+  view.dispatch({ ...spec, changes: changes.compose(fix), selection: spec.selection.map(fix) });
+}
+
 // A new line on a list item: the next item follows, the same indent and marker ("- ", "* "; a number counts up), the text
 // after the caret moved behind it, a selection within the line replaced. A selection across lines, or the caret before the
 // marker's end, is a plain break.
@@ -174,8 +208,8 @@ const continueItem = (view) => {
   const m = LIST_RE.exec(line.text);
   if (!m || r.from < line.from + m[0].length) return false;
   const insert = "\n" + m[1] + (m[3] === undefined ? m[2] + " " : String(Number(m[3]) + 1) + ". ");
-  view.dispatch({ changes: { from: r.from, to: r.to, insert }, selection: { anchor: r.from + insert.length },
-                  userEvent: "input", scrollIntoView: true });
+  dispatchRenumbered(view, { changes: { from: r.from, to: r.to, insert }, selection: EditorSelection.single(r.from + insert.length),
+                             userEvent: "input", scrollIntoView: true });
   return true;
 };
 
@@ -218,8 +252,8 @@ const tabKey = (outdent) => (view) => {
   // at it). On a list line the indent is drawn with the marker, so an offset at the line's start stays before it (assoc -1):
   // it would otherwise land inside the marker.
   const at = (pos) => (pos === doc.lineAt(pos).from && LIST_RE.test(doc.lineAt(pos).text) ? -1 : 1);
-  view.dispatch({ changes, selection: EditorSelection.single(changes.mapPos(r.anchor, at(r.anchor)), changes.mapPos(r.head, at(r.head))),
-                  userEvent: outdent ? "delete.dedent" : "input.indent", scrollIntoView: true });
+  dispatchRenumbered(view, { changes, selection: EditorSelection.single(changes.mapPos(r.anchor, at(r.anchor)), changes.mapPos(r.head, at(r.head))),
+                             userEvent: outdent ? "delete.dedent" : "input.indent", scrollIntoView: true });
   return true;
 };
 

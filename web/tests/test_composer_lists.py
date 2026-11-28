@@ -14,11 +14,13 @@ whether it finishes a composition before an Enter, and what a Tab key on an atta
 
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
 
 from conftest import CHAT_READY, NAME
+from test_composer_attach import PNG, WAIT_CHIPS
 from test_composer_editable import STATE, enter, key, open_composer, typed
 from test_composer_touch import MODE, WAIT_SENT, tap_send, touch
 
@@ -431,11 +433,11 @@ def test_touch_mode_enter_continues_a_list_and_the_button_sends_the_text(served,
     tab(browser)  # a Tab key on an attached keyboard: the same nesting
     typed(browser, "z")
     s = sel(browser)
-    assert s["text"] == "- a\n- b\nplain\n1. x\n2. y\n  3. z" and s["focus"] == "input", s
+    assert s["text"] == "- a\n- b\nplain\n1. x\n2. y\n  1. z" and s["focus"] == "input", s
     tap_send(browser)
     s = sel(browser)
-    assert s["sent"] == [{"text": "- a\n- b\nplain\n1. x\n2. y\n  3. z", "uploads": []}] and s["text"] == "" and s["empty"], s
-    assert browser.evaluate("document.querySelector('#chat .msg.user.local .bubble').textContent") == "- a\n- b\nplain\n1. x\n2. y\n  3. z"
+    assert s["sent"] == [{"text": "- a\n- b\nplain\n1. x\n2. y\n  1. z", "uploads": []}] and s["text"] == "" and s["empty"], s
+    assert browser.evaluate("document.querySelector('#chat .msg.user.local .bubble').textContent") == "- a\n- b\nplain\n1. x\n2. y\n  1. z"
     # Ctrl+Enter sends the text as it stands, a trailing marker included. The tap on Send took the focus off the composer, as on a
     # phone, where the next thing is a tap on the composer: it is focused here (the placeholder is no longer in the
     # empty line, so the browser's selection after the reset is not left where this typing used to happen to land)
@@ -443,7 +445,7 @@ def test_touch_mode_enter_continues_a_list_and_the_button_sends_the_text(served,
     typed(browser, "- q")
     enter(browser)
     key(browser, "Enter", "Enter", 13, "\r", modifiers=2)
-    assert [m["text"] for m in browser.evaluate("__sent")] == ["- a\n- b\nplain\n1. x\n2. y\n  3. z", "- q\n- "]
+    assert [m["text"] for m in browser.evaluate("__sent")] == ["- a\n- b\nplain\n1. x\n2. y\n  1. z", "- q\n- "]
 
 
 def test_undo_takes_back_one_key_at_a_time(served, browser):
@@ -489,3 +491,154 @@ def test_a_draft_with_its_indents_and_markers_survives_a_reload(served, browser)
     s = browser.evaluate(STATE)
     assert s["text"] == "- a\n  - b\n  - c" and s["sendEnabled"] and s["lines"] == 3, s
     assert browser.evaluate(key_js) == "- a\n  - b\n  - c"  # kept until it is sent
+
+
+# ---------- numbered lists: the count follows the nesting ----------
+# Tab, Shift+Tab and the new-line key renumber the run of list lines around the caret (the counting is overtype's
+# renumberLists, the glue is in entry.js); a blank line ends a run, a bullet is never touched, the run's first number is kept.
+
+def test_tab_restarts_the_count_one_level_down_and_shift_tab_goes_back_to_the_outer_count(served, browser):
+    open_composer(browser, served)
+    typed(browser, "1. a")
+    enter(browser, shift=True)
+    tab(browser)  # "2. " nests and counts from 1 at its level
+    typed(browser, "b")
+    s = sel(browser)
+    assert s["text"] == "1. a\n  1. b" and caret(s) == 11, s
+    enter(browser, shift=True)
+    typed(browser, "c")
+    s = sel(browser)
+    assert s["text"] == "1. a\n  1. b\n  2. c" and caret(s) == 18, s  # the next number at the current level
+    tab(browser, shift=True)  # out again: the next number of the outer list
+    s = sel(browser)
+    assert s["text"] == "1. a\n  1. b\n2. c" and caret(s) == 16, s
+    enter(browser, shift=True)
+    typed(browser, "d")
+    assert sel(browser)["text"] == "1. a\n  1. b\n2. c\n3. d"
+    # an item in the middle: the ones below it are counted again
+    put(browser, "1. a\n2. b\n3. c\n4. d", 9)  # at the end of "b"
+    tab(browser)
+    assert sel(browser)["text"] == "1. a\n  1. b\n2. c\n3. d"
+    tab(browser, shift=True)
+    s = sel(browser)
+    assert s["text"] == "1. a\n2. b\n3. c\n4. d" and caret(s) == 9, s
+    # a bullet nested under a number, and a number under a bullet, are not counted into the other list
+    put(browser, "1. a\n- b\n2. c", 7)
+    tab(browser)
+    assert sel(browser)["text"] == "1. a\n  - b\n2. c"
+
+
+def test_enter_on_an_empty_nested_item_ends_it_as_before_and_the_outer_count_goes_on(served, browser):
+    open_composer(browser, served)
+    put(browser, "1. a\n  1. b\n  2. ", 17)
+    enter(browser, shift=True)  # the empty item ends: the marker goes, the line stays, as without the renumbering
+    s = sel(browser)
+    assert s["text"] == "1. a\n  1. b\n" and caret(s) == 12, s
+    # the other way out, Shift+Tab, lifts the empty item to the outer list, and the next Enter continues that list
+    put(browser, "1. a\n  1. b\n  2. ", 17)
+    tab(browser, shift=True)
+    assert sel(browser)["text"] == "1. a\n  1. b\n2. "
+    typed(browser, "c")
+    enter(browser, shift=True)
+    s = sel(browser)
+    assert s["text"] == "1. a\n  1. b\n2. c\n3. " and caret(s) == 20, s
+    # what stands below the ended item is another run: its numbers stay as they were
+    put(browser, "1. a\n  1. b\n  2. \n3. c", 17)
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == "1. a\n  1. b\n\n3. c"
+
+
+def test_the_first_number_of_a_run_is_kept_and_a_blank_line_ends_a_run(served, browser):
+    open_composer(browser, served)
+    put(browser, "9. a", 4)
+    tab(browser)
+    assert sel(browser)["text"] == "  9. a"
+    tab(browser, shift=True)
+    assert sel(browser)["text"] == "9. a"
+    enter(browser, shift=True)
+    s = sel(browser)
+    assert s["text"] == "9. a\n10. " and caret(s) == 9, s
+    typed(browser, "b")
+    tab(browser)  # a deeper level counts from 1 whatever the outer list started with
+    assert sel(browser)["text"] == "9. a\n  1. b"
+    # a blank line ends the run: the lines on the other side are not counted into it, nor changed
+    put(browser, "1. a\n2. b\n\n7. c\n8. d", 9)
+    tab(browser)
+    assert sel(browser)["text"] == "1. a\n  1. b\n\n7. c\n8. d"
+    put(browser, "1. a\n2. b\n\n7. c\n8. d", 20)
+    tab(browser)
+    assert sel(browser)["text"] == "1. a\n2. b\n\n7. c\n  1. d"
+    # a line that is not a list item ends it too
+    put(browser, "1. a\ntext\n5. b\n6. c", 19)
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == "1. a\ntext\n5. b\n6. c\n7. "
+    # the spaces after the number are the text's: only the digits are rewritten
+    put(browser, "1.  a\n3. b", 10)
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == "1.  a\n2. b\n3. "
+
+
+def test_a_draft_with_numbers_as_they_were_typed_is_not_renumbered_by_a_reload(served, browser):
+    open_composer(browser, served)
+    draft = "1. a\n  5. b\n7. c"
+    put(browser, draft, len(draft))
+    typed(browser, "!")
+    key_js = "localStorage.getItem('salaweb.draft.' + %s)" % json.dumps(NAME)
+    browser.evaluate("new Promise((r) => setTimeout(r, 600))")  # saved 400 ms after the last keystroke
+    assert browser.evaluate(key_js) == draft + "!"
+    browser.reload(CHAT_READY)
+    s = browser.evaluate(STATE)
+    assert s["text"] == draft + "!" and s["lines"] == 3, s
+
+
+def test_one_undo_takes_back_a_key_and_its_renumbering_together(served, browser):
+    open_composer(browser, served)
+    put(browser, "1. a\n2. b", 9)
+    tab(browser)
+    assert sel(browser)["text"] == "1. a\n  1. b"
+    undo(browser)
+    s = sel(browser)
+    assert s["text"] == "1. a\n2. b" and caret(s) == 9, s
+    put(browser, "1. a\n  1. b\n  2. c", 18)
+    tab(browser, shift=True)
+    assert sel(browser)["text"] == "1. a\n  1. b\n2. c"
+    undo(browser)
+    assert sel(browser)["text"] == "1. a\n  1. b\n  2. c"
+    # Enter in the middle of a list: the new item and the count of the ones below it are one step
+    put(browser, "1. a\n2. b", 4)
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == "1. a\n2. \n3. b"
+    undo(browser)
+    assert sel(browser)["text"] == "1. a\n2. b"
+
+
+def test_a_composition_in_a_numbered_item_is_not_renumbered(served, browser):
+    open_composer(browser, served)
+    put(browser, "1. a\n  5. ", 10)
+    for syl in ["ㅎ", "하", "한"]:
+        browser.send("Input.imeSetComposition", {"text": syl, "selectionStart": 1, "selectionEnd": 1})
+    # the keys an IME takes while it composes (keyCode 229) leave the text alone: no nest, no break, no renumbering
+    for code, mod in [("Tab", 0), ("Tab", 8), ("Enter", 8)]:
+        browser.send("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Process", "code": code, "windowsVirtualKeyCode": 229, "modifiers": mod})
+        browser.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Process", "code": code, "windowsVirtualKeyCode": 229, "modifiers": mod})
+    assert sel(browser)["text"] == "1. a\n  5. 한"
+    typed(browser, "한")  # the commit
+    s = sel(browser)
+    assert s["text"] == "1. a\n  5. 한" and caret(s) == 11, s
+    fire = """(() => { const i = document.querySelector("#input"); const e = new KeyboardEvent("keydown", Object.assign({ bubbles: true, cancelable: true }, %s));
+      const passed = i.dispatchEvent(e); return [passed, getText()]; })()"""
+    for init in [{"key": "Tab", "isComposing": True}, {"key": "Tab", "keyCode": 229}, {"key": "Enter", "shiftKey": True, "isComposing": True}]:
+        assert browser.evaluate(fire % json.dumps(init)) == [True, "1. a\n  5. 한"], init
+
+
+def test_an_image_pasted_into_a_numbered_item_leaves_the_numbers_alone(served, browser):
+    open_composer(browser, served)
+    put(browser, "1. a\n  5. b", 11)
+    png = json.dumps(base64.b64encode(PNG).decode())
+    browser.evaluate(f"""(() => {{ const bytes = Uint8Array.from(atob({png}), (c) => c.charCodeAt(0)); const dt = new DataTransfer();
+      dt.items.add(new File([bytes], "kb.png", {{ type: "image/png" }}));
+      input.dispatchEvent(new ClipboardEvent("paste", {{ clipboardData: dt, bubbles: true, cancelable: true }})); }})()""")
+    got = browser.evaluate(WAIT_CHIPS % 1)
+    assert got["chips"] == 1 and got["uploading"] == 0 and got["status"] == "", got
+    s = sel(browser)
+    assert s["text"] == "1. a\n  5. b" and caret(s) == 11, s
