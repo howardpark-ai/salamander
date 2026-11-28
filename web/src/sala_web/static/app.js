@@ -4165,6 +4165,15 @@ const touchMode = window.matchMedia("(pointer: coarse) and (hover: none)");
 const placeholderFor = () => tl(window.matchMedia("(max-width: 760px)").matches ? "app.composer.label"
   : touchMode.matches ? "app.composer.phTouch" : "app.composer.phKeys");
 watchForInsertedImages($("#composer-editor"));
+// Indent and Outdent for a phone, which has no Tab key: shown only on a touch screen, with the editor focused and the caret on a
+// numbered item. They run the Tab and Shift+Tab command (cm6Composer.indentItem), and a press never takes the focus.
+const listKeys = $("#list-keys"), coarse = window.matchMedia("(pointer: coarse)");
+function syncListKeys() { listKeys.hidden = !(coarse.matches && composer.hasFocus && cm6Composer.onNumberedLine(composer.state)); }
+coarse.addEventListener("change", syncListKeys);
+for (const b of listKeys.querySelectorAll("button")) {
+  for (const ev of ["pointerdown", "mousedown"]) b.addEventListener(ev, (e) => e.preventDefault());
+  b.addEventListener("click", () => { cm6Composer.indentItem(composer, b.dataset.dir === "out"); composer.focus(); syncListKeys(); });
+}
 const composer = cm6Composer.createEditor($("#composer-editor"), {
   id: "input", label: tl("app.composer.label"), placeholder: placeholderFor(),
   // Enter sends on a desktop, and Shift+Enter is a new line. In touch mode, a phone or a tablet typing on its on-screen
@@ -4179,7 +4188,8 @@ const composer = cm6Composer.createEditor($("#composer-editor"), {
   touch: () => touchMode.matches,
   onSend: () => send(),
   onChange: () => { refreshSendButton(); saveDraftSoon(); },   // a change by typing, a paste or a key; setText makes none (callers refresh)
-  extensions: [composerImageHandlers()],
+  extensions: [composerImageHandlers(),
+    cm6Composer.EditorView.updateListener.of((u) => { if (u.docChanged || u.selectionSet || u.focusChanged) syncListKeys(); })],
 });
 const input = composer.contentDOM;   // the editable, #input
 // The composer's own words (the box's name and its placeholder) are the page's language NOW. cm6Composer.resetDoc rebuilds the editor's state from the
@@ -4198,7 +4208,7 @@ SalaI18n.onChange(() => {   // the words around the draft change; the draft itse
 });
 const getText = () => composer.state.doc.toString();
 // the text replaced as a textarea's value= does: no change event, no undo step (the history starts over), the caret at the end
-function setText(v) { cm6Composer.resetDoc(composer, v); paintComposerWords(); }
+function setText(v) { cm6Composer.resetDoc(composer, v); paintComposerWords(); syncListKeys(); }
 function selectionOf() { const r = composer.state.selection.main; return { start: r.from, end: r.to, backward: r.head < r.anchor }; }
 function selectOffsets(start, end, backward = false) {
   const len = composer.state.doc.length, a = Math.max(0, Math.min(start, len)), b = Math.max(0, Math.min(end, len));

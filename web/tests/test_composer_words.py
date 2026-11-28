@@ -61,6 +61,7 @@ const cm6Composer = {
   resetDoc(view, t) { view.text = t; view.ph = made.ph; input.attrs["aria-label"] = made.label; },
   setPlaceholder(view, t) { view.ph = t; },
 };
+function syncListKeys() {}   // the phone's list buttons (app.js): not part of the words
 %(set_placeholder)s
 %(paint)s
 %(set_text)s

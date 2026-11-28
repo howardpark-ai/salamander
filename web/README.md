@@ -367,7 +367,10 @@ growing to 40vh and scrolling past it, in the app's colour variables (light and 
   goes on, so `1. a`, Tab on `2.` gives `  1.`, and Shift+Tab takes the next outer number. The run's first number stays as
   typed (`9.` alone stays `9.`, Enter after it gives `10.`). The counting is `renumberLists` of the MIT-licensed `overtype`
   package, vendored as one function (*The bundle*); only digits are rewritten, in the same transaction as the key, so one Ctrl+Z
-  takes both back. There is no indent button for a phone, which has no Tab key.
+  takes both back. A phone has no Tab key, so on a touch screen (`(pointer: coarse)`) an Indent and an Outdent button (`#list-keys`, above the
+  composer's row, 44 px each) show while the editor is focused and the caret's line is a numbered item (`LIST_RE` with its number group), and
+  are hidden on every other line and on a computer. They run the same command as Tab and Shift+Tab (`indentItem` of the bundle), so the
+  renumbering is the same; a press does not take the focus, so the keyboard stays up.
 - **Text in**: a paste or a drop of text is the editor's own, plain text only (it reads `text/plain`, never the HTML flavour), in
   one undo step; formatting commands (`beforeinput` of the `format*` kinds, `insertLink`) are refused. A line break that arrives as
   an insertion with no Enter key before it (`insertLineBreak` or `insertParagraph` from a script, or an IME that commits `"\n"` as

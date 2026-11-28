@@ -5797,3 +5797,16 @@ A frame that says a person types in it made the strip take the pane but three li
 Kept (a headless Chromium; GitHub CI runs it): a typing frame with a mouse leaves `ans-kbd` off and the strip within 40vh, with the thread keeping at least 30% of the height, and the same word on touch turns it on; a plain row has the card's size, weight, left bar and corners, no dot and one underlined link. The earlier keyboard tests set touch where they send the typing word.
 
 Not covered, and why: a real phone keyboard and a phone-width visual check by eye (the viewport is set by the test).
+
+### Indent and Outdent buttons on a phone's numbered lines: `web/tests/test_composer_phone_indent.py`: new, 6 (Sat Nov 28th 2026)
+
+A phone keyboard has no Tab key, so a numbered list could not be nested on a phone. A touch screen now gets an Indent and an Outdent button above the composer's row while the caret is on a numbered item (`web/README.md`, *The composer*). The rule's first loss applies: a wrong edit, or a tap that closes the keyboard, changes a draft under the owner's hands. Headless Chromium over DevTools, a touch-emulated page for the phone and the default page for a computer; the tap is a mouse press and release on the button, since DevTools touch events hang this Chromium now and then.
+
+- `test_no_buttons_on_a_computer`: with no coarse pointer the pair is hidden on a numbered line.
+- `test_the_pair_shows_only_on_a_numbered_line`: hidden on a plain line, a bullet line and a blank line, shown on a numbered one (nested too); follows the caret from one line to another, an edit that makes the line an item, and a blur of the editor.
+- `test_the_buttons_are_44px_named_and_above_the_row`: each is at least 44 px by 44 px, named and titled `Outdent` and `Indent`, and sits over the composer's row inside the composer.
+- `test_a_tap_nests_and_renumbers_like_tab_and_keeps_the_focus`: Indent on `2.` of three gives `1.`, `  1.`, `2.`, Outdent gives the list back; the caret stays on the item and the focus stays in the editor after each tap.
+- `test_a_tap_is_the_same_edit_as_the_key`: the Tab key and the Indent button on the same text and caret leave the same document, caret and focus.
+- `test_the_words_are_in_both_languages_and_the_page_has_no_text_in_them`: both keys are in the English and Korean word files, and the buttons take name and title from them, with no text of their own.
+
+Not checked: a real phone keyboard staying up, a finger's own touch events.
