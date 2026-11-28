@@ -35,18 +35,19 @@ HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)   # sdk_run.py lives beside
 RELAY_CWD=${RELEASE_WATCH_RELAY_CWD:-$HOME}   # where the relay turn runs; tests repoint it (CI's user cannot enter the owner's home)
 # The name the post gives this machine (lib.sh's briefing_box: SALA_HEARTBEAT_NAME, else the hostname) and this script's three
 # settings, each from the environment, else its line in the sala config (lib.sh's briefing_setting; config.example, the briefings),
-# read in ONE child bash so nothing else of lib.sh (its PATH) reaches this script; its last line is the time zone BRIEFING_TZ names. One value per line; a session name or a
-# page key is one word.
+# read in ONE child bash so nothing else of lib.sh (its PATH) reaches this script; its sixth line is the time zone BRIEFING_TZ
+# names, its seventh sala's SALA_CHAT_SESSION (the one front session, below). One value per line; a session name or a page key is one word.
 #   RELEASE_WATCH_CLI_OWNER     the Claude Code CLI's upgrade owner; unset or empty: nobody is pinged
 #   RELEASE_WATCH_UBUNTU_SESSION  the session an Ubuntu LTS upgrade path is relayed to; unset or empty: nobody is pinged
 #   RELEASE_WATCH_UBUNTU_PAGE   the project page with the upgrade plan, named in the notice and the ping; unset or empty: none named
-_rw=$(bash -c '. "$1/lib.sh" >/dev/null 2>&1; briefing_box; echo; for v in RELEASE_WATCH_CLI_OWNER RELEASE_WATCH_UBUNTU_SESSION RELEASE_WATCH_UBUNTU_PAGE; do briefing_setting "$v" | tr -d " \n"; echo; done; briefing_setting SALA_OWNER_NAME | tr -cd "[:alnum:] ._'"'"'-"; echo; echo "$TZ"' _ "$HERE" 2>/dev/null)
+_rw=$(bash -c '. "$1/lib.sh" >/dev/null 2>&1; briefing_box; echo; for v in RELEASE_WATCH_CLI_OWNER RELEASE_WATCH_UBUNTU_SESSION RELEASE_WATCH_UBUNTU_PAGE; do briefing_setting "$v" | tr -d " \n"; echo; done; briefing_setting SALA_OWNER_NAME | tr -cd "[:alnum:] ._'"'"'-"; echo; echo "$TZ"; briefing_setting SALA_CHAT_SESSION | tr -d " \n"; echo' _ "$HERE" 2>/dev/null)
 BOX=$(printf '%s\n' "$_rw" | sed -n 1p); [ -n "$BOX" ] || BOX=$(hostname 2>/dev/null || uname -n)
 CLI_OWNER=$(printf '%s\n' "$_rw" | sed -n 2p)
 UBUNTU_SESSION=$(printf '%s\n' "$_rw" | sed -n 3p)
 UBUNTU_PAGE=$(printf '%s\n' "$_rw" | sed -n 4p)
 RW_TZ=$(printf '%s\n' "$_rw" | sed -n 6p); [ -n "$RW_TZ" ] || RW_TZ=UTC   # the zone the post shows times in (lib.sh's BRIEFING_TZ, exported there as TZ)
 OWNER=$(printf '%s\n' "$_rw" | sed -n 5p); case $OWNER in *[!\ ]*) ;; *) OWNER="the owner";; esac   # what the messages call the person who runs this machine (SALA_OWNER_NAME, as sala's runtime text does)
+CHAT_SESSION=$(printf '%s\n' "$_rw" | sed -n 7p)
 mkdir -p "$STATE/deferred" "$STATE/notified"
 # RELEASE_WATCH_DRY=1: print what would be announced; no session ping, no notified-state write.
 
@@ -122,12 +123,26 @@ relay_sdk() { # relay_sdk <prompt>  -> the SDK turn's last line; status 1 (no ou
       --key-file "$API_KEY_FILE" --workspace-file "$API_WORKSPACE_FILE" 2>/dev/null) | tail -1
   return 0
 }
+session_role() { # session_role <session>  -> front | back, as sala itself finds a live session's role (lib/common.sh's back_lane_names:
+  # the registry row, else the project record or the roles file); nothing when it has none or sala cannot say. Asked in a child bash,
+  # since common.sh defines and runs things.
+  bash -c 'SALA_ROOT=$1; . "$SALA_ROOT/lib/common.sh" >/dev/null 2>&1 || exit 0
+    for r in front back; do back_lane_names "$r" 2>/dev/null | grep -qxF -- "$2" && { echo "$r"; break; }; done' _ "${HERE%/contrib/briefing}" "$1" 2>/dev/null </dev/null
+}
+front_session() { # front_session <session>  -> status 0 for a front agent: the one front session SALA_CHAT_SESSION names, else a session
+  # whose role is front. With the setting unset and no role to go by, a session named *-main counts as one.
+  [ -n "$CHAT_SESSION" ] && [ "$1" = "$CHAT_SESSION" ] && return 0
+  case $(session_role "$1") in front) return 0 ;; back) return 1 ;; esac
+  [ -z "$CHAT_SESSION" ] || return 1
+  case $1 in *-main) return 0 ;; esac
+  return 1
+}
 relay() { # relay <session> <message>  -> prints a status line
-  # A front agent (a session named *-main) takes a message only when its FIRST line is `[for <owner>]`; anything else is logged, never
-  # read. So a *-main recipient gets that line first.
+  # A front agent takes a message only when its FIRST line is `[for <owner>]`; anything else is logged, never read. So a front
+  # recipient (front_session) gets that line first.
   RMSG=$2
-  case "$1" in *-main) RMSG="[for ${OWNER}]
-$2";; esac
+  if front_session "$1"; then RMSG="[for ${OWNER}]
+$2"; fi
   RPROMPT="Send exactly this cross-session message to the local Claude session named \"$1\" using SendMessage, line breaks kept, then reply with the single word DONE. If no such session is listed by ListAgents, reply with the single word ABSENT. Message: \"$RMSG\""
   if OUT=$(relay_sdk "$RPROMPT"); then
     [ "$OUT" = DONE ] && { echo "$1 has been told and will report"; return; }

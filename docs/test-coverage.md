@@ -1429,7 +1429,8 @@ agent. A recipient named `*-main` gets `[for the user]` as the first line of the
 stdin is read back: the line, then the text unchanged), because a front agent takes a message only then; any other
 recipient gets the text unchanged, with no such line. The Ubuntu LTS notice goes to `RELEASE_WATCH_UBUNTU_SESSION` with the plan's page `RELEASE_WATCH_UBUNTU_PAGE`
 named (the main loop run end to end with a fake `curl` and `gh`: the recipient, the page and the first line of what it is sent;
-with neither set the notice is posted and nobody is pinged; the session from the sala config's line too).
+with neither set the notice is posted and nobody is pinged; the session from the sala config's line too). Since Sat Nov 28th 2026
+the `*-main` name decides only where there is no role and `SALA_CHAT_SESSION` is unset (the entry of that date, below).
 
 Added on Thu Oct 22nd 2026 (`links.sh`, 15 checks beyond the earlier ones): the session links in a post now
 point to sala's own session link, built as `session_url` builds it, for every session `sala spawn --list` shows, with or
@@ -2017,7 +2018,9 @@ the `-main` pane with `[for the user]` as its first line, and the op log says `r
 nothing is delivered and the op log has `reply FAILED: <from> has no live pane and <from>-main has none either`, the
 call still returning 0 (the Slack post stands). A dead asker that is itself a `-main` gets no `-main-main` try and the
 failure line. Not checked: a live pane whose messaging socket refuses the push (logged as `reply FAILED … push …`, no
-fallback; the code path is a one-line branch).
+fallback; the code path is a one-line branch). Since Sat Nov 28th 2026, with `SALA_CHAT_SESSION` set the reply goes to a live
+`<from>-main` whose role is front, else to nobody; with it unset, to `<from>-main` unless its role is back (the entry of
+that date, below).
 
 Added on Sun Oct 25th 2026 (the `model` verb; 42 checks): a session changes its own or another's model and effort
 through the queue (`lib/op.sh`, the `model` shape; the switch itself is `lib/model.sh`, `tests/models.sh`'s). Every check
@@ -5714,3 +5717,13 @@ Also covered, the clock's own life: it goes with a worker's relaunch and with a 
 Also covered, the edges: under a reboot (its flag, its pane map freeze, its marker) nothing is lifted and watch raises no flag again, a freeze whose owner is gone holding nothing back; a reboot that ends without rebooting keeps the recycle's clock; a lift clears an earlier `sala ready` and keeps a later one; the cap is asked again under the lock (a newer set raised in between is simulated) and a raised flag starts its clock under it; a huge `SALA_HOLD_MAX` is bounded and 90 s is said as 90 s; past the cap with a relaunch running, the first line and watch's say refused; the self-worker's and the sweep's relaunch show the running mark while they run and leave no clock; `pause_try`, run alone, sends no Escape when the cap passes before its gate; `SALA_PAUSE_AFTER` at or past the cap predicts no pause.
 
 Not covered, and why: the lift's lock against a relaunch starting in the same instant is not raced; a real reboot or a systemd shutdown is not run; a server-mode inbox release detached from the hook is not run (the suite uses hold files); a box without `flock` (macOS) is not run.
+
+### A front agent is one by its role or by SALA_CHAT_SESSION, never by its name alone: `tests/sleepverbs.sh` +6, `tests/sleepasked.sh` +3, `tests/op.sh` +12, `tests/briefing/sdk.sh` +7 (Sat Nov 28th 2026)
+
+Sleep by name: a back agent and a session with no role named `*-main` may sleep; one with role front and the session `SALA_CHAT_SESSION` names may not. The reply for a gone
+pane, with `[for <owner>]` first: with the setting set it goes to a live `<name>-main` whose role is front, else (no such session, not live,
+role back or unknown) to nobody, a live setting's session included; unset, to `<name>-main` unless that session's role is back. A from that
+is no session (`sala-watch`, `sala-web`, a plain shell) tells nobody, and sala's own Shell session, a tmux session with no claude, ends in
+the failure line. The release
+watcher's relay: the `[for <owner>]` line by role, else the setting, and with it unset and no role, by the `*-main` name. A `*-main` front agent in `tests/sleepverbs.sh`
+is now tagged with its role.
