@@ -2717,7 +2717,7 @@ relaunch_text() {  # <what words> [claude-pid] [over] [tmux session] → the lin
 # relaunch, a person attached, unsent text, a dialog) are one clause in the pause sentence, because the callers do not know them; docs/recycle.md lists them all. With SALA_STOP_NOTICE off
 # there is no notice to count from, so the clock is the wait itself.
 subagents_block() {
-    local l n=0 out="" a w pause=1 sess="${3:-}" u=""
+    local l n=0 out="" a w pause=1 sess="${3:-}" u="" unk=0
     while IFS= read -r l; do [ -n "$l" ] && { out+="  $l"$'\n'; n=$((n + 1)); }; done < <(subagent_holders "$1")
     [ "$n" -gt 0 ] || return 0
     pause_after_r a
@@ -2729,13 +2729,14 @@ subagents_block() {
     fi
     if [ "$pause" = 1 ]; then
         [ -n "$sess" ] || sess=$(ancestry_session 2>/dev/null) || sess=""
-        if [ "${SALA_PAUSE_SCOPE:-all}" != all ]; then [ -n "$sess" ] && pause_scope_ok "$sess" || pause=0; fi
+        if [ "${SALA_PAUSE_SCOPE:-all}" != all ]; then [ -n "$sess" ] || unk=1; [ -n "$sess" ] && pause_scope_ok "$sess" || pause=0; fi
     fi
     [ "$pause" = 0 ] || [ -z "$sess" ] || ! pause_no "$sess" || pause=0   # SALA_NO_PAUSE: never paused
     if [ "$pause" = 1 ]; then
         if pause_notice_off; then w="the relaunch follows once it ends; if it still runs $(hold_span "$a") into the wait, the pause stops it with the exit"
         else w="the relaunch follows once it ends; if it still runs $(hold_span "$a") after the notice, the pause stops it with the exit"; fi
-        w+=" unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, or the pane holds unsent text or a dialog is open"
+        w+=" unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, the pane holds unsent text or a dialog is open, or a \`sala op\` of its own is running"
+    elif [ "$unk" = 1 ]; then w="the relaunch follows once it ends; whether a pause stops it depends on the session's kind, which is not known here"
     else w="no pause is tried for it, so the relaunch follows once it ends"; fi
     { printf 'Holding the relaunch: %s running in this session (%s):\n%s' "$(plural "$n" subagent)" "$w" "$out"
       printf '%s\n' "End one you do not need from this session (TaskStop <its id> when the CLI lists it, or let it finish); a subagent no task list shows ends only with its work."; } 2>/dev/null
@@ -3285,7 +3286,7 @@ pause_escape_drop() {
     ( flock -w 30 8 || exit 1; awk -F'\t' -v u="$1" '!($3 == u && substr($8, 1, 9) == "[escape] ")' "$notes" > "$notes.tmp.$$" && mv -f "$notes.tmp.$$" "$notes" ) 8>"$notes.lock"
 }
 # pause_stop_notice <session> <uuid> <claude-pid> → the stop notice of a busy pane that is to be taken down (step one of the decided way: notice, wait
-# SALA_PAUSE_AFTER s, pause the pane, hold its messages, restart it). ONE one-time note (text starts "[stop] ", lib/note.sh hands it
+# SALA_PAUSE_AFTER s, pause the pane, hold its queued messages, restart it). ONE one-time note (text starts "[stop] ", lib/note.sh hands it
 # to the live pid at once and archives it), written the first time a pass finds the pane held and pausable; `pause/<uuid>.notified` remembers it until the
 # clock stops or restarts (written after the note is stored, so a failed note is tried again). Returns 0 when a notice was written now, 1 when there was one
 # already, when the pause is off, or when SALA_PAUSE_AFTER is not below SALA_HOLD_MAX (the pause never comes).
@@ -3297,7 +3298,7 @@ pause_stop_notice() {
     pause_after_r a; [ "$a" -gt 0 ] || return 1
     pause_within_cap "$a" || return 1   # SALA_PAUSE_AFTER at or above SALA_HOLD_MAX: the pause never comes, so no notice says sala will stop the turn
     kind=$(relaunch_what "$(relaunch_kind)")
-    txt="[stop] sala is about to restart this session for a $kind, and it is busy. Stop what you are doing now: start no new work and no new subagent, leave a note with \`sala note \"<next step>\"\` for anything that must go on after the restart, and end your turn with \`sala ready\` as your last call. If the turn has not ended in about $(hold_age_words "$a"), sala stops it and its running subagents and restarts the session; whatever you leave in a note comes back after the restart. Messages for you are held until then."
+    txt="[stop] sala is about to restart this session for a $kind, and it is busy. Stop what you are doing now: start no new work and no new subagent, leave a note with \`sala note \"<next step>\"\` for anything that must go on after the restart, and end your turn with \`sala ready\` as your last call. If the turn has not ended in about $(hold_age_words "$a"), sala stops it and its running subagents and restarts the session, unless the pause is refused (a person attached, unsent text, a dialog); whatever you leave in a note comes back after the restart. Queued messages for you are held until then."
     note_add_for "$1" "$2" "$3" "$txt" "a busy pane is taken down: stop notice; one-time" >/dev/null || return 1   # the marker only after the note is stored: a failed note is tried again
     mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null; : > "$mark"
     ( "$SALA_BIN" note --deliver >/dev/null 2>&1 & ) 2>/dev/null   # at once, not at watch's next tick

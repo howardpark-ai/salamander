@@ -169,15 +169,15 @@ recycles was counted back in only one and the other set stayed open. Now:
   lane or model move, a CLI-update recycle: every path through `revive`) takes a busy pane down one way (the decided way, Sat Nov 28th 2026):
   (1) **a stop notice**: the first pass that finds the pane held and pausable writes it ONE one-time note, text `[stop] …` (`pause_stop_notice`,
   handed to its live pid at once by `sala note --deliver`, archived when delivered, retired undelivered once that process is gone), which tells it
-  to stop, leave `sala note "<next step>"` and end its turn with `sala ready` as its last call (`SALA_STOP_NOTICE=off` drops the notice only); a session that does so is relaunched at once by the
+  to stop, leave `sala note "<next step>"` and end its turn with `sala ready` as its last call (`SALA_STOP_NOTICE=off` drops the notice only); a session that does so is relaunched once nothing it started is still running, by the
   ready path, as before; (2) **a wait** of `SALA_PAUSE_AFTER` seconds (**default 60**; `0` or `off` keeps the old wait, unbounded) counted from
   that notice; (3) **the stop**, and **pauses** it: ONE Escape takes the pane out of its turn, and the subagents and background shells that still
   hold the row are stopped by the exit that follows (the CLI's "Exit and stop tasks", confirmed by `exit_wait`; a claude that ignores the `/exit`
   is ended by its own pid, never by name); (4) **the hold**: its stackshot inbox is held from the first pass (below), and `sala note --deliver`
-  hands nothing to a paused pid, so a message or notice cannot turn the stopped pane busy again; (5) **the restart**: the relaunch goes on through the ordinary path (drafts drained, `/exit`, resume by the conversation's id; an Escape sent to a busy pane is no longer the only way down: a pane with no turn of its own, a subagent alone keeping the row busy, is paused with no Escape, its marker saying `tasks=1`, and the exit stops the subagent; if a turn has started again by the exit, nothing is typed, the marker goes and the next pass pauses it again), and **a note written for
+  hands nothing to a paused pid, so a queued message or notice cannot turn the stopped pane busy again (only queued messages are held: a peer that pushes straight to the messaging socket is not stopped by the hold); (5) **the restart**: the relaunch goes on through the ordinary path (drafts drained, `/exit`, resume by the conversation's id; an Escape sent to a busy pane is no longer the only way down: a pane with no turn of its own, a subagent alone keeping the row busy, is paused with no Escape, its marker saying `tasks=1`, and the exit stops the subagent; if a turn has started again by the exit, nothing is typed, the marker goes and the next pass pauses it again), and **a note written for
   the session by the relaunch** (`sala note`'s store; delivered at once after the resume, else at watch's next tick) says what it was doing: the
   time, the last line it was working from, the descriptions of the subagents and tool calls in flight (`lib/pauseinfo.py` reads descriptions
-  only, never a command or a tool result; a token is masked), how many processes had run under the pane, and the messages held for it
+  only, never a command or a tool result; a token is masked), how many processes had run under the pane, and the queued messages held for it
   (sender and first line). The wait is a clock per conversation (`pause/<id>.wait`): started by the first pass that finds the pane held,
   refreshed by every pass, stopped by a pass that finds it free; a pane last seen held more than `SALA_PAUSE_GAP` (30 min) ago starts again,
   so a pane that is busy on and off is not paused. The recycle's first sweep only starts it; the retry worker wakes for the deadline
@@ -190,11 +190,11 @@ recycles was counted back in only one and the other set stayed open. Now:
     it was not paused.
   - *When the pause stops a subagent.* A relaunch always waits for a running subagent to end; only a pause can stop one, and the text `sala` gives
     a session (the relaunch notice, `sala ready`: `subagents_block` in `lib/common.sh`, the one place that works it out) says so only when a pause
-    is to come for that pane and relaunch. None comes when `SALA_PAUSE_AFTER` is `0`/`off` or `SALA_PAUSE_SCOPE=off`, when `SALA_PAUSE_AFTER` is at or
+    is to come for that pane and relaunch (`sala ready` names it only when a relaunch is waiting for the pane; when the session is not known and `SALA_PAUSE_SCOPE` is not `all`, the text says it depends on the session's kind). None comes when `SALA_PAUSE_AFTER` is `0`/`off` or `SALA_PAUSE_SCOPE=off`, when `SALA_PAUSE_AFTER` is at or
     above `SALA_HOLD_MAX`, when the session is outside `SALA_PAUSE_SCOPE`, when the relaunch has waited past `SALA_HOLD_MAX`, or when the session is
     in `SALA_NO_PAUSE`. The callers of the text cannot tell which pane ran the recycle or asked for the relaunch, and the pane's state at that
     moment decides the rest (a person attached within `SALA_PAUSE_QUIET`, unsent text, a dialog open), so it says the pause stops the subagent unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, or the pane holds unsent
-    text or a dialog is open (a pane running a `sala op` of its own is not named). With `SALA_STOP_NOTICE=off` a pause still comes, counted from the start of the wait and with no notice.
+    text or a dialog is open, or a `sala op` of its own is running. With `SALA_STOP_NOTICE=off` a pause still comes, counted from the start of the wait and with no notice.
   - *The interrupt* is one Escape, sent only to a pane whose registry row says busy, that shows no dialog (a second Escape on an idle
     box can open the CLI's rewind menu) and whose own turn is seen running: the CLI's "esc to interrupt" hint below the input box, or,
     for a pane too narrow to show it, the in-session mod naming the main loop. **A busy row alone is no running turn**: it stays busy
@@ -203,7 +203,7 @@ recycles was counted back in only one and the other set stayed open. Now:
     pane, a `--force` one included). A turn the Escape ended with subagents still running is handled the same way. Otherwise the pane must be idle in the registry within
     `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing more is sent, no `/exit` is typed into a pane that is still busy, and the pane
     is waited for as before. **A pause that did not take is
-    tried again** (the same when the pane was not idle once interrupted): the clock keeps running, so a turn that ends and starts again
+    tried again** (the same when the Escape did not end the turn within `SALA_PAUSE_IDLE_WAIT`, or the pane was not idle once interrupted): the clock keeps running, so a turn that ends and starts again
     (a subagent's result starts the next one) does not put the next try a full `SALA_PAUSE_AFTER` away, and `pause/<id>.failed` records the
     failed tries. The next try is `SALA_PAUSE_RETRY` (120 s) after a failed one, for the first `SALA_PAUSE_TRIES` (5) failed tries, then
     `SALA_PAUSE_AFTER` apart; each one is one Escape under the same rule and one log line that says which try it was and when the next

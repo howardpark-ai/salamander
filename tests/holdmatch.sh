@@ -125,7 +125,7 @@ STOPS="the pause stops it with the exit"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
     && has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" && ok "pausing off: the relaunch notice names it and says it waits for its end, with no pause" || bad "notice: $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all relaunch_text recycle "$K1"); has "$n" "subagent builder: Build the package move" \
-    && has "$n" "if it still runs 1 min after the notice, $STOPS" && has "$n" "$STOPS unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, or the pane holds unsent text or a dialog is open" && ! has "$n" "$NOPAUSE" && ok "pausing on: the notice says when the pause stops it, unless it is the recycle or requesting pane, a person, unsent text or a dialog is there" || bad "notice (pause on): $n"
+    && has "$n" "if it still runs 1 min after the notice, $STOPS" && has "$n" "$STOPS unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, the pane holds unsent text or a dialog is open, or a \`sala op\` of its own is running" && ! has "$n" "$NOPAUSE" && ok "pausing on: the notice says when the pause stops it, unless it is the recycle or requesting pane, a person, unsent text or a dialog is there" || bad "notice (pause on): $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_STOP_NOTICE=off relaunch_text recycle "$K1"); has "$n" "if it still runs 1 min into the wait, $STOPS" && ! has "$n" "after the notice" \
     && ok "stop notice off: the pause is counted from the wait, with no notice named" || bad "notice (notice off): $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_HOLD_MAX=60 relaunch_text recycle "$K1"); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \
@@ -136,6 +136,8 @@ n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=background relaunch_text recycle "$K1" 
     && ok "a session outside SALA_PAUSE_SCOPE: no pause, the notice says the relaunch waits" || bad "notice (scope): $n"
 n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_NO_PAUSE="sala-test-front" relaunch_text recycle "$K1" "" sala-test-front); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" && ! has "$n" "unless a person" \
     && ok "a session in SALA_NO_PAUSE is never paused: no pause is tried, the notice says the relaunch waits" || bad "notice (SALA_NO_PAUSE): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=background relaunch_text recycle "$K1"); has "$n" "whether a pause stops it depends on the session's kind" && ! has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \
+    && ok "an unknown session with a scope that is not all: the notice does not say no pause is tried" || bad "notice (unknown session): $n"
 bash -c 'trap : USR1; while :; do sleep 1; done' & WK=$!; PIDS+=("$WK"); echo "$WK" > "$HOME/.claude/salamander-retry.$WK.pid"   # a pending recycle's retry worker, so ready_wake succeeds
 # wait for the `sala ready` process to exit (its .done marker), not for the file's first byte: it writes the holder block, then the ready: line
 : > "$HOME/go1"; waitfor '[ -e "$HOME/ready1.done" ]' 20
@@ -144,6 +146,13 @@ has "$r" "Holding the relaunch: 1 subagent running in this session" && has "$r" 
     && has "$r" "ready: t ($U1) — held by the subagent(s) above; the relaunch follows within minutes after they end, not when this turn does" \
     && ! has "$r" "as soon as this turn ends" && ok "sala ready names the subagent and does not promise a relaunch when the turn ends" || bad "ready: $r"
 kill "$WK" 2>/dev/null; rm -f "$HOME/.claude/salamander-retry.$WK.pid"
+U6=$(uuid 54); rm -f "$SALA_DEFERRED"
+fake "while [ ! -e $HOME/go6 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready6.txt 2>&1; : > $HOME/ready6.done; wait" "$U6"
+mksub "$U6" s6 builder "Build the package move"
+: > "$HOME/go6"; waitfor '[ -e "$HOME/ready6.done" ]' 20; r=$(slurp "$HOME/ready6.txt")
+has "$r" "no recycle is waiting right now" && ! has "$r" "the pause stops it" && ! has "$r" "Holding the relaunch" \
+    && ok "sala ready with a running subagent and no relaunch pending names no pause" || bad "ready, no relaunch: $r"
+rm -f "$(subdir "$U6")"/agent-s6.*
 
 echo "== 4. the skip line names its cause, never only 'busy'"
 [ "$(_count_words 1 0 0 0)" = "1 subagent" ] && [ "$(_count_words 4 6 1 0)" = "4 subagents, 6 monitors and 1 shell" ] && [ "$(_count_words 0 2 1 0)" = "2 monitors and 1 shell" ] \

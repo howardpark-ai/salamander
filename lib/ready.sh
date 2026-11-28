@@ -34,10 +34,11 @@ holders_block "$cpid" "ready: ${name:-?} ($uuid) — but <n> still run under thi
 woke=1; ready_wake && woke=0
 # a subagent the session started holds the relaunch (docs/recycle.md): subagents_block names it, with how it ends, so "ready" is not
 # read as "relaunching now" (subagent_holders, common.sh: the same definition the recycle's idle check and the mod use)
-subagents_block "$cpid"
-nsub=$(subagent_holders "$cpid" "$uuid" | grep -c .)
 drow=$(deferred_row_for "$cpid")   # a pane on the deferred list is a relaunch waiting for it, whatever the recycle's sets say now
-if [ "${nsub:-0}" -gt 0 ]; then
+pending=0; { [ "$woke" = 0 ] || [ -n "$drow" ]; } && pending=1   # with no relaunch waiting there is no pause to name
+[ "$pending" = 0 ] || subagents_block "$cpid"
+nsub=$(subagent_holders "$cpid" "$uuid" | grep -c .)
+if [ "${nsub:-0}" -gt 0 ] && [ "$pending" = 1 ]; then
     echo "ready: ${name:-?} ($uuid) — held by the subagent(s) above; the relaunch follows within minutes after they end, not when this turn does"
 elif [ "$woke" = 0 ]; then
     echo "ready: ${name:-?} ($uuid) — the pending recycle relaunches this pane as soon as this turn ends; make this the turn's last action"

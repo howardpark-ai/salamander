@@ -903,7 +903,7 @@ pause_try() {
     pause_clock_r held "$uuid"
     # step one: the stop notice, once per wait (tell it to stop, leave a note, end with `sala ready`); the pane's inbox is held from here on.
     # After the clock is read: a clock that starts here forgets the notice marker of an older wait
-    if pause_stop_notice "$sess" "$uuid" "$cpid"; then emit ECHO "$label: held ($why); sent it a stop notice, and its messages are held; sala stops its turn and subagents after $(hold_age_words "$a") if it has not ended its turn"; fi
+    if pause_stop_notice "$sess" "$uuid" "$cpid"; then emit ECHO "$label: held ($why); sent it a stop notice, and its queued messages are held; sala stops its turn and subagents after $(hold_age_words "$a") if it has not ended its turn"; fi
     [ "$held" -ge "$a" ] || return 1
     pause_retry_in_r ref "$uuid"; [ "$ref" -le 0 ] || return 1   # a try that did not take is tried again SALA_PAUSE_RETRY s later (common.sh, pause_failed), not at every pass
     hold_pause_gate "$uuid" "${SALA_SET:-}" || return 1   # the cap again, right before the Escape; passed, the hold is not lifted under this relaunch
