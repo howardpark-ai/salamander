@@ -242,7 +242,7 @@ def test_the_only_input_is_a_disabled_checkbox():
 def test_the_page_hands_every_reply_to_these_rules():
     """app.js's own wiring, run in node against a stand-in for DOMPurify and the nodes it returns: the configuration, the
     hooks, and what is done to each element that comes back. test_md_rules_ui.py runs the real library in the page."""
-    wiring = APP[APP.index("function isOwnMockupLink(href) {"):APP.index("// A reply's box is a formatting context")]
+    wiring = APP[APP.index("const NEW_TAB = "):APP.index("// A reply's box is a formatting context")]
     script = RULES + r"""
 const hooks = {}, removed = [], listeners = [];
 const element = (localName, attrs, name = localName) => ({ localName, attrs: { ...attrs },

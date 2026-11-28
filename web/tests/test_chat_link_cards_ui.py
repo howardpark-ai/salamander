@@ -94,8 +94,8 @@ def test_each_mockup_and_artifact_link_has_a_card_under_the_text_and_a_plain_lin
     assert (bare["href"], bare["title"], bare["kind"]) == (ART_LONG, "Claude artifact", None), bare   # no link text: the kind is the title
     for c in d["cards"]:
         assert c["tag"] == "A" and c["tab"] >= 0, c      # a link: the keyboard reaches it
-        # sala's own page opens in the window it is tapped in (Back returns to the chat); a claude.ai artifact in a new tab
-        assert (c["target"], "noopener" in c["rel"]) == (("", False) if c["href"].startswith("mockup/") else ("_blank", True)), c
+        # sala's own page and a claude.ai artifact both open in a new tab: the chat's page is never left
+        assert (c["target"], "noopener" in c["rel"]) == ("_blank", True), c
         assert c["opens"] and "↗" in c["opens"] and c["below"], c
     for want in (PLAIN, "https://docs.example.test/guide/start", "/mockup/3", ART):
         assert want in d["plain"], (want, d["plain"])      # the text keeps every link it had, and the two that are not cards are only that
