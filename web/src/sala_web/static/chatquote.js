@@ -5,8 +5,9 @@
 window.SalaQuote = (() => {
   const TOUCH = window.matchMedia("(pointer: coarse) and (hover: none)");
   const BAR_H = 78;                                     /* the bottom band of a phone screen the browser draws over */
-  const CHIP = { w: 40, h: 28, hitW: 48, hitH: 44 };    /* the visible chip and its touch area */
+  const CHIP = { w: 80, h: 28, hitW: 88, hitH: 44 };    /* the visible chip and its touch area */
   const GAP = 6;
+  const QUOTE_MARK = "M4 17.5V13c0-4.4 2.4-7.2 6.5-8l.6 1.7C8.9 7.4 8 9 8 11h3.5v6.5zM13.5 17.5V13c0-4.4 2.4-7.2 6.5-8l.6 1.7C18.4 7.4 17.5 9 17.5 11H21v6.5z";
   const QUOTE_LINE = /^ {0,3}>/;
 
   let label = () => "Quote";
@@ -85,7 +86,7 @@ window.SalaQuote = (() => {
     const rects = textRects(last.range.commonAncestorContainer, last.range);
     if (!rects.length) return;
     const btn = TOUCH.matches ? chip : desk;
-    btn.querySelector("span").textContent = label();
+    btn.querySelector(".q-text").textContent = label();
     btn.setAttribute("aria-label", label());
     btn.title = label();
     if (TOUCH.matches) placeChip(rects, viewOf());
@@ -193,7 +194,15 @@ window.SalaQuote = (() => {
     b.type = "button";
     b.className = cls;
     b.hidden = true;
-    b.appendChild(document.createElement("span"));
+    const face = document.createElement("span"), text = document.createElement("span");
+    const ns = "http://www.w3.org/2000/svg", icon = document.createElementNS(ns, "svg"), path = document.createElementNS(ns, "path");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    path.setAttribute("d", QUOTE_MARK);
+    icon.appendChild(path);
+    text.className = "q-text";
+    face.append(icon, text);
+    b.appendChild(face);
     ["pointerdown", "mousedown"].forEach((t) => b.addEventListener(t, press));
     b.addEventListener("click", onClick);
     document.body.appendChild(b);

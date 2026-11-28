@@ -278,3 +278,24 @@ def test_on_a_phone_the_chip_stays_above_the_bottom_band(served, browser, monkey
     assert abs(b["top"] - e["top"]) <= 120, (b, e)           # near the end of the selection
     tap(browser)
     assert composer_is(browser, "> Alpha line one is here.\n")
+
+
+LOOK = """(() => { const b = document.querySelector('.quote-btn:not([hidden]), .quote-chip:not([hidden])'), f = b.firstElementChild;
+  const d = document.createElement('i'); d.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  document.body.appendChild(d); const accent = getComputedStyle(d).color; d.remove();
+  const c = getComputedStyle(f), r = f.getBoundingClientRect();
+  return { bg: c.backgroundColor, fg: c.color, accent, icon: !!b.querySelector('svg'),
+           text: b.querySelector('.q-text').textContent, aria: b.getAttribute('aria-label'), scroll: f.scrollWidth, width: r.width }; })()"""
+
+
+@pytest.mark.parametrize("size, touch", [(DESKTOP, False), (PHONE, True), ((360, 740), True)])
+def test_the_button_is_an_accent_chip_with_a_quote_mark_and_the_word(served, browser, monkeypatch, size, touch):
+    open_reply(browser, served, monkeypatch, size, touch=touch)
+    select(browser, "Alpha", "is here.")
+    look = browser.evaluate(LOOK)
+    assert look["bg"] == look["accent"], look               # filled with the page's accent, not a grey panel
+    assert look["bg"] != look["fg"], look
+    assert look["icon"] and look["text"] == "Quote" and look["aria"] == "Quote", look
+    assert look["scroll"] <= look["width"] + 1, look        # the word is not cut off
+    tap(browser)
+    assert composer_is(browser, "> Alpha line one is here.\n")
