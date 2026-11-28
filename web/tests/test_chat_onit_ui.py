@@ -249,6 +249,36 @@ def test_a_row_shows_the_topic_since_when_and_how_late(served, browser, monkeypa
     assert browser.evaluate(f"[document.querySelectorAll('#chat-pane .motion, #chat-pane .mo').length, document.querySelector('#chat-strip').textContent.includes('Promise')]") == [0, False]
 
 
+LINKED = """(() => { const sel = (id) => [...document.querySelectorAll('#' + id + ' .wait-row')].map((r) => { const a = r.querySelector('a'), id = r.querySelector('.wait-id');
+  const cs = a ? getComputedStyle(a) : null;
+  return { id: id ? id.className + '|' + id.textContent : null, link: a ? { cls: a.className, href: a.getAttribute('href'), target: a.target, rel: a.rel, text: a.textContent, title: a.title,
+    color: cs.color, deco: cs.textDecorationLine } : null, plain: r.querySelector('.wait-title') ? r.querySelector('.wait-title').textContent : null }; });
+  return { move: sel('chat-strip-wait-panel'), onit: sel('chat-strip-onit-panel') }; })()"""
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_line_that_belongs_to_a_board_item_links_to_it_like_a_row_of_the_first_list_and_a_line_without_one_does_not(served, browser, monkeypatch, size):
+    item = {"id": "demo#1", "url": "https://example.com/moves/1"}
+    motion = [dict(line("Report on the first move", 3600), item=item), line("A line with no item", 60)]
+    open_strip(browser, served, monkeypatch, size, motion=motion)
+    click(browser, ONIT_TAB)
+    got = browser.evaluate(LINKED)
+    first = got["move"][0]
+    linked, plain = got["onit"]
+    assert first["link"] and first["link"]["target"] == "_blank" and first["link"]["rel"] == "noopener noreferrer", first
+    assert linked["id"] == first["id"] == "wait-id|demo#1", got
+    # the same classes, address, target, rel, colour and underline as the first list's link; only the words differ (the line's own text)
+    assert {k: v for k, v in linked["link"].items() if k != "text"} == {k: v for k, v in first["link"].items() if k != "text"}, got
+    assert linked["link"]["text"] == "Report on the first move"
+    assert plain == {"id": None, "link": None, "plain": "A line with no item"}, plain
+    # the row is the same under the second theme as under the first: the link keeps the first list's colour there too
+    for theme in ("light", "dark"):
+        browser.evaluate("document.documentElement.setAttribute('data-theme', %s); ''" % json.dumps(theme))
+        both = browser.evaluate(LINKED)
+        assert both["onit"][0]["link"]["color"] == both["move"][0]["link"]["color"], (theme, both)
+        assert both["onit"][0]["link"]["deco"] == both["move"][0]["link"]["deco"], (theme, both)
+
+
 @pytest.mark.parametrize("size", SIZES)
 def test_a_line_taken_off_leaves_the_list_and_the_count_and_the_dot_follow(served, browser, monkeypatch, size):
     open_strip(browser, served, monkeypatch, size)

@@ -62,6 +62,52 @@ def test_api_chat_carries_the_chat_sessions_lines_oldest_first_with_their_first_
     assert "onIt" not in r.json() and "another session's promise" not in r.text
 
 
+def test_a_line_that_names_a_board_item_carries_its_id_and_address_from_the_first_lists_source_and_no_other_line_does(chat_app, monkeypatch):
+    app, settings = chat_app
+    now = int(time.time())
+    write_motion(settings, SESSION, [
+        {"text": "plain line", "at": now - 5},
+        {"text": "on a move", "at": now - 4, "item": "demo#1"},
+        {"text": "item the lists do not know", "at": now - 3, "item": "demo#99"},
+        {"text": "bad id", "at": now - 2, "item": "no good <b>"},
+        {"text": "done one", "at": now - 1, "done": now, "item": "demo#1"},
+    ])
+    monkeypatch.setattr(app.state.your_move, "items", lambda: [{"id": "demo#1", "subject": "Approve", "url": "https://example.com/moves/1"}])
+    with TestClient(app) as c:
+        body = c.get("/api/chat").json()
+    assert body["motion"] == [
+        {"text": "plain line", "at": now - 5},
+        {"text": "on a move", "at": now - 4, "item": {"id": "demo#1", "url": "https://example.com/moves/1"}},
+        {"text": "item the lists do not know", "at": now - 3},
+        {"text": "bad id", "at": now - 2},
+    ]
+
+
+def test_on_it_finds_an_item_in_the_board_feed_when_the_your_move_list_lacks_it():
+    from sala_web.chatpage import on_it
+    board = {"sessions": {"demo-a": {"items": [{"id": "demo#7", "url": "https://example.com/things/7"}, {"id": "demo#8", "url": ""}]}}}
+    lines = [{"text": "a", "at": 1, "item": "demo#7"}, {"text": "b", "at": 2, "item": "demo#8"}, {"text": "c", "at": 3, "item": "demo#1"}]
+    got = on_it(lines, board, [{"id": "demo#1", "url": "https://example.com/moves/1"}])
+    assert [x.get("item") for x in got] == [{"id": "demo#7", "url": "https://example.com/things/7"}, None, {"id": "demo#1", "url": "https://example.com/moves/1"}]
+    assert [x.get("item") for x in on_it(lines, board, None)] == [{"id": "demo#7", "url": "https://example.com/things/7"}, None, None]
+
+
+@needs_node
+def test_a_row_with_an_item_is_drawn_by_the_first_lists_row_and_a_row_without_one_is_not_linked():
+    got = helpers(r"""
+const now = Date.parse("2027-01-08T12:00:00+09:00");
+const flat = (n) => ({ tag: n.tag, cls: n.cls, text: n.text, href: n.href, target: n.target, rel: n.rel, kids: n.kids.map(flat) });
+const first = chatWaitRow({ id: "demo#1", subject: "on a move", url: "https://example.com/moves/1" }, false);
+const withItem = chatBackRow({ text: "on a move", at: at("2027-01-08T09:05:00+09:00"), item: { id: "demo#1", url: "https://example.com/moves/1" } }, now);
+const plain = chatBackRow({ text: "on a move", at: at("2027-01-08T09:05:00+09:00") }, now);
+console.log(JSON.stringify([flat(first.kids[0]), flat(withItem.kids[0]), flat(plain.kids[0])]));
+""")
+    first, with_item, plain = got
+    assert with_item == first and [k["cls"] for k in with_item["kids"]] == ["wait-id", "wait-link"]
+    assert with_item["kids"][1]["href"] == "https://example.com/moves/1" and with_item["kids"][1]["target"] == "_blank" and with_item["kids"][1]["rel"] == "noopener noreferrer"
+    assert [k["cls"] for k in plain["kids"]] == ["wait-title"] and not plain["kids"][0].get("href")
+
+
 def test_a_line_taken_off_is_gone_at_the_next_read_and_with_no_line_the_list_is_empty(chat_app):
     app, settings = chat_app
     now = int(time.time())
@@ -105,7 +151,7 @@ HARNESS = r"""
 const zone = { name: %(zone)s, label: "KST" };
 %(zone_format)s
 const el = (tag, attrs = {}, ...kids) => {
-  const n = { tag, cls: attrs.class || "", text: attrs.text, title: attrs.title, href: attrs.href, kids: kids.filter(Boolean), listeners: {} };
+  const n = { tag, cls: attrs.class || "", text: attrs.text, title: attrs.title, href: attrs.href, target: attrs.target, rel: attrs.rel, kids: kids.filter(Boolean), listeners: {} };
   const has = (c) => n.cls.split(" ").includes(c);
   n.classList = {
     add: (c) => { if (!has(c)) n.cls = n.cls ? n.cls + " " + c : c; },

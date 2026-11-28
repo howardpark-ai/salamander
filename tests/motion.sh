@@ -17,6 +17,8 @@
 #             done lines left from when it was the chat session are taken off by done and by clear; the setting is read from the config file too, the
 #             what that file assigns counting over a value the shell had; a link is checked and not kept
 #   text      control characters, DEL and U+0080-U+009F among them, are not kept in a line
+#   item      add --item stores the board item id on that line only and list --json carries it; the same line again with the same item changes
+#             nothing, with another item replaces it (never listed twice); an id that is no id, a missing id and --item on done are refused (exit 2)
 #   usage     the help, a wrong verb, a missing argument (exit 2)
 # Usage: bash tests/motion.sh   (exit 0 = pass; a few seconds)
 set -u
@@ -219,6 +221,22 @@ $S frobnicate >/dev/null 2>&1; [ $? = 2 ] && ok "an unknown verb: exit 2" || bad
 $S add --for chat-test >/dev/null 2>&1; [ $? = 2 ] && ok "add with no line: exit 2" || bad "add no arg"
 $S clear extra --for chat-test >/dev/null 2>&1; [ $? = 2 ] && ok "clear with an argument: exit 2" || bad "clear arg"
 $S add "x" --json --for chat-test >/dev/null 2>&1; [ $? = 2 ] && ok "--json on add: exit 2" || bad "--json on add"
+
+# -- item: the board item a line belongs to --------------------------------------------------------------------------------------------------
+rm -f "$D/chat-test.json"   # a done line left by the sections above would shift the numbers
+$S add "Report on the first move" --item "demo#12" --for chat-test >/dev/null 2>&1; rc=$?
+$S add "A line with no item" --for chat-test >/dev/null 2>&1
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1]))["lines"]; assert d[0]["item"]=="demo#12" and "item" not in d[1], d' "$D/chat-test.json" \
+    && [ "$rc" = 0 ] && ok "item: --item is stored on its line and on no other" || bad "item stored: rc=$rc $(cat "$D/chat-test.json")"
+[ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["item"], d[1]["item"])')" = "demo#12 None" ] \
+    && ok "item: list --json carries it" || bad "item in list --json"
+out=$($S add "Report on the first move" --item "demo#12" --for chat-test 2>&1); has "$out" "nothing changed" && ok "item: the same line with the same item changes nothing" || bad "item re-add: [$out]"
+out=$($S add "Report on the first move" --item "demo#13" --for chat-test 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "its item is now demo#13" && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(len(d), d[0]["item"])')" = "2 demo#13" ] \
+    && ok "item: the same line with another item replaces the item and is not listed twice" || bad "item replace: rc=$rc [$out]"
+$S add "Bad item" --item "no good" --for chat-test >/dev/null 2>&1; [ $? = 2 ] && ok "item: an id with a space is refused (exit 2)" || bad "bad item"
+$S add "Bad item" --item --for chat-test >/dev/null 2>&1; [ $? = 2 ] && ok "item: --item with no id is refused (exit 2)" || bad "item no arg"
+$S done 1 --item "demo#1" --for chat-test >/dev/null 2>&1; [ $? = 2 ] && ok "item: --item on done is refused (exit 2)" || bad "item on done"
 
 echo "motion: $([ $fail = 0 ] && echo pass || echo FAIL)"
 exit $fail

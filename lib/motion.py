@@ -4,7 +4,10 @@
 sala-web's chat session view (web/README.md, *The chat session in sala's own view*) shows the chat session's under "On it". A session adds a line when it hands work
 off with a promise to report back in the chat, and marks it done in the turn it reports the result. Nobody else writes the lines and no model filters them.
 
-  add "<line>"          put a line on the list (one line of text, at most 120 characters; adding a line already open there changes nothing)
+  add "<line>" [--item ID]
+                        put a line on the list (one line of text, at most 120 characters; adding a line already open there changes nothing, except
+                        that --item sets or replaces the board item the line belongs to). --item: the item's shown id (a name, a hash and a number); the chat
+                        page links the line to that item the way it links a "my turn" line, when the board knows the id
   done "<line>" | N [--link URL]
                         mark one done, by its exact text or its number in `list`. For any session but the chat session the line is taken off (no page
                         shows its lines). The chat session's line is not removed: it is kept, marked done with the time and its result link, in the
@@ -18,7 +21,7 @@ off with a promise to report back in the chat, and marks it done in the turn it 
 
 Storage: <state>/motion/<session>.json (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamander), folder mode 700, file mode 600, one small JSON
 file per session: {"v": 1, "lines": [{"text": "...", "at": <epoch seconds, when the line was first added>, "done": <epoch seconds, when marked done,
-or absent>, "link": "<result address, or absent>"}]}. The CLI is the writer, under an exclusive lock on <folder>/.lock; a file is written to a temporary
+or absent>, "link": "<result address, or absent>", "item": "<board item id, or absent>"}]}. The CLI is the writer, under an exclusive lock on <folder>/.lock; a file is written to a temporary
 name, flushed and renamed, so a reader (sala-web, which only reads, except where it takes off an acknowledged line, under the same lock) never sees half of one.
 At most 8 lines, each at most 120 characters: a ninth line and a longer one are refused with a sentence (nothing is cut or dropped silently).
 The chat session is the one SALA_CHAT_SESSION names, read at each command the way sala-web reads it (chat_session below). Its done line stays until
@@ -40,6 +43,7 @@ import time
 MAX_LINES = 8
 MAX_CHARS = 120
 LINK_MAX = 500
+ITEM_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9#._-]{0,79}")   # an item's shown id as the board shows it (a name, a hash and a number, or s and a number)
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 LINK_FORMS = "#s=SESSION, #lane=ID, #sessions, #schedules, #machines, #usage, #new, #search, #search?QUERY or #side=..."   # said by the refusal
 # an https address; a path on this site ("//host", and "/\host" which a browser reads the same way, are another site); or one of the page's own "#..." views,
@@ -124,6 +128,8 @@ def load(path):
         if not text:
             continue
         row = {"text": text, "at": r["at"]}
+        if isinstance(r.get("item"), str) and ITEM_RE.fullmatch(r["item"]):
+            row["item"] = r["item"]
         if isinstance(r.get("done"), int) and not isinstance(r.get("done"), bool):
             row["done"] = r["done"]
             if isinstance(r.get("link"), str) and link_ok(r["link"]):
@@ -151,6 +157,7 @@ def save(d, path, lines):
 def main(argv):
     name = os.environ.get("SALA_MOTION_SELF", "")
     link = None
+    item = None
     args = []
     as_json = False
     i = 0
@@ -172,6 +179,14 @@ def main(argv):
             continue
         elif a.startswith("--link="):
             link = a[len("--link="):]
+        elif a == "--item":
+            if i + 1 >= len(argv):
+                die("--item needs an item id", 2)
+            item = argv[i + 1]
+            i += 2
+            continue
+        elif a.startswith("--item="):
+            item = a[len("--item="):]
         elif a == "--json":
             as_json = True
         else:
@@ -188,6 +203,10 @@ def main(argv):
         die("--link is for done", 2)
     if link is not None and not link_ok(link):
         die("--link takes an https address, an in-app path (/...) or one of the page's anchors (%s), without spaces, at most %d characters" % (LINK_FORMS, LINK_MAX), 2)
+    if item is not None and verb != "add":
+        die("--item is for add", 2)
+    if item is not None and not ITEM_RE.fullmatch(item):
+        die("--item takes a board item's id (letters, digits, # . _ -, at most 80 characters), like demo#12", 2)
     if not name:
         die("this is not run inside a session, so say whose lines these are: sala motion %s … --for NAME" % verb, 1)
     if not NAME_RE.fullmatch(name):
@@ -205,7 +224,7 @@ def main(argv):
     if verb == "list":   # a read: no lock needed, the file is replaced whole
         lines = load(path)
         if as_json:
-            print(json.dumps([{"n": k + 1, "text": r["text"], "at": r["at"], "done": r.get("done"), "link": r.get("link")}
+            print(json.dumps([{"n": k + 1, "text": r["text"], "at": r["at"], "done": r.get("done"), "link": r.get("link"), "item": r.get("item")}
                               for k, r in enumerate(lines)], ensure_ascii=False))
         elif not lines:
             print("nothing right now")
@@ -234,14 +253,23 @@ def main(argv):
             if len(text) > MAX_CHARS:
                 die("the line is %d characters; at most %d (say it shorter)" % (len(text), MAX_CHARS))
             # `at` stays the time it was first added: the page says since when the work runs. A done line of the same text does not count: a new open line starts.
-            if any(r["text"] == text and "done" not in r for r in lines):
+            same = [r for r in lines if r["text"] == text and "done" not in r]
+            if same and item is not None and same[0].get("item") != item:
+                same[0]["item"] = item
+                save(d, path, lines)
+                print("motion: already listed, its item is now %s (%d of %d)" % (item, len(lines), MAX_LINES))
+                return 0
+            if same:
                 print("motion: already listed, nothing changed (%d of %d)" % (len(lines), MAX_LINES))
                 return 0
             if len(lines) >= MAX_LINES and not chat:
                 die("%d lines are already listed for %s (the most there is room for): take one off with `sala motion done N` or start over with `sala motion clear`" % (len(lines), name))
             if len(lines) >= MAX_LINES:
                 die("%d lines are already listed for %s (the most there is room for, done ones included): wait for the owner to confirm or reply to a done one, or take the open ones off with `sala motion clear` (done ones stay)" % (len(lines), name))
-            lines.append({"text": text, "at": now()})
+            row = {"text": text, "at": now()}
+            if item is not None:
+                row["item"] = item
+            lines.append(row)
             save(d, path, lines)
             print("motion: added (%d of %d): %s" % (len(lines), MAX_LINES, text))
             return 0
