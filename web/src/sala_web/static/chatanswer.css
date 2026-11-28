@@ -28,6 +28,13 @@ body.chat-session #chat-strip-wait .ans-list > .wait-row { flex: none; position:
 body.chat-session #chat-strip-wait .ans-list > .wait-row.ans:not(.ans-plain) { display: block; min-height: 0; padding: 0; }
 body.chat-session #chat-strip-wait .ans-list > .wait-row.ans:not(.ans-plain)::before { content: none; }
 body.chat-session #chat-strip-wait .wait-row.ans:not(.ans-plain) > .wait-subj { display: none; }
+/* the plain form of such a row (nothing to pick) is the card's own line: the same box, the same size and weight, the id muted, the title one underlined link, as the
+   item's card under the reply draws it, and no dot, so the one item reads alike in both places */
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans.ans-plain { display: block; min-height: 0; box-sizing: border-box; padding: 8px 12px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--panel); }
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans.ans-plain.ans-done { border-left-color: var(--idle); }
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans.ans-plain::before { content: none; }
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans.ans-plain > .wait-subj { font-size: 15px; font-weight: 600; line-height: 22px; }
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans.ans-plain > .wait-subj .wait-id { font-size: 12px; font-weight: 400; }
 body.chat-session #chat-strip-wait .wait-row .ans-head > .chev { margin-top: 4px; }
 body.chat-session #chat-strip-wait .wait-row .ans-head[aria-expanded="true"] > .chev { margin-top: 8px; transform: translateY(1px) rotate(-135deg); }
 /* a frame that is not shown keeps its width and goes on running, out of the way: the card of a silent or closed item's row, the frame of such a card under a
