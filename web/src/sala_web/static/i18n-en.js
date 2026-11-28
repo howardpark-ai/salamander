@@ -315,7 +315,7 @@ window.SALA_I18N_EN = {
   "chat.ask.howTerm": "To answer, use the Terminal tab.",
   "chat.ask.multi": "You can pick more than one.",
   "chat.card.artifact": "Claude artifact",
-  "chat.card.mockup": "Mockup {n}",
+  "chat.card.mockup": "Canvas {n}",
   "chat.card.opens": "opens a page ↗",
   "chat.group": "Your move",
   "chat.kept.count": "{n} kept back today",

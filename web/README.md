@@ -1767,7 +1767,7 @@ side and takes no room (the class's rule, not a copy of it); with a mouse it is 
 `tests/test_update_banner_look.py` holds the colors, the contrast (4.5:1 or better), the strip's height in both themes, and the phone's drawn
 size and tap area.
 
-## Mockup pages
+## Canvas pages
 
 `GET /mockup/<n>` serves an HTML page that `sala mockup add FILE` stored (salamander's `lib/mockup.py`, [docs/mockup.md](../docs/mockup.md)), so a session that cannot publish an Artifact hands a reader
 a link instead of a picture. The pages are files under `<sala state>/mockups/<n>.html` (mode 600, folder 700); a revision (`sala mockup update N`) replaces the file in place, and the versions it saved under `versions/<n>/` are served only through their page, read-only, at `/mockup/<n>/versions/<id>` (below); sala-web only reads them (`mockup.py`, `Settings.mockups_dir`), opens a page without following a link,
@@ -1887,10 +1887,10 @@ and a line the rule does not recognize counts as delivered, so it is kept back a
 
 **Link cards.** A reply of the chat session that links a `/mockup/<n>` page of this site (a path, or an address on the host the request came to) or a claude.ai artifact (`https://claude.ai/artifact/<id>` or `/code/artifact/<id>`) is drawn with a
 card under its text, for every reply the session's reads send (the last page, an older, a newer, a page around a line, the stream's `reset` and `append`) and for no other session's. The server adds the data: `chatkeep.with_cards` runs
-`chatpage.cards`'s rule (each address once, at most six, a mockup's title from the local mockup store, an artifact's from the link text, any other link none) over the reply's text blocks and puts `cards` on the message,
-`[{kind: "mockup" | "artifact", url, title, n (a mockup only)}]`; a message with no such link has no `cards` key and another session's messages never have one. Nothing is fetched, by the server or by the page. The page draws each card in
+`chatpage.cards`'s rule (each address once, at most six, a Canvas's title from the local Canvas store, an artifact's from the link text, any other link none) over the reply's text blocks and puts `cards` on the message,
+`[{kind: "mockup" | "artifact", url, title, n (a Canvas only)}]`; a message with no such link has no `cards` key and another session's messages never have one. Nothing is fetched, by the server or by the page. The page draws each card in
 `renderMessage`, the one renderer every session uses (`linkCard` in `app.js`, called for an assistant message that has `cards`), as one `<a class="link-card">` under the reply's text and before its copy row: the title (or, with none, the kind of
-page), the kind in a smaller line ("Mockup 7", "Claude artifact") and "opens a page". It opens in a new tab with `rel="noopener noreferrer"`, the keyboard reaches it like any link, and a card whose address is neither shape is not drawn (the link
+page), the kind in a smaller line ("Canvas 7", "Claude artifact") and "opens a page". It opens in a new tab with `rel="noopener noreferrer"`, the keyboard reaches it like any link, and a card whose address is neither shape is not drawn (the link
 stays the plain link in the text). The words are the keys `chat.card.*` in English and Korean and follow a language change in place. It is sala's own card look: the panel gray, the border and the 8 px corner of the tool-call folds, the
 themes' tokens (so it follows the dark and light palettes and the stored color look), the accent focus ring, no color of its own. Like everything in the view it never makes the page wider: the card shrinks to the thread (420 px at most) and every
 line of it breaks anywhere.
@@ -2274,7 +2274,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 | Sleeping sessions | `$SALA_SLEEP_DIR/<conversation id>` (default `<sala state>/sleeping/`; one line, `<ISO-Z time> <name>`) with the pane-map row (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) of the same conversation id, read at each list (*Sleeping sessions*); read-only |
 | Roles, projects | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
-| Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add` and replaced in place by `sala mockup update N`, read at each request; nothing is cached or listed; `versions/<n>/` (saved by `update` and `undo`) is read by sala-web only for the read-only version views at `/mockup/<n>/versions/<id>` |
+| Canvas pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add` and replaced in place by `sala mockup update N`, read at each request; nothing is cached or listed; `versions/<n>/` (saved by `update` and `undo`) is read by sala-web only for the read-only version views at `/mockup/<n>/versions/<id>` |
 | Operation logs | `$SALA_LOG_DIR/salamander-op-<id>.log` (sala's `SALA_LOG_DIR`, read from the environment, else sala's config file; default `~/.claude/`), written by `sala op`, read at each request (the last 256 KB); nothing is cached or listed |
 | Transcript | `~/.claude/projects/<cwd, every non-alphanumeric char as ->/<sessionId>.jsonl`, falling back to a glob on the sessionId |
 | For you (no page reads it now) | stackshot's client API with the same token and address: `GET <client.url>/client/for-you` (the list and the flags, one read a minute), and on a tap `POST /client/for-you/seen` and `POST /client/items/<key>/watch`, always with the label `sala-web`; kept in memory only; `docs/stackshot-contracts.md`, interface 22 (*For you*) |
@@ -2556,7 +2556,7 @@ part of `web/`.
 | `GET /chat` | an address kept for the chat session (`SALA_CHAT_SESSION`): a 302 to `./s/<session>`, relative to the app's own prefix (to `./` with none set); no page of its own (*The chat session*) |
 | `GET /api/chat` | what the chat session's entry and strip show: `{configured, session, name, present: live\|sleeping\|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, group, motion}` (*The chat session*); `{configured: false}` when no session is set; `no-store` |
 | `GET /api/chat/thread?n=&before=&after=&around=` | the chat session's own thread, the owner's messages and the replies to them (read by the chat session's own layer): `{session, messages, offset, before, start, busy, cards}` (paged reads carry their own paging keys); `{configured: false}` when no session is set; `?replies=1` adds the sent images, asked questions, API errors and interrupts of those replies; 400 on a bad query; `no-store` (*The chat session*) |
-| `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
+| `GET /mockup/<n>` | a Canvas page `sala mockup add` stored (*Canvas pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /mockup/<n>/versions/<id>` | a saved version of page `<n>` (`<id>` the UTC time it was replaced), read-only, with a "Current page" link; 404 for anything that is not one saved version of an existing page |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `./overview`, the Overview |

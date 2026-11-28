@@ -3,7 +3,7 @@
 
 A session that cannot publish an Artifact hands a reader a link instead of a picture: `sala mockup add page.html` stores the page under the
 next number and prints https://<sala's address>/mockup/<n>; sala-web serves it behind the same sign-in as the rest of the site, in a sandbox
-(web/README.md, *Mockup pages*). The pages are plain files, so nothing here asks a server anything.
+(web/README.md, *Canvas pages*). The pages are plain files, so nothing here asks a server anything.
 
   add FILE|-        store an HTML file (a path, or - for stdin) under the next number; prints the page's URL (stdout), nothing else
   update N FILE|-   a revision: replace stored page N in place (same number, same URL). The page it replaces is saved as a version first.
@@ -173,7 +173,7 @@ def check_page(data: bytes) -> str:
     if not data.strip():
         raise Refused("the file is empty")
     if len(data) > MAX_BYTES:
-        raise Refused("the page is over %d MiB (%d bytes read): a mockup that big needs trimming first" % (MAX_BYTES >> 20, len(data)))
+        raise Refused("the page is over %d MiB (%d bytes read): a Canvas that big needs trimming first" % (MAX_BYTES >> 20, len(data)))
     if b"\0" in data:
         raise Refused("the file holds a NUL byte: it is not an HTML text file")
     try:
@@ -183,7 +183,7 @@ def check_page(data: bytes) -> str:
     window = new_window_target(text)
     if window:
         tag, attr, value = window
-        raise Refused('the page has <%s %s="%s">: a sala mockup page cannot open a new window; remove the %s attribute so the link opens '
+        raise Refused('the page has <%s %s="%s">: a sala Canvas page cannot open a new window; remove the %s attribute so the link opens '
                       'in the same window' % (tag, attr, value, attr))
     found = lettered_designs(text)
     if found:
@@ -627,7 +627,7 @@ def cmd_clean(args: list) -> int:
             raise Refused("SALA_MOCKUP_MAX_BYTES is negative")
     d = mockup_dir()
     if not os.path.isdir(d):
-        print("mockup clean: no mockup folder yet; nothing to do")
+        print("mockup clean: no Canvas folder yet; nothing to do")
         return 0
     return clean(d, now(), days, os.environ.get("SALA_MOCKUP_REFERENCES", ""), cap, dry)
 

@@ -866,11 +866,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         else:
             body = await run_in_threadpool(MK.read_page, settings.mockups_dir, raw)
         if body is None:
-            return Response("no such mockup", status_code=404, media_type="text/plain", headers=MK.HEADERS)
+            return Response("no such Canvas", status_code=404, media_type="text/plain", headers=MK.HEADERS)
         try:
             text = body.decode("utf-8")
         except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
-            return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
+            return Response("this Canvas is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
         if va:   # a version: read-only, with a way back to the current page
             bar = MK.version_block(int(va.group(1)), va.group(2))
         else:    # the current page: the back link, and the history icon when there is a saved earlier version

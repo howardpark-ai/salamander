@@ -1,4 +1,4 @@
-"""Mockup pages: GET /mockup/<n> serves what `sala mockup add` stored, in a sandbox (mockup.py, README *Mockup pages*).
+"""Mockup pages: GET /mockup/<n> serves what `sala mockup add` stored, in a sandbox (mockup.py, README *Canvas pages*).
 
 The route tests drive the app in process (starlette's TestClient). The last two tests open a served page in a real headless Chromium (the `served`
 and `browser` fixtures of conftest.py; skipped where there is none) and let the page's own script try to reach sala's API and cookies.
@@ -151,7 +151,7 @@ def test_an_unknown_or_malformed_address_is_a_404_that_still_carries_the_sandbox
     (env["root"] / "counter").write_text("1\n")
     r = env["client"].get(path)
     assert r.status_code == 404, path
-    assert r.text == "no such mockup"
+    assert r.text == "no such Canvas"
     check_sandbox_headers(r)
 
 
