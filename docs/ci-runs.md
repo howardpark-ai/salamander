@@ -4,7 +4,8 @@ One resident process per machine polls GitHub Actions for the repos builders wai
 asking GitHub. GitHub's REST budget (5,000 calls an hour) is the account's, shared by every tool and agent on the machine;
 a builder or a release waiting on CI used to spend it with a read of its own every minute or less. Now the cost is fixed: one
 conditional read a minute per repo in the list (a 304 answer to an
-`If-None-Match` is not counted by GitHub).
+`If-None-Match` is not counted by GitHub), plus, for a repo with a builder, a conditional read of its queued runs every 5 minutes and a few
+reads for a run that may be stuck ([A stuck run](#a-stuck-run)).
 
 | piece | where |
 |---|---|
@@ -43,6 +44,52 @@ before that repo's next look, doubling each failure up to `SALA_CIPOLL_BACKOFF_M
 with an `x-ratelimit-reset`, waits for that (at most an hour) and reads **no repo** meanwhile, the budget being the account's. The first good look after
 errors logs `reachable again`. A change in the runs is logged once; a look that found nothing new logs nothing. No token is ever logged (a token-shaped string
 in `gh`'s error is replaced). The poller starts by removing a `*.tmp` file a killed one left.
+
+## A stuck run
+
+GitHub can leave a workflow run `queued` with an empty job list. Such a run never starts, reports no check and cannot be cancelled or rerun;
+only a new run fixes it. `release.sh` of a project may handle the ones it waits on; the poller flags every other one it sees (a PR with no release
+running, a push to main or to a queue branch, a scheduled or manual run). **It only says so**: it replaces, cancels and reruns nothing.
+
+**What is flagged**: a run whose status is `queued`, whose attempt started (`run_started_at`, else `created_at`) 30 minutes ago or more
+(`SALA_CIPOLL_STUCK_AFTER`), that is the newest run of its workflow, event and branch the poller has seen (an older one is superseded and
+stays so), and whose jobs read (`repos/<repo>/actions/runs/<id>/jobs?per_page=1`) answers `total_count` 0 with no job. A run that has a job,
+even a queued one, is waiting for a runner and is not flagged. A jobs read that fails or is not that answer flags nothing.
+
+**Where it is seen**: the 30-run list may span less than the 30 minutes on a busy repo, so two things keep a run in view. Every queued run
+seen is remembered and judged after it leaves the list. And for each repo with a builder, every 5 minutes (`SALA_CIPOLL_STUCK_LIST`, 300 s)
+a conditional read of `repos/<repo>/actions/runs?status=queued&per_page=100` finds a queued run the poller never saw: one already stuck when
+it started, or one that came and left the 30 while it was stopped or GitHub failed.
+
+**Who is told**: the builder of the repo, from the repo table `sala job` reads ([units.md](units.md): `SALA_JOB_REPOS`, else
+`~/.config/salamander/unit-repos.tsv`, else the tracked `lib/unit-repos.tsv`, which lists no repo): the `builder` column of the row whose
+`github` column is that `owner/name` (the `*` row and an empty `github` name no repo). One line a repo, columns separated by tabs:
+
+```
+demo-web	~/demo-web	-	-	pr	projects/demo-web	demo-web-builder	-	example-org/demo-web
+```
+
+A repo with no builder there is logged once (`no builder for <repo> in the repo table …`), its jobs are not read and nothing is sent; a line
+added later is used at once (a run still listed or remembered is then judged).
+
+**How**: one message into that session's inbox, as a turn (`lib/cipoll-tell.sh`, sala's inbox push), naming the repo, workflow, run id, branch and
+PR, event, URL and how to make a new run for that event (for a PR: close and reopen it, or push). A session that is not live, is paused or
+takes no push gets nothing then: the message stays pending, is tried again every interval and is delivered when the session takes it. Nothing
+goes to Slack or to the owner.
+
+**Once**: `ci-stuck.json`, beside the `ci-runs` folder (`~/.local/state/salamander/ci-stuck.json`), written atomically, holds for each repo the
+queued runs being watched, the pending messages and the delivered ones (the newest 500), so a restart sends nothing again. A run is marked
+delivered right after the push, so a poller killed between the two sends it once more. While the file cannot be written, nothing is sent; a
+file that is not a record is moved to `ci-stuck.json.bad`, and a run still stuck may then be flagged again.
+
+**Cost and bounds**: the queued-runs read, one a repo with a builder every 5 minutes (a `304` is not counted), and nothing more until a run is
+past the limit. Then at most `SALA_CIPOLL_STUCK_READS` (5) further reads in one pass: one for a run in the 30-run list (its jobs), two for any
+other (the run, then its jobs); a run not found stuck is read again after `SALA_CIPOLL_STUCK_RECHECK` (600 s). Each of these reads is cut off
+after `SALA_CIPOLL_STUCK_TIMEOUT` (20 s), and one that gives no usable answer ends its kind for that pass. None is made during a rate-limit
+wait, one that meets a rate limit starts it, and a repo whose list read just failed is not judged.
+
+**Limits**: a queued run older than the newest 100 queued ones is not found by that read; and an old stuck run whose replacement the poller
+never saw is flagged once although it was replaced.
 
 ## Reading it
 
@@ -83,7 +130,10 @@ first), not at the moment the job fails as the check-runs read did; and a check 
 ## Adding a repo
 
 Add its line to `~/.config/salamander/ci-repos` (one `owner/name` a line; the poller reads the file every pass). The
-poller costs one read a minute per repo whatever the number of waiters.
+poller costs one read a minute per repo whatever the number of waiters. For its stuck runs to be flagged, give it a builder too
+([A stuck run](#a-stuck-run)).
+
+A running poller keeps the code it started with: after a release that changes `lib/cipoll.py`, `systemctl --user restart sala-cipoll.service`.
 
 ## Installing the unit (after the release that adds it deploys)
 

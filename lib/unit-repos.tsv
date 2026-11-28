@@ -12,7 +12,8 @@
 #   system_dir  the same for system-scope unit files (sala never installs them: it prints the root command); - = none
 #   flow      main = commits straight to main; pr = a branch in a worktree and a pull request (--checkout names the worktree)
 #   project   the stackshot project page key of the repo
-#   builder   the project's background builder: the mover of a unit gap's item (stackshot sets it from the project page; `sala job check` shows it)
+#   builder   the project's background builder: the mover of a unit gap's item (stackshot sets it from the project page; `sala job check` shows it),
+#             and the session the CI-run poller tells about a stuck run of the row's github repo (docs/ci-runs.md)
 #   note      one sentence printed with the git steps, or the reason user_dir is -
 #   github    the repo's GitHub owner/name, the --repo of `client.py post job-gap open`; stackshot refuses a repo it does not list with a 400.
 #             Empty = the SALA_JOB_GITHUB setting; with that empty too, the gap is not posted to the board.

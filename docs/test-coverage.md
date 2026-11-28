@@ -1927,6 +1927,20 @@ ordinary error; a token-shaped string in gh's error is not logged; the repo list
 prefix, none = `[]`, a short sha = 2, `--text`, missing = 3, 300 s old = 4 with nothing on stdout, `--max-age` 400 / 0 / 100, corrupt = 5, no `updated` = 5, usage and a bad or
 traversing repo name = 2, `--help`; the path under `XDG_STATE_HOME` and under `~/.local/state`; the unit file's lane, `ExecStart` and `Restart=always`. Not checked: the live `gh` and GitHub, systemd running the unit.
 
+### A stuck run is flagged once to the repo's builder: `tests/cipoll.sh` +25 (Sat Nov 28th 2026)
+
+The paths guarded: a run GitHub leaves `queued` with no jobs sits for days unless someone is told; a flag repeated every minute, or sent for a run that only waits for a
+runner, would teach the session to ignore it; and the extra reads share the account's REST budget. The fake `gh` also answers the run and jobs reads (a body, a raw error,
+a hang). Delivery runs through the real inbox push with nothing real in reach: a private tmux server, a copy of `bash` named `claude` in its pane, a session record under
+the temporary HOME and a stand-in inbox socket that ends on a stop file. Checked: a run queued 45 minutes with no jobs is flagged exactly once (one jobs read; kept pending
+while the builder is not live and while it is paused; delivered when it takes it; no second message after further restarts), with the repo, workflow, run, branch, PR, URL
+and the way to a new run; not flagged: a run with a job, one queued 10 minutes, a running one, a superseded one, a jobs read that fails, that is not a jobs answer or that
+hangs; every `gh` call is a plain GET; the record sits beside the `ci-runs` folder and the runs file keeps its fields; a repo with no builder (the `*` row, a `-`) is logged
+once with no jobs read, and a row added later is used; the bound of reads in a pass; a rate limit met by a jobs read stops every read; a run that left the list is judged
+after a read of its status, a completed or superseded one is not flagged; a run older than the 30 listed, never seen there, is found by the conditional read of the queued
+runs (repeated with the ETag; its failure flags nothing, its rate limit stops every read; none for a repo with no builder); the merge queue's advice and the PR from its branch; a workflow name from GitHub cannot add a line
+or a quote; a record that is not one is moved aside. Not checked: GitHub's real stuck run, a real Claude Code inbox.
+
 ### `tests/stuckpost.sh`: new, 32 (Wed Oct 14th 2026)
 
 The stuck-question watch (`lib/watch.sh` STUCK-QUESTION WATCH, `lib/common.sh` `SALA_PROMPT_RE` and `scrub_text`). A pane
