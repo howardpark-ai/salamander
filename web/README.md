@@ -426,7 +426,8 @@ captures the text on pointerdown and puts it at the END of the composer as lines
 on a new line, and two quotes with nothing typed between get one empty line. Nothing is sent. A send carries the box's
 text byte for byte, with one exception: sent with nothing typed after a quote, the newline the quote added is left out
 (held in memory, so a draft restored by a reload is sent with it). A user's message shows its "> " runs as a blockquote
-(`.msg.user .bubble blockquote`), the lines after it outside it, the links kept, with no markdown renderer.
+(`.msg.user .bubble blockquote`), the lines after it outside it, the links kept, with no markdown renderer. The quote is a
+faint accent-tinted box (6px radius, a 4px accent left edge) with 13px text in the message's own colour, in both themes.
 `tests/test_chat_quote_ui.py` holds the button's presence and absence, the composer text for each case, the draft and the
 send, the bubble, the links in a quote, the chip above 78 px at 390 x 844, and the desktop button's place at the end of
 the selection, off the text that follows it.

@@ -7,7 +7,7 @@ lines after it outside it, the links kept.
 
 Held here: the button and the chip shown for a reply and not for the composer, the user's message or the sidebar; the composer text for a single line, a multi-line
 selection, typed text before a quote and two quotes in a row; the draft kept and nothing sent; the send's text, with and without typing after a quote; the bubble with the line after a quote and the links
-inside a quote; on a phone (390 x 844, touch) the chip above the bottom 78 px; on a desktop the button beside the END of the selection for a single line, a multi-line
+inside a quote; the quote's look (tinted box, accent edge, 13px, message text colour) in both themes at desktop and 360 px; on a phone (390 x 844, touch) the chip above the bottom 78 px; on a desktop the button beside the END of the selection for a single line, a multi-line
 selection and a selection dragged backwards, and above the line when text follows the end. What a wrong answer costs: typed text changed, a quote that lands mid-draft or is sent by the tap, a bubble that swallows the line after the
 quote, a chip under the phone's bottom band where the browser's own bar sits, a button that jumps to the start of the selection or hides the words after it. Runs in a headless Chromium when one
 is installed (conftest.py: `served`, `browser`), else is skipped; GitHub CI runs it. All text is invented."""
@@ -229,7 +229,31 @@ def test_a_sent_quote_is_a_blockquote_and_the_line_after_it_is_outside(served, b
     assert wait_for(browser, "!!document.querySelector('.msg.user .bubble blockquote')", 8.0)
     b = browser.evaluate(BUBBLE)
     assert b["kids"] == [["BLOCKQUOTE", "Alpha line one is here.\nBeta"], ["DIV", "After the quote"]], b
-    assert b["margin"] == "0px 0px", b
+    assert b["margin"] == "0px 6px", b      # nothing above the box, 6px between it and the line after it
+
+
+QUOTE_LOOK = """(() => { const q = [...document.querySelectorAll('.msg.user .bubble blockquote')].pop(), c = getComputedStyle(q);
+  const probe = document.createElement('div'); probe.style.color = 'var(--text)'; document.body.append(probe);
+  const text = getComputedStyle(probe).color; probe.remove();
+  return { size: c.fontSize, color: c.color, text, bg: c.backgroundColor, edge: c.borderLeftWidth + ' ' + c.borderLeftStyle + ' ' + c.borderLeftColor,
+           radius: c.borderTopLeftRadius, bubble: getComputedStyle(q.parentElement).backgroundColor,
+           qw: q.getBoundingClientRect().right, bw: q.parentElement.getBoundingClientRect().right }; })()"""
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", [pytest.param(DESKTOP, id="desktop"), pytest.param((360, 740), id="phone-360")])
+def test_a_sent_quote_is_a_tinted_box_with_small_text_in_the_message_colour(served, browser, monkeypatch, size, theme):
+    open_reply(browser, served, monkeypatch, size)
+    browser.evaluate("document.documentElement.dataset.theme = %s" % json.dumps(theme))
+    send_text(browser, "> Alpha line one is here.\nAfter the quote")
+    assert wait_for(browser, "!!document.querySelector('.msg.user .bubble blockquote')", 8.0)
+    b = browser.evaluate(QUOTE_LOOK)
+    assert b["size"] == "13px", b
+    assert b["color"] == b["text"], b                      # the quote keeps the text colour, not the muted one
+    assert b["radius"] == "6px", b
+    assert b["edge"].startswith("4px solid "), b
+    assert b["bg"] != "rgba(0, 0, 0, 0)" and b["bg"] != b["bubble"], b   # a tint is drawn over the bubble
+    assert b["qw"] <= b["bw"], b                           # the box stays inside the bubble
 
 
 def test_links_inside_a_quote_stay_links(served, browser, monkeypatch):

@@ -534,8 +534,11 @@ body.side-mode #sd-form { display: block; }
 .msg.user .bubble { background: var(--user-bubble); border-radius: 8px; padding: 8px 16px; max-width: 85%;
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user + .msg.assistant, .msg.assistant + .msg.user { margin-top: 16px; }
-/* a user's quote (chatquote.js): lines that start with ">" as a blockquote; no space above or below it */
-.msg.user .bubble blockquote { margin: 0; padding: 0 0 0 8px; border-left: 3px solid var(--border); color: var(--muted); }
+/* a user's quote (chatquote.js): lines that start with ">" as a blockquote. A faint accent-tinted box with rounded corners and a
+   4px accent left edge, in 13px text that keeps the message's own colour. No space above it; 6px below it, none when it ends the bubble */
+.msg.user .bubble blockquote { margin: 0 0 6px; padding: 6px 10px; border-left: 4px solid var(--accent); border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent); font-size: 13px; color: var(--text); }
+.msg.user .bubble blockquote:last-child { margin-bottom: 0; }
 /* the quote button (desktop) and the quote chip (touch): placed in the viewport by chatquote.js, over the reply text */
 .quote-btn, .quote-chip { position: fixed; z-index: 60; margin: 0; border: 0; background: none; padding: 0; cursor: pointer;
   font: 13px var(--font); touch-action: manipulation; -webkit-user-select: none; user-select: none; }
