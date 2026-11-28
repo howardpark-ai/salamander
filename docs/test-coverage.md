@@ -5746,10 +5746,10 @@ Not covered, and why: the CLI's real exit dialog and a real subagent are not run
 
 Changed: `tests/pause.sh`, `tests/help-snapshot.txt`.
 
-### The relaunch notice for a running subagent tells the truth about the pause: `tests/holdmatch.sh` 1 changed, 1 added, `tests/help-snapshot.txt` follows (Sat Nov 28th 2026)
+### The relaunch notice for a running subagent says a pause only where one comes: `tests/holdmatch.sh` 6 changed or added, `tests/pause.sh` 2 (Sat Nov 28th 2026)
 
-The text a session gets for a running subagent no longer says sala never cuts it: it says the relaunch follows once the subagent ends, and that the pause stops it with the exit after `SALA_PAUSE_AFTER` (named in the text) when pausing applies, or, with pausing off, that the relaunch simply waits. The help line of `recycle`, the `sala ready` comments and `config.example` say the same.
+`subagents_block` (`lib/common.sh`) is the one place that works out whether a pause will stop a running subagent for this pane and relaunch. The relaunch always waits for the subagent; the text adds the pause only when one comes. Every other text (the `recycle` and `ready` help lines, `config.example`, the `sala ready` comments, the docs) says less or points to `docs/recycle.md`, *When the pause stops a subagent*.
 
-Covered, in `tests/holdmatch.sh`: the notice for one running subagent names it and, with pausing off, says the relaunch waits for its end; with `SALA_PAUSE_AFTER=60` it says the pause stops it with the exit after 1 min. Not covered: a notice past the hold cap (the same function).
+Covered, in `tests/holdmatch.sh`: the notice for one running subagent, in six states. Pausing off, `SALA_PAUSE_AFTER` at `SALA_HOLD_MAX`, a relaunch past the cap and a session outside `SALA_PAUSE_SCOPE` each say the relaunch follows once the subagent ends and name no pause. Pausing on says the pause stops it after 1 min "after the notice"; with `SALA_STOP_NOTICE=off` it says "into the wait" and names no notice. In `tests/pause.sh` section e: the dry-run plan names a stop notice with `SALA_STOP_NOTICE=on` and none with it off. Not covered: the hold cap read from the waiting flag (`hold_over`) rather than the `over` word, which the hook and watch pass.
 
-Changed: `tests/holdmatch.sh`, `tests/help-snapshot.txt`.
+Changed: `tests/holdmatch.sh`, `tests/pause.sh`, `tests/help-snapshot.txt`.

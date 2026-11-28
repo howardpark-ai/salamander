@@ -83,7 +83,7 @@ SALA_PAUSE_SCOPE=background pause_scope_ok sala-test-back && ok "scope backgroun
 SALA_PAUSE_SCOPE=off pause_scope_ok sala-test-back && bad "scope off let a back agent through" || ok "scope off: nobody"
 (unset SALA_PAUSE_SCOPE; pause_scope_ok sala-test-front) && ok "the default scope: a front agent may be paused too" || bad "the default scope refused a front agent"
 (unset SALA_PAUSE_SCOPE; pause_scope_ok sala-test-back) && ok "the default scope: a back agent may be" || bad "the default scope refused a back agent"
-(SALA_PAUSE_SCOPE=everyone; pause_scope_ok sala-test-front) && bad "a word that is no scope let a front agent through" || ok "a word that is no scope reads as the narrower default, background"
+(SALA_PAUSE_SCOPE=everyone; pause_scope_ok sala-test-front) && bad "a word that is no scope let a front agent through" || ok "a word that is no scope reads as background (back agents only)"
 eval "$ORIG_BLN"
 
 echo "== the clock"
@@ -398,7 +398,9 @@ rm -f "$PD/$UH".*
 
 echo "== e: the dry run, off, the scope"
 rm -f "$PD/$UE.wait"; OUT=$("$SALA" revive --dry-run --force --only sala-test-e 2>&1)
-has "$OUT" '[dry-run] sala-test-e:0: held' && has "$OUT" 'would wait 6 s' && has "$OUT" 'after a stop notice' && ok "the plan says it would wait after a stop notice, then stop its turn" || bad "dry run: $OUT"
+has "$OUT" '[dry-run] sala-test-e:0: held' && has "$OUT" 'would wait 6 s' && ! has "$OUT" 'stop notice' && has "$OUT" 'then stop its turn' && ok "SALA_STOP_NOTICE=off: the plan says it would wait, then stop its turn, with no notice named" || bad "dry run, notice off: $OUT"
+OUT=$(env SALA_STOP_NOTICE=on "$SALA" revive --dry-run --force --only sala-test-e 2>&1)
+has "$OUT" 'would wait 6 s' && has "$OUT" 'after a stop notice' && has "$OUT" 'then stop its turn' && ok "SALA_STOP_NOTICE=on: the plan says it would wait after a stop notice, then stop its turn" || bad "dry run, notice on: $OUT"
 [ ! -e "$PD/$UE.wait" ] && [ "$(escs "$UE")" = 0 ] && ok "the dry run writes no clock and sends nothing" || bad "dry run wrote: $(ls "$PD")"
 OUT=$(env SALA_PAUSE_SCOPE=background "$SALA" revive --dry-run --force --only sala-test-e 2>&1)
 has "$OUT" 'it would not be paused' && has "$OUT" 'a front agent is never paused' && has "$OUT" 'SALA_PAUSE_SCOPE=all pauses every session' && ok "the plan under scope background says a front agent is never paused, and how to change it" || bad "dry run, scope background: $OUT"

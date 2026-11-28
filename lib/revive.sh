@@ -473,7 +473,7 @@ while [ $# -gt 0 ]; do
                    echo "  every plan says \"lane: <runs on now> → <relaunched on>\"; a pane with no lane row that runs on another lane than the default is refused"
                    echo "  (salamander lane <lane> <session> records it; --lane-default accepts the default) · --dry-run: the verdicts, nothing relaunched or written"
                    echo "  a pane skipped for a passing reason (a turn running, a background child, a running subagent) is retried every $((SALA_RETRY_EVERY/60)) min for up to $((SALA_RETRY_WINDOW/60)) min, then deferred (watch relaunches it once it is free); one that said ready but is held by background shells only is deferred at once"
-                   echo "  a running subagent holds the pane until it ends (only the pause after SALA_PAUSE_AFTER stops it), the skip line and watch's one log line name it, and the in-session mod's own answer (the busy probe) is asked before an exit is tried; an exit the mod refuses for a turn it cannot name, with every other check idle, goes by keys after $SALA_STALE_TURN_AFTER refusals, then the tries thin out (10 min, then 30 min)"
+                   echo "  a running subagent holds the pane (see docs/recycle.md), the skip line and watch's one log line name it, and the in-session mod's own answer (the busy probe) is asked before an exit is tried; an exit the mod refuses for a turn it cannot name, with every other check idle, goes by keys after $SALA_STALE_TURN_AFTER refusals, then the tries thin out (10 min, then 30 min)"
                    echo "  --rescue (with --only or --self): a stale background-task row — the exit dialog, the Stop hook's record or the mod listing work while NO child process runs under the claude — no longer holds the pane: the dialog is confirmed"
                    exit 0 ;;
         *) die "unknown option: $1 (see: salamander revive --help)" ;;
@@ -894,7 +894,7 @@ pause_try() {
         pause_refusal_r ref "$pane" "$sess" "$cpid"
         [ -n "$ref" ] || pause_within_cap "$a" || ref="SALA_PAUSE_AFTER is not below SALA_HOLD_MAX, where the pause stops, so it waits for the pane to be free"
         if [ -n "$ref" ]; then emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
-        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it after a stop notice (it is told to stop, leave a note and end with sala ready), then stop its turn (one Escape) and its subagents, hold its messages, relaunch it and leave it a note saying what it was doing"; fi
+        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it$(pause_notice_off || echo " after a stop notice (it is told to stop, leave a note and end with sala ready)"), then stop its turn (one Escape) and its subagents, hold its messages, relaunch it and leave it a note saying what it was doing"; fi
         return 1
     fi
     pause_refusal_r ref "$pane" "$sess" "$cpid"

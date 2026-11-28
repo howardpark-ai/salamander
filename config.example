@@ -151,8 +151,8 @@
                                  #   aws-platform's status is DERIVED like bedrock's; its launch line starts with `env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_FOUNDRY -u ANTHROPIC_AWS_API_KEY`
 #SALA_RETRY_EVERY=300           # recycle: retry transiently skipped panes (busy, just idle, draft) this often …
 #SALA_RETRY_WINDOW=7200          # … for this long, then defer (not give up) whoever is still pending
-#SALA_PAUSE_AFTER=60             # the pause (docs/recycle.md): a busy pane a relaunch must take down is sent a stop notice (stop, leave a note, end with sala ready); this many seconds later the turn is interrupted with ONE Escape, its subagents are stopped by the exit,
-                                 #   its messages are held, and the session relaunches with a note (written by the relaunch) of what it was doing. 0 or off = wait for idle as before; default 60
+#SALA_PAUSE_AFTER=60             # the pause (docs/recycle.md): a busy pane a relaunch must take down is sent a stop notice (stop, leave a note, end with sala ready); this many seconds later the turn is interrupted with ONE Escape,
+                                 #   and the session relaunches with a note (written by the relaunch) of what it was doing; what the pause stops, and when it applies: docs/recycle.md. 0 or off = wait for idle as before; default 60
 #SALA_PAUSE_SCOPE=all            # whose turn may be paused: all (every session, front agents included; the default) · background (only the back agents; a front agent is never paused and waits for its turn to end) · off
 #SALA_STOP_NOTICE=on           # a busy pane a relaunch must take down is first sent a one-time stop notice (stop, leave a note, end with sala ready); off = no notice
 #SALA_NO_PAUSE=                  # tmux sessions (space-separated) whose turn is never interrupted: they hold work that cannot be redone and wait for idle as before
@@ -189,7 +189,7 @@
                                  #   earlier than before; the 8-day drop of the list stands
 #SALA_SUBAGENT_STALE=21600      # recycle, watch, `sala ready`: a subagent whose transcript is not marked finished, written since this claude started and not
                                  #   longer ago than this (6 h) can be running; it IS running while it also wrote within SALA_SUBAGENT_QUIET or a process under the
-                                 #   pane was started by it. A running subagent holds the pane until it ends (only the pause after SALA_PAUSE_AFTER stops it); it is named in the skip line, in watch's one log line
+                                 #   pane was started by it. A running subagent holds the pane (docs/recycle.md); it is named in the skip line, in watch's one log line
                                  #   and in `sala ready`. A subagent that crashed (it never writes "finished") stops counting after the quiet time
 #SALA_SUBAGENT_QUIET=1800        # seconds a subagent may write nothing and still count as running with no process of its own under the pane (30 min)
                                  #   A subagent known to have ended (a completed, killed, failed or stopped notice in the session's transcript, or a last transcript line that is a

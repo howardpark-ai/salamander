@@ -1863,7 +1863,7 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
         # a session held by shells is idle: no tool call, so the hook never speaks. The line goes in as a message; a turn running
         # now is left to the hook, which says it at the next call
         local over=""; ! hold_lift "$uuid" || over=over   # THE CAP (common.sh): a relaunch past it is told again, and holds nothing again; one still refused (the pane is being relaunched) gets the ordinary line
-        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c" $over)$hnote" 2>/dev/null; then waiting_told "$uuid"; [ -n "$over" ] || hold_told "$uuid" "$c" "$sess"; fi
+        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c" "$over" "$sess")$hnote" 2>/dev/null; then waiting_told "$uuid"; [ -n "$over" ] || hold_told "$uuid" "$c" "$sess"; fi
         told_n=$((told_n + 1)); told_at=$now
         wlog "deferred: $sess held $(later_words "$held_for") — told again ($told_n of $SALA_LATER_RETELL_MAX): $held"
     fi
