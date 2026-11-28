@@ -52,9 +52,10 @@ case $SALA_LOG_DIR in /*) ;; *) SALA_LOG_DIR=$HOME/$SALA_LOG_DIR;; esac   # a re
 : "${SALA_NO_RELAUNCH:=}"                         # tmux sessions sala never relaunches or restores (space-separated; see no_relaunch)
 : "${SALA_RETRY_EVERY:=300}"                      # recycle: seconds between retries of transiently skipped panes
 : "${SALA_RETRY_WINDOW:=7200}"                     # recycle: how long the retry worker keeps trying
-: "${SALA_PAUSE_AFTER:=900}"                       # relaunch: seconds a pane may hold a relaunch before its turn is paused (interrupted, relaunched, resumed from a note); 0 or off = wait for idle, as before (THE PAUSE, below)
-: "${SALA_PAUSE_SCOPE:=background}"                # pause: whose turn may be paused: background (back agents only; a front agent waits for its turn to end, the default) | all (every session, front agents included) | off
-: "${SALA_PAUSE_IDLE_WAIT:=20}"                    # pause: seconds the one Escape gets to bring the pane out of its turn; past that the pane is waited for as before
+: "${SALA_PAUSE_AFTER:=60}"                        # relaunch: seconds a pane may hold a relaunch, after the stop notice it is sent, before it is paused (turn interrupted, subagents stopped, relaunched, resumed from a note); 0 or off = wait for idle, as before (THE PAUSE, below)
+: "${SALA_PAUSE_SCOPE:=all}"                       # pause: whose turn may be paused: all (every session, front agents included; the default) | background (back agents only; a front agent waits for its turn to end) | off
+: "${SALA_STOP_NOTICE:=on}"                        # pause: on = a busy pane a relaunch must take down is first sent a one-time stop notice (stop, leave a note, end with sala ready); off = no notice
+: "${SALA_PAUSE_IDLE_WAIT:=20}"                   # pause: seconds the one Escape gets to bring the pane out of its turn; past that the pane is waited for as before
 : "${SALA_PAUSE_QUIET:=120}"                       # pause: a pane with a client attached that was active this recently is somebody's, never interrupted
 : "${SALA_PAUSE_GAP:=1800}"                        # pause: the busy clock restarts when the pane was last seen busy longer ago than this (busy continuously, not on and off)
 : "${SALA_PAUSE_TTL:=900}"                         # pause: seconds a paused pane's marker holds (the relaunch must follow within it)
@@ -3000,13 +3001,13 @@ hold_cap_tick() {  # watch: every flag past its cap is lifted
 }
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"   # stackshot's inbox (hub/ and msg/ under it), read for the note's list of held messages; lib/wrapup.sh sets the same default
 pause_after_r() {  # <var> → SALA_PAUSE_AFTER in seconds; 0 = off (0, off, no, false); anything that is not a number reads as the default
-    local _v="${SALA_PAUSE_AFTER:-900}"
-    case "${_v,,}" in off|no|false|0) _v=0;; *[!0-9]*) _v=900;; esac
-    case "${SALA_PAUSE_SCOPE:-background},," in off,,|no,,|false,,|0,,) _v=0;; esac   # the scope's `off` is the same switch
+    local _v="${SALA_PAUSE_AFTER:-60}"
+    case "${_v,,}" in off|no|false|0) _v=0;; *[!0-9]*) _v=60;; esac
+    case "${SALA_PAUSE_SCOPE:-all},," in off,,|no,,|false,,|0,,) _v=0;; esac   # the scope's `off` is the same switch
     printf -v "$1" '%s' "$_v"
 }
 pause_scope_ok() {  # <tmux session> → 0 when SALA_PAUSE_SCOPE lets this session's turn be paused: background (default; back agents only: the registry's role, back_lane_names) · all (every session) · off
-    case "${SALA_PAUSE_SCOPE:-background}" in
+    case "${SALA_PAUSE_SCOPE:-all}" in
         all) return 0;;
         off|no|false|0) return 1;;
         *) back_lane_names back 2>/dev/null | grep -qxF -- "$1";;   # background, and any word that is not one of the others (the narrower reading)
@@ -3016,7 +3017,7 @@ pause_no() { case " ${SALA_NO_PAUSE//[$'\t\n']/ } " in *" $1 "*) return 0;; esac
 pause_clock_r() {  # <var> <uuid> → seconds this pane has been continuously held; starts the clock when there is none (or it is stale) and refreshes it
     local _f="$SALA_PAUSE_DIR/$2.wait" _s="" _l="" _n; _now_r _n
     { read -r _s _l < "$_f"; } 2>/dev/null || :
-    if ! [[ $_s =~ ^[0-9]+$ && $_l =~ ^[0-9]+$ ]] || [ $(( _n - _l )) -gt "$SALA_PAUSE_GAP" ]; then _s=$_n; rm -f "$SALA_PAUSE_DIR/$2.failed" 2>/dev/null; fi   # a new stretch: the failed tries of the old one are forgotten
+    if ! [[ $_s =~ ^[0-9]+$ && $_l =~ ^[0-9]+$ ]] || [ $(( _n - _l )) -gt "$SALA_PAUSE_GAP" ]; then _s=$_n; rm -f "$SALA_PAUSE_DIR/$2.failed" "$SALA_PAUSE_DIR/$2.notified" 2>/dev/null; fi   # a new stretch: the failed tries of the old one are forgotten
     mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null
     printf '%s %s\n' "$_s" "$_n" > "$_f.t.${BASHPID:-$$}" 2>/dev/null && mv -f "$_f.t.${BASHPID:-$$}" "$_f"
     printf -v "$1" '%s' $(( _n - _s ))
@@ -3026,7 +3027,7 @@ pause_clock_age_r() {  # <var> <uuid> → seconds on the clock, read only; -1 wh
     { read -r _s _l < "$_f"; } 2>/dev/null || :
     if [[ $_s =~ ^[0-9]+$ && $_l =~ ^[0-9]+$ ]] && [ $(( _n - _l )) -le "$SALA_PAUSE_GAP" ]; then printf -v "$1" '%s' $(( _n - _s )); else printf -v "$1" '%s' -1; fi
 }
-pause_clock_clear() { [ -n "${1:-}" ] && rm -f "$SALA_PAUSE_DIR/$1.wait" "$SALA_PAUSE_DIR/$1.failed" 2>/dev/null; return 0; }   # <uuid> (the pane is free or was relaunched: the clock and the failed tries go)
+pause_clock_clear() { [ -n "${1:-}" ] && rm -f "$SALA_PAUSE_DIR/$1.wait" "$SALA_PAUSE_DIR/$1.failed" "$SALA_PAUSE_DIR/$1.notified" 2>/dev/null; return 0; }   # <uuid> (the pane is free or was relaunched: the clock and the failed tries go)
 pause_stand_down() {  # <uuid> <session name> — no pause for this wait (its hold is past the cap): a running clock goes, and the inbox it held comes free
     local _a; pause_clock_age_r _a "$1"; [ "$_a" -ge 0 ] || return 0
     pause_clock_clear "$1"; inbox_release "$1" "$2" 2>/dev/null; return 0
@@ -3061,6 +3062,11 @@ pause_tries_r() {  # <var> <uuid> → how many tries of this stretch failed so f
     { read -r _t _c < "$_f"; } 2>/dev/null || :
     [[ $_c =~ ^[0-9]+$ ]] || _c=0
     printf -v "$1" '%s' "$_c"
+}
+pause_tasks_only() {  # <claude-pid> → 0 when that claude's pause marker says its turn had ended and only background work (subagents, shells) held the row busy
+    compgen -G "$SALA_PAUSE_DIR/*.paused" >/dev/null 2>&1 || return 1
+    local sid t=""; registry_field_r sid "$1" sessionId; [ -n "$sid" ] && [ "$sid" != null ] || return 1
+    _kv_first_r t "$SALA_PAUSE_DIR/$sid.paused" tasks; [ "$t" = 1 ]
 }
 pause_due() {  # <uuid> → 0 when the pane's clock has run SALA_PAUSE_AFTER seconds and no failed try is still being waited out (read only: the retry worker and watch ask before they try a pane)
     local a t r; pause_after_r a; [ "$a" -gt 0 ] || return 1
@@ -3141,22 +3147,26 @@ pane_turn_running() {
 # (the same care as leave_shell_mode: an Escape is a key like any other) and whose own turn is running; nothing is typed, and nothing more
 # is ever sent to a pane that stays busy.
 PAUSE_ESC=0   # 1 once pane_interrupt has sent its Escape: only then is the Escape note written, or the [paused] note's Escape sentence
-PAUSE_TURN=""   # why a busy pane stayed busy: none = no turn of its own seen, no Escape sent; stopped = the Escape ended the turn
+PAUSE_TURN=""   # none = no turn of its own seen, no Escape sent; stopped = the Escape ended the turn
+PAUSE_TASKS=0   # 1 when the pane is out of its turn but background work (subagents, shells) still holds its row busy: the exit that follows stops that work
 pane_interrupt() {
     local st i
-    PAUSE_ESC=0; PAUSE_TURN=""
+    PAUSE_ESC=0; PAUSE_TURN=""; PAUSE_TASKS=0
     registry_field_r st "$2" status
     if [ "$st" != busy ]; then [ "$st" = idle ] || [ "$st" = shell ]; return; fi
     pane_prompt "$1" && return 1
     unmode "$1"
-    pane_turn_running "$1" "$2" || { PAUSE_TURN=none; return 1; }
+    # no turn of its own: only background work holds the row. An Escape would stop nothing, so none is sent; the relaunch's exit stops that
+    # work (the CLI's "Exit and stop tasks", confirmed by exit_wait), as the decided way to take down a busy pane says
+    pane_turn_running "$1" "$2" || { PAUSE_TURN=none; PAUSE_TASKS=1; return 0; }
     tmux send-keys -t "$1" Escape && PAUSE_ESC=1
     for ((i = 0; i < SALA_PAUSE_IDLE_WAIT * 2; i++)); do
         _nap 0.5; registry_field_r st "$2" status
         if [ "$st" = idle ] || [ "$st" = shell ]; then return 0; fi
         [ "$st" = busy ] || return 1   # waiting (a dialog the interrupt opened), or the row is gone
     done
-    [ "$PAUSE_ESC" != 1 ] || pane_turn_running "$1" "$2" || PAUSE_TURN=stopped
+    # the Escape ended the turn and background work still holds the row: the turn is stopped, and the exit stops the rest
+    if [ "$PAUSE_ESC" = 1 ] && ! pane_turn_running "$1" "$2"; then PAUSE_TURN=stopped; PAUSE_TASKS=1; return 0; fi
     return 1
 }
 # pause_context <claude-pid> <uuid> → the lines the note is made of, read before the interrupt: trigger / pending / started (lib/pauseinfo.py),
@@ -3250,6 +3260,22 @@ pause_escape_drop() {
     [ -s "$notes" ] || return 0
     ( flock -w 30 8 || exit 1; awk -F'\t' -v u="$1" '!($3 == u && substr($8, 1, 9) == "[escape] ")' "$notes" > "$notes.tmp.$$" && mv -f "$notes.tmp.$$" "$notes" ) 8>"$notes.lock"
 }
+# pause_stop_notice <session> <uuid> <claude-pid> → the stop notice of a busy pane that is to be taken down (step one of the decided way: notice, wait
+# SALA_PAUSE_AFTER s, stop the pane and its subagents, hold its messages, restart it). ONE one-time note (text starts "[stop] ", lib/note.sh hands it
+# to the live pid at once and archives it), written the first time a pass finds the pane held and pausable; `pause/<uuid>.notified` remembers it until the
+# clock stops or restarts. Returns 0 when a notice was written now, 1 when there was one already (or the pane has no clock to count from).
+pause_stop_notice() {
+    local mark="$SALA_PAUSE_DIR/$2.notified" a txt kind
+    [ ! -e "$mark" ] || return 1
+    case "${SALA_STOP_NOTICE:-on}" in off|no|false|0) return 1;; esac   # SALA_STOP_NOTICE=off: the wait and the stop, with no notice
+    pause_after_r a; [ "$a" -gt 0 ] || return 1
+    kind=$(relaunch_what "$(relaunch_kind)")
+    txt="[stop] sala is about to restart this session for a $kind, and it is busy. Stop what you are doing now: start no new work and no new subagent, leave a note with \`sala note \"<next step>\"\` for anything that must go on after the restart, and end your turn with \`sala ready\` as your last call. If the turn has not ended in about $(hold_age_words "$a"), sala stops it and its running subagents and restarts the session; whatever you leave in a note comes back after the restart. Messages for you are held until then."
+    mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null; : > "$mark"
+    note_add_for "$1" "$2" "$3" "$txt" "a busy pane is taken down: stop notice; one-time" >/dev/null || return 1
+    ( "$SALA_BIN" note --deliver >/dev/null 2>&1 & ) 2>/dev/null   # at once, not at watch's next tick
+    return 0
+}
 # pause_pane <pane> <tmux session> <claude-pid> <uuid> → 0 when the pane is paused (out of its turn, its marker and note written), 1 when it is not
 # (PAUSE_WHY says why; nothing typed, no marker, no [paused] note; the [escape] note when an Escape was sent). check_pane calls it for a pane whose clock is due (pause_due) and that
 # pause_refusal_r lets through.
@@ -3272,6 +3298,7 @@ pause_pane() {
         esac
         PAUSE_WHY+=" and /exit stays unsent$(pause_retry_words "$uuid")"; return 1
     fi
+    [ "$PAUSE_TASKS" != 1 ] || printf 'tasks=1\n' >> "$f"   # out of its turn, background work alone holds the row: is_idle_reason and pane_exit read this
     for ((i = 0; i < SALA_IDLE_SETTLE + 6; i++)); do [ -z "$(is_idle_reason "$cpid")" ] && break; sleep 1; done   # the registry's idle settle
     txt=$(is_idle_reason "$cpid")
     if [ -n "$txt" ]; then
@@ -3693,7 +3720,8 @@ is_idle_reason() {
     fi
     # A PAUSED PANE (THE PAUSE above): its turn was interrupted so that the relaunch can go on, and what it left running is what the relaunch
     # cuts: out of its turn (idle, or shell for background work alone) for the settle time is idle here, whatever else holds it
-    if { [ "$st" = idle ] || [ "$st" = shell ]; } && pause_active "$1"; then
+    # (a pane whose turn had ended, with only background work holding the row 'busy', was paused with no Escape: its marker says tasks=1)
+    if { [ "$st" = idle ] || [ "$st" = shell ] || { [ "$st" = busy ] && pause_tasks_only "$1"; }; } && pause_active "$1"; then
         registry_field_r stamp "$1" statusUpdatedAt; _stamp_age_r age "$stamp"
         [ "$age" -ge "$SALA_IDLE_SETTLE" ] || echo "idle for only ${age}s (a just-interrupted turn may not have flipped the registry yet)"
         return 0
@@ -6548,6 +6576,12 @@ pane_exit() {
     # not asked: the mod's refusals (background work, a turn) are what the pause overrules anyway, and the draft check above still ran.
     if pause_active "$2"; then
         proc_alive "$2" || { mod_log "exit $(_mod_who "$1") not sent (the claude is gone)"; return 0; }
+        # a pane paused with no turn (background work alone) whose turn has started again since (a message or a subagent's result woke it):
+        # nothing is typed into a running turn. The pause marker goes, so the next pass pauses it again (one more Escape), the clock keeps running
+        if pause_tasks_only "$2" && pane_turn_running "$1" "$2"; then
+            registry_field_r scr "$2" sessionId; [ -z "$scr" ] || rm -f "$SALA_PAUSE_DIR/$scr.paused"
+            mod_log "exit $(_mod_who "$1") not sent (a turn started again after the pause; it is paused again)"; printf 'the main loop\n'; return 4
+        fi
         mod_log "exit $(_mod_who "$1") via keys (paused: the interrupted turn does not take the mod's /exit)"
         tui_send "$1" "/exit"; return
     fi

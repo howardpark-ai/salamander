@@ -151,9 +151,10 @@
                                  #   aws-platform's status is DERIVED like bedrock's; its launch line starts with `env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_FOUNDRY -u ANTHROPIC_AWS_API_KEY`
 #SALA_RETRY_EVERY=300           # recycle: retry transiently skipped panes (busy, just idle, draft) this often …
 #SALA_RETRY_WINDOW=7200          # … for this long, then defer (not give up) whoever is still pending
-#SALA_PAUSE_AFTER=900            # the pause (docs/recycle.md): a relaunch that has waited this many seconds for a pane its turn or its background work holds interrupts the turn with ONE Escape,
-                                 #   relaunches the session and leaves it a note (written by the relaunch) of what it was doing. 0 or off = wait for idle as before; default 900 (15 min)
-#SALA_PAUSE_SCOPE=background     # whose turn may be paused: background (only the back agents; a front agent is never paused and waits for its turn to end; the default) · all (every session, front agents included) · off
+#SALA_PAUSE_AFTER=60             # the pause (docs/recycle.md): a busy pane a relaunch must take down is sent a stop notice (stop, leave a note, end with sala ready); this many seconds later the turn is interrupted with ONE Escape, its subagents are stopped by the exit,
+                                 #   its messages are held, and the session relaunches with a note (written by the relaunch) of what it was doing. 0 or off = wait for idle as before; default 60
+#SALA_PAUSE_SCOPE=all            # whose turn may be paused: all (every session, front agents included; the default) · background (only the back agents; a front agent is never paused and waits for its turn to end) · off
+#SALA_STOP_NOTICE=on           # a busy pane a relaunch must take down is first sent a one-time stop notice (stop, leave a note, end with sala ready); off = no notice
 #SALA_NO_PAUSE=                  # tmux sessions (space-separated) whose turn is never interrupted: they hold work that cannot be redone and wait for idle as before
 #SALA_PAUSE_IDLE_WAIT=20         # seconds the one Escape gets to bring the pane out of its turn; past that nothing more is sent and the pane is waited for as before
 #SALA_PAUSE_QUIET=120            # a pane with a client attached that was active this recently is somebody's: never interrupted

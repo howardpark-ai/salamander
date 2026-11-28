@@ -214,9 +214,9 @@ retry_worker() {
                 fi
                 [ "$w" -ge "$SALA_READY_WAIT" ] && rlog "$label: ready by its own word but still not idle after ${SALA_READY_WAIT}s — $(is_idle_reason "$oldpid")"
             elif [ $((now - last)) -ge "$SALA_RETRY_EVERY" ]; then due=1
-            # THE PAUSE (common.sh): a pane whose clock has run out is tried now, not at the next SALA_RETRY_EVERY (at most every 2 min: a pane
+            # THE PAUSE (common.sh): a pane whose clock has run out is tried now, not at the next SALA_RETRY_EVERY (at most every 30 s: a pane
             # the pause refused is not tried over and over)
-            elif [ -n "$uuid" ] && [ $((now - last)) -ge 120 ] && pause_due "$uuid"; then due=1; rlog "$label: the pause's deadline is reached — tried now"; fi
+            elif [ -n "$uuid" ] && [ $((now - last)) -ge 30 ] && pause_due "$uuid"; then due=1; rlog "$label: the pause's deadline is reached — tried now"; fi
             [ "$due" = 1 ] || { still+=("$pane|$sess|$label|$oldpid|$last|$tries|$lastwhy"); continue; }
             round=$((round+1)); tries=$((tries+1))
             panepid=$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null); npid=$(claude_pid_under "$panepid")
@@ -880,9 +880,9 @@ pause_try() {
     fi
     if ! pause_scope_ok "$sess"; then
         if [ "$DRY" = 1 ]; then   # the plan names the rule: a front agent is never paused unless the scope says all
-            case "${SALA_PAUSE_SCOPE:-background}" in
+            case "${SALA_PAUSE_SCOPE:-all}" in
                 off|no|false|0) ref="the pause is off (SALA_PAUSE_SCOPE=off)";;
-                *) ref="SALA_PAUSE_SCOPE=${SALA_PAUSE_SCOPE:-background} pauses only the back agents; a front agent is never paused and waits for its turn to end (SALA_PAUSE_SCOPE=all pauses every session)";;
+                *) ref="SALA_PAUSE_SCOPE=${SALA_PAUSE_SCOPE:-all} pauses only the back agents; a front agent is never paused and waits for its turn to end (SALA_PAUSE_SCOPE=all pauses every session)";;
             esac
             emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
         fi
@@ -894,13 +894,16 @@ pause_try() {
         pause_refusal_r ref "$pane" "$sess" "$cpid"
         [ -n "$ref" ] || pause_within_cap "$a" || ref="SALA_PAUSE_AFTER is not below SALA_HOLD_MAX, where the pause stops, so it waits for the pane to be free"
         if [ -n "$ref" ]; then emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
-        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it, then pause its turn (one Escape), relaunch it and leave it a note saying what it was doing"; fi
+        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it after a stop notice (it is told to stop, leave a note and end with sala ready), then stop its turn (one Escape) and its subagents, hold its messages, relaunch it and leave it a note saying what it was doing"; fi
         return 1
     fi
     pause_refusal_r ref "$pane" "$sess" "$cpid"
     if [ -n "$ref" ]; then pause_clock_age_r held "$uuid"; [ "$held" -lt "$a" ] || emit ECHO "$label: not paused — $ref; it is waited for as before"; return 1; fi
     pause_hold "$uuid" "$hname"
     pause_clock_r held "$uuid"
+    # step one: the stop notice, once per wait (tell it to stop, leave a note, end with `sala ready`); the pane's inbox is held from here on.
+    # After the clock is read: a clock that starts here forgets the notice marker of an older wait
+    if pause_stop_notice "$sess" "$uuid" "$cpid"; then emit ECHO "$label: held ($why); sent it a stop notice, and its messages are held; sala stops its turn and subagents after $(hold_age_words "$a") if it has not ended its turn"; fi
     [ "$held" -ge "$a" ] || return 1
     pause_retry_in_r ref "$uuid"; [ "$ref" -le 0 ] || return 1   # a try that did not take is tried again SALA_PAUSE_RETRY s later (common.sh, pause_failed), not at every pass
     hold_pause_gate "$uuid" "${SALA_SET:-}" || return 1   # the cap again, right before the Escape; passed, the hold is not lifted under this relaunch
