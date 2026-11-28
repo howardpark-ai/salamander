@@ -12,9 +12,10 @@ first request fails (the request aborted, or a 404) and the second goes through:
 drawn and a marker set on the window survives (nothing reloaded). A file that always fails is asked for 5 times in all and then left alone, and the
 page still works; a page whose files all load makes no retry. Requests are held and answered by the test through DevTools' Fetch domain.
 
-Now and then Chrome answers "Invalid InterceptionId" to the test's answer for a held request while the page loads: it no longer holds that request.
-Why is not known. The test still fails then, and the error carries what the page did (Gate.report): every held request and what it was answered,
-every request the page sent or lost, its navigations, and its state. A staged cancel checks that account.
+Chrome answers "Invalid InterceptionId" to an answer for a request it does not hold. This file once brought that on itself, now and then: reading
+events through the page rather than its connection could take one held request twice and answer it twice (Gate.read). A refused answer still fails
+the test, and the error carries what the page did (Gate.report): every held request and what it was answered, every request the page sent or lost,
+its navigations, and its state. A staged cancel checks that account.
 
 Not covered: a real phone's network (the failure is staged), the first stylesheet's failure under a real render block, and terminal.html (it loads
 termclip.css and the color scripts but has no panel to draw and no script here)."""
@@ -84,12 +85,13 @@ class Gate:
         browser.send("Fetch.enable", {"patterns": [{"urlPattern": "*" + f + "*"} for f in files]})
 
     def read(self) -> None:
-        """Take in what the browser has sent so far, without waiting."""
-        b = self.b
-        while b"\0" in b.buf or select.select([b.r], [], [], 0)[0]:
-            m = b._recv()
+        """Take in what the browser has sent so far, without waiting. It reads on the connection itself: a page in a shared Chromium only
+        borrows the connection's buffer, and a read through the page would leave it a second one, with an event stuck in one or taken twice."""
+        c = self.b.parent or self.b
+        while b"\0" in c.buf or select.select([c.r], [], [], 0)[0]:
+            m = c._recv()
             if "id" not in m:
-                b.events.append(m)
+                c.events.append(m)
 
     def pump(self) -> None:
         """Read what the browser has sent so far (without waiting) and answer every held request."""
