@@ -163,7 +163,7 @@ textarea, select, [contenteditable]:not([contenteditable="false"]) { font-size: 
   font-size: 12px; font-weight: 600; line-height: 1; box-sizing: border-box; white-space: nowrap; background: var(--waiting); color: var(--waiting-text); }
 .wchip[hidden], .side-chat .ucount[hidden], .side-chat .dot[hidden] { display: none; }
 /* the tap's tooltip for the entry's two counts (app.js chipTipShow): fixed under the count, over the open drawer (z-index 30) */
-.chip-tip { position: fixed; z-index: 61; box-sizing: border-box; width: max-content; max-width: min(260px, calc(100vw - 16px)); padding: 6px 10px; font-size: 12px; line-height: 1.5;
+.chip-tip { position: fixed; z-index: 61; box-sizing: border-box; width: max-content; max-width: min(260px, calc(100vw - 16px)); padding: 8px 12px; font-size: 12px; line-height: 1.5;
   color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); overflow-wrap: anywhere; }
 .scope { margin-top: 12px; }
 .scope:first-child { margin-top: 4px; }
