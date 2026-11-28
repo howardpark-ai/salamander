@@ -26,8 +26,9 @@
    MESSAGES are taken only from the window of a frame made here (held in `frames`, never looked up by a selector a reply's markup could answer) and from
    that frame's origin, and only in the board's own shape (read()). Every message to a frame names its origin.
 
-   WITH THE KEYBOARD UP (the composer has the focus and the visible height is short, or a strip frame says a person types in it) and a row open, the list
-   takes the pane but THREAD px, which the thread keeps (chatanswer.css, body.ans-kbd). */
+   WITH THE KEYBOARD UP (the composer has the focus and the visible height is short, or a strip frame says a person types in it on a touch screen) and a row
+   open, the list takes the pane but THREAD px, which the thread keeps (chatanswer.css, body.ans-kbd). A frame's "typing" is a soft keyboard only where the
+   pointer is coarse: on a PC, a focused field in the frame leaves the list at its usual bound (40vh), so the thread stays readable beside it. */
 window.SalaAnswerFrame = (() => {
   const timing = { silent: 8000, again: 10000 };   // ms: no message by then shows the plain link; the least time between two reloads for a changed question
   const FIRST = 160, LOW = 40, HIGH = 2000;        // a frame's height before it says one, and the range a said one is held to
@@ -402,7 +403,7 @@ window.SalaAnswerFrame = (() => {
     const it = openId === null ? null : items.get(openId), row = it && it.row, seen = !!(row && row.li.getClientRects().length);
     if (!seen && row && row.box) row.box.typing = false;   // nothing hidden is typed in, whatever the frame said last
     const typing = !!(row && row.box && row.box.reported && row.box.typing);
-    const on = !!(seen && !row.li.classList.contains("ans-plain") && (typing || (composing() && short())));
+    const on = !!(seen && !row.li.classList.contains("ans-plain") && ((typing && ui.coarse.matches) || (composing() && short())));
     const box = $("#chat-strip-wait"), was = document.body.classList.contains("ans-kbd"), had = box.style.getPropertyValue("--ans-max");
     const h = pane().clientHeight, max = on ? Math.max(Math.min(h, 120), h - THREAD) + "px" : "";
     if (on === was && max === had) return;

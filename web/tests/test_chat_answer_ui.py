@@ -876,6 +876,31 @@ def test_a_shorter_window_with_a_mouse_is_no_keyboard(served, browser, monkeypat
     assert not browser.evaluate(KBD)
 
 
+def test_a_frame_typing_with_a_mouse_leaves_the_list_at_its_bound_and_the_thread_readable(served, browser, monkeypatch, frames):
+    frames.first["1"] = {"state": "open", "height": 900}
+    open_answer(browser, served, monkeypatch, [frames.row(1), frames.row(2)], replies=tuple(f"Reply number {i}, with a few words to fill the thread." for i in range(8)))
+    browser.touch(False)
+    open_row(browser, frames, 1, 900)
+    say(browser, row_frame(1), height=900, typing=True)
+    time.sleep(0.5)
+    got = browser.evaluate("(() => { const s = document.querySelector('#chat-strip-wait').getBoundingClientRect(), p = document.querySelector('#chat-pane').getBoundingClientRect();"
+                           " return [document.body.classList.contains('ans-kbd'), s.height <= innerHeight * 0.4 + 1, p.bottom - s.bottom >= innerHeight * 0.3]; })()")
+    assert got == [False, True, True], ("a field focused in the frame on a PC is no soft keyboard: the list stays within 40vh", got)
+    browser.touch(True)
+    wait(browser, KBD)     # the same word on a touch screen is the keyboard, as before
+
+
+def test_a_plain_row_is_drawn_as_the_items_card_is(served, browser, monkeypatch, frames):
+    frames.first["1"] = {"state": "answered", "height": 200}
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
+    ready(frames, "1")
+    wait(browser, f"{row(1)}.classList.contains('ans-plain')")
+    got = browser.evaluate(f"""(() => {{ const r = {row(1)}, s = r.querySelector(':scope > .wait-subj'), c = getComputedStyle(r);
+      return [getComputedStyle(s).fontSize, getComputedStyle(s).fontWeight, c.borderLeftWidth, c.borderTopLeftRadius, getComputedStyle(r, '::before').content,
+        getComputedStyle(s.querySelector('a.wait-link')).textDecorationLine, r.getBoundingClientRect().height <= 46]; }})()""")
+    assert got == ["15px", "600", "3px", "8px", "none", "underline", True], ("the card's size, weight, bar and corners; no dot; the title one underlined link", got)
+
+
 # ── beside the strip's own tap and cut rules, and a running command ──────────
 # Every target of the open first list under a finger: the title link of a plain row, a card's own title (a button) and its link to the board. Each is scrolled
 # to the middle of the list, and at five places across it the run of pixels that elementFromPoint gives to it is counted upwards and downwards (`short`: the
@@ -976,6 +1001,7 @@ def test_no_sideways_scroll_with_frames_open(served, browser, monkeypatch, frame
     wait(browser, f"{CARDS}.length === 2 && {card_frame(-1)}.style.height === '400px'")
     open_row(browser, frames, 1, 400)
     say(browser, card_frame(-1), state="answered", height=400)
+    browser.touch(True)     # the typing word is a soft keyboard on a touch screen only; the desktop width is measured with one too
     wait(browser, f"{row(1)}.classList.contains('ans-done')")
     for where in ("open", "keyboard"):
         browser.settle("document.querySelector('#chat')")
@@ -1004,6 +1030,7 @@ def test_another_sessions_page_has_nothing_of_it_also_after_the_chat(served, bro
     open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     open_row(browser, frames, 1)
+    browser.touch(True)
     say(browser, row_frame(1), typing=True)
     wait(browser, KBD)
     browser.evaluate(f"location.hash = '#s={OTHER}'; ''")

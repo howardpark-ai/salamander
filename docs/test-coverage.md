@@ -5788,3 +5788,11 @@ Tab on a numbered item nests it and the number restarts at 1 for the deeper leve
 - `test_composer_cm6.py::test_the_bundle_is_vendored_pinned_and_loaded_before_the_app`: the banner names overtype 2.8.0 and its author, `LICENSE-overtype` and `renumber-lists.js` are beside the recipe.
 
 Not checked: a phone keyboard (a phone has no Tab key; there is no indent button), a real Korean IME.
+
+### The open first list stays at its bound beside a mouse, and a plain row reads as the card: `web/tests/test_chat_answer_ui.py` (browser) changed (Sat Nov 28th 2026)
+
+A frame that says a person types in it made the strip take the pane but three lines, also on a PC, where nothing is a soft keyboard: focusing the memo field in an open row grew the list over the thread, its edge cutting through message text. The word counts as a keyboard only on a coarse pointer now; the composer rule (short visible height) is as before. A plain row (nothing to pick) was a dot and a small regular line while the item's card under the reply is boxed and bold; it is drawn as the card's line now (size, weight, bar, corners, no dot). A wrong answer is a list that covers the thread while a field is typed in, or one item drawn two ways.
+
+Kept (a headless Chromium; GitHub CI runs it): a typing frame with a mouse leaves `ans-kbd` off and the strip within 40vh, with the thread keeping at least 30% of the height, and the same word on touch turns it on; a plain row has the card's size, weight, left bar and corners, no dot and one underlined link. The earlier keyboard tests set touch where they send the typing word.
+
+Not covered, and why: a real phone keyboard and a phone-width visual check by eye (the viewport is set by the test).
