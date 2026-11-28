@@ -218,7 +218,7 @@ case "${1:-}" in
             if waiting_told "$_sid"; then                              # two tool calls at once: the first tells
                 _what=$(waiting_what "$_sid"); [ -n "$_what" ] || _what=recycle
                 _cp=$(own_claude_pid 2>/dev/null)
-                if hold_over "$_sid"; then _wtext=$(relaunch_text "$_what" "$_cp" over)   # past the cap: nothing is held, so nothing to remember
+                if hold_lift "$_sid" detach >/dev/null; then _wtext=$(relaunch_text "$_what" "$_cp" over)   # past the cap: nothing is held, so nothing to remember
                 else hold_told "$_sid" "$_cp"; _wtext=$(relaunch_text "$_what" "$_cp"); fi
             fi
         fi

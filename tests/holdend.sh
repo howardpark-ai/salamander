@@ -11,7 +11,9 @@
 #   - silent: a relaunch that worked, and a newer recycle taking the pane over;
 #   - the cap (SALA_HOLD_MAX, THE CAP): a hold past it is lifted by the pre-tool hook and by watch, whoever owns the flag, with one note;
 #     watch raising the flag again refuses nothing; a newer relaunch starts a new clock; no Escape after it; not under a relaunch that is
-#     running, not for a reboot, not with 0; its clock goes with a hold that ends for good and stays for a deferred pane.
+#     running, not for a reboot, not with 0; its clock goes with a hold that ends for good and stays for a deferred pane;
+#   - the cap's edges: nothing lifted or replaced under a reboot, a lift clears `sala ready`, asked again under the lock, a bounded
+#     SALA_HOLD_MAX, no pause predicted past it; the self-worker, the sweep and the pause gate mark a running relaunch and drop its clock.
 # Slack stubbed to a file (SALA_NOTIFY_CMD). Isolated HOME (locked while the suite runs), a private tmux socket, the compiled fake claude
 # (tests/fake-claude.c); the nested-claude check uses copies of bash named claude. Only processes running one of those two binaries are
 # ever killed.
@@ -224,12 +226,12 @@ due_row() {  # <name> <set> — a deferred row held long enough that this tick t
 "$SALA" config 2>/dev/null | grep -q '^SALA_HOLD_MAX  *1800$' && ok "sala config shows SALA_HOLD_MAX, 1800 by default" || bad "config: $("$SALA" config 2>&1 | grep HOLD)"
 
 reset; setstatus a shell; waiting_raise "$A" recycle 100-1 $$; age "$A" 1700
-out=$(pre "$A"); [[ $out == *'"deny"'* && $out == *'or when the wait ends without one, 30 min after the wait began at the latest'* ]] && ok "within the cap: refused, and the reason says 30 min at the latest" || bad "within: $out"
-line=$(relaunch_text recycle); has "$line" 'until sala tells you the wait ended without one, 30 min after the wait began at the latest (' && ok "the waiting line says the cap" || bad "line: $line"
+out=$(pre "$A"); [[ $out == *'"deny"'* && $out == *'or when the wait ends without one, and the hold on you ends 30 min after the wait began at the latest, even if the relaunch is still to come'* ]] && ok "within the cap: refused, and the reason says 30 min at the latest" || bad "within: $out"
+line=$(relaunch_text recycle); has "$line" 'until sala tells you the wait ended without one, and the hold on you ends 30 min after the wait began at the latest, even if the relaunch is still to come (' && ok "the waiting line says the cap" || bad "line: $line"
 
 reset; told a "$A" 100-1; age "$A"
 out=$(pre "$A"); [ -z "$out" ] && ok "past the cap: the call goes through" || bad "past: $out"
-[ "$(nhold "$A")" = 1 ] && htext "$A" | grep -q 'is deferred: it has waited 30 min for this session, the longest sala holds one. This session has not been relaunched. You may start background.*sala still relaunches this session later' && ok "told once: may start work, still relaunched later" || bad "note: $(htext "$A")"
+[ "$(nhold "$A")" = 1 ] && htext "$A" | grep -q 'is deferred: it has waited 30 min for this session, the longest sala holds one. This session has not been relaunched. You may start background.*sala still relaunches this session later, once it is free\.' && ! htext "$A" | grep -q 'raised again' && ok "told once: may start work, still relaunched later, no word of a flag raised again" || bad "note: $(htext "$A")"
 [ -e "$SALA_WAITING_DIR/$A" ] && [ ! -e "$SALA_HELD_DIR/$A" ] && ok "the flag stays (the relaunch is still coming), the record is used up" || bad "state: $(ls "$SALA_WAITING_DIR" "$SALA_HELD_DIR" 2>&1)"
 out=$(pre "$A"); watch_tick; [ -z "$out" ] && [ "$(nhold "$A")" = 1 ] && ok "a later call and a tick: still allowed, no second note" || bad "again: $out $(htext "$A")"
 grep -q "cap: the hold of session $A is lifted" "$SALA_LOG_DIR/salamander-drain.log" && ok "the drain log says the lift" || bad "log: $(tail -3 "$SALA_LOG_DIR/salamander-drain.log")"
@@ -362,5 +364,90 @@ age_clock; paused_try 200-2
 [ "$(escs)" = 1 ] && ok "a newer relaunch: the Escape is sent as before" || bad "newer: $(escs) $(<"$HOME/pause.out")"
 waitfor '[ -n "$(cpid p)" ] && [ "$(cpid p)" != "$PP" ]' 40 && [ ! -e "$CAP/$P" ] && ok "relaunched: its clock is gone" || bad "relaunch: $(ls "$CAP") $(<"$HOME/pause.out")"
 unset SALA_INBOX_MODE
+
+echo "== the cap: nothing is lifted or replaced under a reboot"
+flagkind() { _kv_first "$SALA_WAITING_DIR/$1" kind; }
+freeze() { mkdir -p "$(dirname "$SALA_LEDGER_FREEZE")"; printf 'owner_pid=%s\nboot_id=%s\nreason=reboot\ntime=%s\nby=test\n' "$1" "$(boot_id)" "$(date +%s)" > "$SALA_LEDGER_FREEZE"; }
+setstatus a shell
+capped; waiting_raise "$A" reboot reboot-9 $$; : > "$FAKE_SOCK_LOG"; due_row a 100-1; watch_tick; sleep 1
+[ "$(flagkind "$A")" = reboot ] && ! grep -q "^$A .*refuses nothing" "$FAKE_SOCK_LOG" && denied "$A" && ok "a due retell leaves a reboot's flag, and says nothing of being free" || bad "retell over a reboot: kind=$(flagkind "$A") $(<"$FAKE_SOCK_LOG")"
+reset; freeze $$; due_row a 100-1; watch_tick
+[ ! -e "$SALA_WAITING_DIR/$A" ] && ok "a reboot under way: watch raises no flag again" || bad "raised under a reboot: $(cat "$SALA_WAITING_DIR/$A")"
+reset; told a "$A" 100-1; age "$A"; watch_tick
+[ "$(nhold "$A")" = 0 ] && denied "$A" && ok "a reboot's pane map freeze: another flag past the cap is not lifted" || bad "lifted during a drain: $(htext "$A")"
+freeze "$GONE"; [ -z "$(pre "$A")" ] && ok "a freeze whose owner is gone holds nothing back" || bad "stale freeze: $(htext "$A")"
+rm -f "$SALA_LEDGER_FREEZE"
+reset; told a "$A" 100-1; age "$A"; printf 'boot_id=%s\n' "$(boot_id)" > "$SALA_LOG_DIR/salamander-reboot.marker"
+denied "$A" && [ "$(nhold "$A")" = 0 ] && ok "past the reboot marker: not lifted" || bad "lifted at shutdown: $(htext "$A")"
+rm -f "$SALA_LOG_DIR/salamander-reboot.marker"
+
+echo "== the cap: a reboot that ends without rebooting keeps the recycle's clock"
+capped; waiting_raise "$A" reboot reboot-9 $$; hold_told "$A" "$(cpid a)" sala-test-a; waiting_end_owner $$ "halted"; hold_end_set reboot-9 halted
+[ -e "$CAP/$A" ] && hold_over "$A" 100-1 && ok "halted in its drain: the clock stays, so no pause for the pending worker" || bad "halt: $(clocks)"
+capped; waiting_raise "$A" reboot reboot-9 $$; hold_told "$A" "$(cpid a)" sala-test-a; waiting_clear_owner $$; hold_end_set reboot-9 halted
+[ -e "$CAP/$A" ] && hold_over "$A" 100-1 && ok "halted after the drain: the same" || bad "late halt: $(clocks)"
+
+echo "== the cap: a lift clears an earlier \`sala ready\`"
+ready() { mkdir -p "$SALA_READY_DIR"; date +%s > "$SALA_READY_DIR/$A"; }
+reset; told a "$A" 100-1; age "$A"; ready; [ -z "$(pre "$A")" ] || bad "setup: not lifted"
+! ready_for "$A" && ok "the marker left before the lift is gone" || bad "marker survived the lift"
+ready; watch_tick; pre "$A" >/dev/null; ready_for "$A" && ok "one left after the lift stays" || bad "a later marker was cleared"
+rm -f "$SALA_READY_DIR/$A"
+
+echo "== the cap: asked again under the lock; the clock starts under it"
+reset; told a "$A" 100-1; age "$A"
+( _hold_locked() {   # a newer relaunch raises its flag between the first look and the lock
+      printf 'set=200-2\nboot=%s\nfirst=%s\n' "$(boot_id)" "$(date +%s)" > "$CAP/$A"; sed -i 's/^set=.*/set=200-2/' "$SALA_WAITING_DIR/$A"; "$@"; }
+  hold_lift "$A" ) && bad "a hold raised meanwhile was lifted" || { ! grep -q '^capped=' "$CAP/$A" && denied "$A" && ok "a newer set raised meanwhile: not marked, still refused" || bad "marked: $(<"$CAP/$A")"; }
+reset; : > "$HOME/locked"; ( _hold_locked() { echo "$1" >> "$HOME/locked"; "$@"; }; waiting_raise "$A" recycle 100-1 $$ )
+grep -qx hold_cap_start "$HOME/locked" && ok "a raised flag starts its clock under the lock" || bad "unlocked: $(<"$HOME/locked")"
+
+echo "== the cap: SALA_HOLD_MAX is bounded, and said in whole seconds"
+maxof() { local m; SALA_HOLD_MAX="$1" hold_max_r m; echo "$m"; }
+got="$(maxof 18446744073709551617) $(maxof 0000090) $(maxof 00) $(maxof 30m)"
+[ "$got" = "999999999 90 0 1800" ] && ok "a huge value is cut, leading zeros read as decimal, 30m reads as the default" || bad "max: $got"
+[ "$(hold_span 90) / $(hold_span 120) / $(hold_span 5400)" = "90 s / 2 min / 90 min" ] && ok "90 s is said as 90 s" || bad "span: $(hold_span 90)"
+
+echo "== the cap: a line says \"refuses nothing\" only once the hold is lifted"
+reset; waiting_raise "$A" recycle 100-1 $$; age "$A"; echo $$ > "$CAP/$A.run"
+out=$(printf '{"session_id":"%s"}' "$A" | "$SALA" hook post-tool 2>/dev/null)
+has "$out" 'is refused until' && ! has "$out" 'refuses nothing' && [ -e "$SALA_HELD_DIR/$A" ] && ok "past the cap with a relaunch running: the first line says refused" || bad "running, first line: $out"
+setstatus a shell; waiting_clear "$A"; : > "$FAKE_SOCK_LOG"; due_row a 100-1; watch_tick
+waitfor 'grep -q "^$A .*is refused until" "$FAKE_SOCK_LOG"' 20 && ! grep -q "^$A .*refuses nothing" "$FAKE_SOCK_LOG" && ok "and so does watch's line" || bad "running, retell: $(<"$FAKE_SOCK_LOG")"
+reset
+
+echo "== the relaunch paths mark a running relaunch and drop its clock"
+# <name> <command…> — the command relaunches the pane in the background; the mark is read while it runs
+marked() {
+    local n="$1" u p w r=""; shift; u=$(registry_field "$(cpid "$n")" sessionId); p=$(cpid "$n")
+    reset; setstatus "$n" idle; waiting_raise "$u" recycle 100-1 $$; lock_wait "$SALA_RECYCLE_LOCK" 80
+    SALA_HOLD_SETTLE=3 "$@" > "$HOME/mark.out" 2>&1 & w=$!
+    waitfor '[ -s "$CAP/$u.run" ]' 40 && r=1
+    wait "$w"
+    [ -n "$r" ] && ok "$n: the running mark is up while it is relaunched" || bad "$n: no running mark: $(<"$HOME/mark.out")"
+    [ "$(cpid "$n")" != "$p" ] && [ ! -e "$CAP/$u" ] && [ ! -e "$CAP/$u.run" ] && ok "$n: relaunched, clock and mark gone" || bad "$n: after: $(clocks) $(<"$HOME/mark.out")"
+}
+marked a "$SALA" revive --self-worker "$(tmux display -p -t sala-test-a '#{pane_id}')"
+marked b "$SALA" revive --force --only sala-test-b
+
+echo "== the pause gate: the cap is asked again right before the Escape"
+# pause_try alone, from lib/revive.sh: pause_hold, which runs between its first look and the gate, can let the cap pass (LATE=1)
+gate_try() (
+    eval "$(sed -n '/^pause_try() {/,/^}/p' "$ROOT/lib/revive.sh")"
+    DRY=0; PAUSE_WHY=x; emit() { :; }; pause_refusal_r() { printf -v "$1" '%s' ''; }
+    pause_hold() { [ "${LATE:-}" != 1 ] || age "$P"; }
+    pause_pane() { { cat "$CAP/$P.run" 2>/dev/null; echo sent; } > "$HOME/gate"; return 1; }
+    SALA_PAUSE_AFTER=6 SALA_PAUSE_SCOPE=all SALA_SET=100-1 pause_try x sala-test-p sala-test-p "$(cpid p)" "registry says 'busy'"
+)
+reset; : > "$HOME/gate"; waiting_raise "$P" recycle 100-1 $$; age_clock; gate_try
+[ "$(grep -c . "$HOME/gate")" = 2 ] && ok "within the cap: the pane is marked, then interrupted" || bad "gate: $(<"$HOME/gate")"
+reset; : > "$HOME/gate"; waiting_raise "$P" recycle 100-1 $$; age_clock; LATE=1 gate_try
+[ ! -s "$HOME/gate" ] && ok "the cap passed on the way: no Escape" || bad "interrupted past the cap: $(<"$HOME/gate")"
+
+echo "== SALA_PAUSE_AFTER at or past the cap: no pause is predicted"
+reset; x=$(SALA_PAUSE_AFTER=3600 SALA_PAUSE_SCOPE=all; pause_bullet_r x sala-test-p "$P"; echo "$x")
+[ -z "$x" ] && ok "the post line predicts none" || bad "bullet: $x"
+setstatus p busy; age_clock; SALA_HOLD_MAX=5 paused_try 100-1 --dry-run
+grep -q 'it would not be paused: SALA_PAUSE_AFTER is not below SALA_HOLD_MAX' "$HOME/pause.out" && ok "nor does the dry run" || bad "dry: $(<"$HOME/pause.out")"
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

@@ -2721,7 +2721,7 @@ waiting_raise() {  # <uuid> <kind> <set id> [owner pid] — raised again for the
     [ -n "${1:-}" ] || return 0; local f="$SALA_WAITING_DIR/$1" t="$SALA_WAITING_DIR/$1.t.${BASHPID:-$$}"
     mkdir -p "$SALA_WAITING_DIR" 2>/dev/null || return 0
     [ "$(awk -F= '$1=="set" {print substr($0, 5); exit}' "$f" 2>/dev/null)" = "${3:-}" ] || rm -f "$f.told"
-    [ "$(relaunch_kind "$2")" = reboot ] || hold_cap_start "$1" "${3:-}" "$(date +%s)"   # before the flag, so no reader sees a flag without its clock
+    [ "$(relaunch_kind "$2")" = reboot ] || _hold_locked hold_cap_start "$1" "${3:-}" "$(date +%s)"   # before the flag, so no reader sees a flag without its clock; locked against a lift
     printf 'kind=%s\nwhat=%s\nset=%s\nowner=%s\nboot=%s\nsince=%s\n' "$(relaunch_kind "$2")" "$(relaunch_what "$(relaunch_kind "$2")")" "${3:-}" "${4:-$$}" "$(boot_id 2>/dev/null)" "$(date +%s)" > "$t" && mv -f "$t" "$f"
 }
 waiting_for() { [ -n "${1:-}" ] && [ -e "$SALA_WAITING_DIR/$1" ]; }
@@ -2804,7 +2804,7 @@ hold_told() {
 #   dropped   the caller is taking the pane off the deferred list: ended, whatever the list still says
 # Nothing happens while another sala process (a newer recycle's worker, a reboot) holds the flag: that relaunch is still coming.
 hold_ended() {
-    local u="${1:-}" mode="${2:-ended}" o b s
+    local u="${1:-}" mode="${2:-ended}" o b s k="" r=""
     [ -n "$u" ] || return 0
     _kv_first_r o "$SALA_WAITING_DIR/$u" owner; _kv_first_r b "$SALA_WAITING_DIR/$u" boot
     if [ -n "$o" ] && [ "$o" != "$$" ] && [ "$b" = "$(boot_id 2>/dev/null)" ] && proc_alive "$o" && ! claude_alive "$o"; then   # (a claude as owner: watch's own retell)
@@ -2818,9 +2818,15 @@ hold_ended() {
         # (a lift past the cap used the record up: the deferred list's panes say whether this one is listed, so it keeps its clock)
         elif [ -f "$SALA_CAP_DIR/$u" ] && _hold_listed "$u"; then mode=deferred; fi
     fi
+    _kv_first_r k "$SALA_WAITING_DIR/$u" kind; _kv_first_r r "$SALA_HELD_DIR/$u" set
     waiting_clear "$u"
-    # a deferred pane's clocks stay: watch uses the pause's, and the cap's keeps a flag raised again from holding the session again
-    [ "$mode" = deferred ] || { pause_clock_clear "$u"; rm -f "$SALA_PAUSE_DIR/$u.tried" 2>/dev/null; hold_cap_drop "$u"; }
+    # a deferred pane's clocks stay: watch uses the pause's, and the cap's keeps a flag raised again from holding the session again.
+    # A reboot's ending (its flag, or with no flag up what it told) keeps the cap's too: it never owns one, and the recycle that does
+    # may still wait for this pane (hold_cap_prune drops a clock nothing stands behind)
+    if [ "$mode" != deferred ]; then
+        pause_clock_clear "$u"; rm -f "$SALA_PAUSE_DIR/$u.tried" 2>/dev/null
+        case "$k:$r" in reboot:*|:reboot-*) ;; *) hold_cap_drop "$u";; esac
+    fi
     _hold_note "$u" "$mode" "${3:-}"
     return 0
 }
@@ -2832,7 +2838,9 @@ _hold_note() {  # <uuid> <mode> <why> — the one note; whoever takes the record
     rm -f "$SALA_PAUSE_DIR/$1.paused" 2>/dev/null   # a pause marker left up would let the next relaunch cut what the session starts now
     [ ${#why} -le 240 ] || why="${why:0:237}..."
     if [ "$2" = deferred ]; then
-        txt="[hold] The ${what:-recycle} that was waiting for this session is deferred: ${why}. This session has not been relaunched. You may start background subagents, monitors and background shells again now. sala still relaunches this session later, once it is free; if the waiting flag is raised again, sala says so."
+        local again="; if the waiting flag is raised again, sala says so"
+        [[ $why != *"$SALA_HOLD_CAP_WHY"* ]] || again=""   # past the cap the flag is still up
+        txt="[hold] The ${what:-recycle} that was waiting for this session is deferred: ${why}. This session has not been relaunched. You may start background subagents, monitors and background shells again now. sala still relaunches this session later, once it is free${again}."
     else
         txt="[hold] The ${what:-recycle} that was waiting for this session ended without relaunching it: ${why}. The hold is over: you may start background subagents, monitors and background shells again."
     fi
@@ -2880,15 +2888,17 @@ hold_prune() {  # watch: the memory of sessions that were relaunched or are gone
 # is never capped. The clock goes when the hold ends for good (relaunched, or ended or dropped without a relaunch), so a later relaunch
 # starts its own; a pane left to the deferred list keeps it, and watch drops any clock nothing stands behind (hold_cap_prune). A cap's
 # note not yet handed over when another relaunch's hold is up is retired undelivered (lib/note.sh).
-hold_max_r() {  # <var> → SALA_HOLD_MAX in seconds; 0 = no cap (0, off, no, false); anything that is not a number reads as the default
+hold_max_r() {  # <var> → SALA_HOLD_MAX in whole seconds; 0 = no cap (0, off, no, false); anything that is not a number reads as the default; at most 999999999
     local _v="${SALA_HOLD_MAX:-1800}"
     case "${_v,,}" in off|no|false) _v=0;; *[!0-9]*) _v=1800;; esac
-    printf -v "$1" '%s' $(( 10#$_v ))
+    _v=${_v#"${_v%%[!0]*}"}                   # leading zeros
+    [ ${#_v} -le 9 ] || _v=999999999          # a longer one would wrap the shell's arithmetic
+    printf -v "$1" '%s' "${_v:-0}"
 }
-hold_span() { if [ "$1" -lt 60 ]; then echo "$1 s"; else dur_words "$1"; fi; }   # <seconds> → "30 min"
+hold_span() { if [ "$1" -lt 60 ] || [ $(( $1 % 60 )) -ne 0 ]; then echo "$1 s"; else dur_words "$1"; fi; }   # <seconds> → "30 min", "90 s"
 hold_cap_words_r() {  # <var> <what words> → what a text about this relaunch's hold says about its longest; empty when it has none (no cap, a reboot's drain)
     local _m; hold_max_r _m; case "${2:-}" in "reboot of "*) _m=0;; esac
-    if [ "$_m" -gt 0 ]; then printf -v "$1" ', %s after the wait began at the latest' "$(hold_span "$_m")"; else printf -v "$1" '%s' ''; fi
+    if [ "$_m" -gt 0 ]; then printf -v "$1" ', and the hold on you ends %s after the wait began at the latest, even if the relaunch is still to come' "$(hold_span "$_m")"; else printf -v "$1" '%s' ''; fi
 }
 _hold_newer() {  # <set id> <another> → 0 when the first names a newer relaunch ("<epoch>-<pid>"; an empty one names none)
     [ -n "$1" ] && [ "$1" != "$2" ] || return 1
@@ -2925,8 +2935,9 @@ hold_over() {  # <uuid> [set id: of the relaunch asking; default the flag's] →
     [[ $first =~ ^[0-9]+$ ]] && [ $(( n - first )) -ge "$max" ]
 }
 _hold_locked() { mkdir -p "$SALA_CAP_DIR" 2>/dev/null; ( ! command -v flock >/dev/null 2>&1 || flock -w 10 9 || exit 1; "$@" ) 9>"$SALA_CAP_DIR/.lock"; }   # <function> [args] — a lift and a relaunch starting never cross (without flock they are not locked out)
-_hold_mark_capped() {  # <uuid> (locked) → 0 marked now, 2 marked before, 1 a relaunch of the pane is running
+_hold_mark_capped() {  # <uuid> (locked) → 0 marked now, 2 marked before, 1 not past the cap any more, or a relaunch of the pane is running
     local f="$SALA_CAP_DIR/$1" r="" n
+    hold_over "$1" || return 1                # asked again under the lock: a newer relaunch may have raised the flag since
     _kv_first_r r "$f" capped; [ -z "$r" ] || return 2
     ! _hold_running "$1" || return 1
     _now_r n; echo "capped=$n" >> "$f"
@@ -2956,9 +2967,13 @@ hold_cap_prune() {  # watch: a hold that ended without dropping its clock (a new
     done
     find "$SALA_CAP_DIR" -maxdepth 1 -type f -name '*.t.*' -mmin +60 -delete 2>/dev/null; return 0
 }
+hold_reboot_up() {  # <uuid> → 0 while the cap neither lifts nor replaces a hold: the session's flag is a reboot's, or a reboot (its pane map freeze, before the marker is written) or any shutdown is under way
+    local k=""; _kv_first_r k "$SALA_WAITING_DIR/$1" kind
+    [ "$k" = reboot ] || shutting_down || { [ "$(ledger_freeze_field reason)" = reboot ] && ! ledger_freeze_stale; }
+}
 hold_lift() {  # <uuid> [detach: a hook's call does not wait for the inbox release] → 0 when the hold of the flag that is up ended here or before for being past the cap, 1 when it stands
     local u="${1:-}" o="" b="" m t _h n held="" name="" max
-    [ -n "$u" ] && [ -f "$SALA_WAITING_DIR/$u" ] && hold_over "$u" || return 1
+    [ -n "$u" ] && [ -f "$SALA_WAITING_DIR/$u" ] && hold_over "$u" && ! hold_reboot_up "$u" || return 1
     _kv_first_r o "$SALA_WAITING_DIR/$u" owner; _kv_first_r b "$SALA_WAITING_DIR/$u" boot
     # nobody is left to relaunch it: that hold ended, and "still coming" would be false
     if [ "$b" != "$(boot_id 2>/dev/null)" ] || ! proc_alive "$o"; then hold_ended "$u" ended "the sala process that was waiting to relaunch it is gone"; return 0; fi
@@ -2967,6 +2982,7 @@ hold_lift() {  # <uuid> [detach: a hook's call does not wait for the inbox relea
     hold_max_r max
     if [ "$m" = 0 ]; then
         pause_clock_clear "$u"; rm -f "$SALA_PAUSE_DIR/$u.tried" "$SALA_PAUSE_DIR/$u.paused" 2>/dev/null
+        ready_clear "$u"   # an earlier `sala ready` spoke for a session that started nothing new; one given after this counts
         # the inbox the pause's wait held comes free
         if [ -s "$SALA_INBOX_LEDGER" ]; then
             while IFS=$'\t' read -r t _h n; do [ "$_h" != "$u" ] || { held=1; name=$n; }; done < "$SALA_INBOX_LEDGER"
@@ -3018,7 +3034,7 @@ pause_stand_down() {  # <uuid> <session name> — no pause for this wait (its ho
 # A PAUSE THAT DID NOT TAKE (the Escape did not bring the pane out of its turn, or the pane was not idle once interrupted) KEEPS THE CLOCK RUNNING
 # (the pane has held the relaunch that long, whatever its turn does next, a restart of the turn included) and is tried again: pause/<uuid>.failed
 # ("<when> <tries>") says when the last try failed and how many have; the next one is SALA_PAUSE_RETRY s after it (120 s) for the first
-# SALA_PAUSE_TRIES (5) failed tries, then SALA_PAUSE_AFTER s apart. Nothing is given up: the pane is tried until it is free, paused or relaunched.
+# SALA_PAUSE_TRIES (5) failed tries, then SALA_PAUSE_AFTER s apart. A failed try gives nothing up: the pane is tried until it is free, paused or relaunched, or its relaunch passes SALA_HOLD_MAX (THE CAP).
 pause_failed() {  # <uuid> → one more failed try, now
     local f="$SALA_PAUSE_DIR/$1.failed" _t="" _c="" _n; _now_r _n
     { read -r _t _c < "$f"; } 2>/dev/null || :
@@ -3450,9 +3466,10 @@ holders_summary_r() {
 # sala is retrying the pause)"): pause_bullet_r. A pane that is idle in the registry and held by work no process shows, with no clock,
 # has no age worth stating: "busy; sala relaunches it once it is free".
 # The age is read when the bullet is made, so a post that repeats an old bullet makes it again (hold_bullet_fresh).
+pause_within_cap() { local _m; hold_max_r _m; [ "$_m" -eq 0 ] || [ "$1" -lt "$_m" ]; }   # <SALA_PAUSE_AFTER in s> → 0 when the pause point comes before SALA_HOLD_MAX (THE CAP stops the pause there)
 pause_bullet_r() {  # <var> <session> <uuid> → " (sala pauses it at 15 min held)" for a pane the pause may end, else nothing
     local _a _t; printf -v "$1" '%s' ""
-    pause_after_r _a; [ "$_a" -gt 0 ] || return 0
+    pause_after_r _a; [ "$_a" -gt 0 ] && pause_within_cap "$_a" || return 0
     pause_scope_ok "${2%%:*}" || return 0
     [ -z "${3:-}" ] || ! hold_over "$3" "${SALA_SET:-}" || return 0   # past the cap (THE CAP) no pause is tried
     _t=-1; [ -z "${3:-}" ] || pause_clock_age_r _t "$3"

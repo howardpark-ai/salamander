@@ -880,6 +880,7 @@ pause_try() {
         pause_clock_age_r held "$uuid"
         if [ "$a" -ge 60 ]; then pm="$(( a / 60 )) min"; else pm="$a s"; fi
         pause_refusal_r ref "$pane" "$sess" "$cpid"
+        [ -n "$ref" ] || pause_within_cap "$a" || ref="SALA_PAUSE_AFTER is not below SALA_HOLD_MAX, where the pause stops, so it waits for the pane to be free"
         if [ -n "$ref" ]; then emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
         else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it, then pause its turn (one Escape), relaunch it and leave it a note saying what it was doing"; fi
         return 1

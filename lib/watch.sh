@@ -1855,14 +1855,14 @@ later_words() { local h=$(($1 / 3600)) m=$(( ($1 % 3600) / 60 )); if [ "$h" -gt 
 later_held() {  # in deferred_revive: the pane is held now; told again when due, one post at the limit
     local held_for=$((now - ${since:-0})) base=$told_at what sock st cmds b=() rev line hnote
     [ "$base" -gt "${since:-0}" ] || base=${since:-0}
-    if [ "$told_n" -lt "$SALA_LATER_RETELL_MAX" ] && [ $((now - base)) -ge "$SALA_LATER_RETELL" ] && [ -n "$uuid" ]; then
+    if [ "$told_n" -lt "$SALA_LATER_RETELL_MAX" ] && [ $((now - base)) -ge "$SALA_LATER_RETELL" ] && [ -n "$uuid" ] && ! hold_reboot_up "$uuid"; then   # a reboot's hold is never replaced
         rm -f "$SALA_WAITING_DIR/$uuid.told"
         waiting_raise "$uuid" "$(relaunch_kind "$(set_val "$dset" why 2>/dev/null)")" "$dset" "$c"   # owner: the claude itself, so the flag lives until that process ends
         what=$(waiting_what "$uuid"); sock=$(session_socket "$c"); st=$(registry_field "$c" status)
         hnote=""; [ -z "$held" ] || hnote=$'\n'"What holds it, as sala reads it: ${held:0:300}"
         # a session held by shells is idle: no tool call, so the hook never speaks. The line goes in as a message; a turn running
         # now is left to the hook, which says it at the next call
-        local over=""; ! hold_over "$uuid" "$dset" || over=over   # THE CAP (common.sh): a relaunch past it is told again, and holds nothing again
+        local over=""; ! hold_lift "$uuid" || over=over   # THE CAP (common.sh): a relaunch past it is told again, and holds nothing again; one still refused (the pane is being relaunched) gets the ordinary line
         if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c" $over)$hnote" 2>/dev/null; then waiting_told "$uuid"; [ -n "$over" ] || hold_told "$uuid" "$c" "$sess"; fi
         told_n=$((told_n + 1)); told_at=$now
         wlog "deferred: $sess held $(later_words "$held_for") — told again ($told_n of $SALA_LATER_RETELL_MAX): $held"
