@@ -561,7 +561,8 @@ usage: sala mockup add FILE|-
           the oldest pages first, a page an open board item links last (only when every other page is gone and it is still over).
           SALA_MOCKUP_REFERENCES says how to tell what is linked: unset = keep every page (both rules) and say why; none = nobody links a page;
           otherwise a command (run without a shell) whose output holds the open items' text: every /mockup/<n> in it counts as linked. A command
-          that fails keeps every page (exit 1). --dry-run deletes nothing.
+          that fails keeps every page (exit 1). --dry-run deletes nothing. With SALA_CANVAS_FORWARD on (sala-web forwards /mockup/<n> to the
+          board) neither rule runs: every page is kept.
 
 ### sala motion --help (exit 0)
 usage: sala motion add "<line>" [--for NAME]

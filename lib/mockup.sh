@@ -34,7 +34,8 @@ usage: sala mockup add FILE|-
           the oldest pages first, a page an open board item links last (only when every other page is gone and it is still over).
           SALA_MOCKUP_REFERENCES says how to tell what is linked: unset = keep every page (both rules) and say why; none = nobody links a page;
           otherwise a command (run without a shell) whose output holds the open items' text: every /mockup/<n> in it counts as linked. A command
-          that fails keeps every page (exit 1). --dry-run deletes nothing.
+          that fails keeps every page (exit 1). --dry-run deletes nothing. With SALA_CANVAS_FORWARD on (sala-web forwards /mockup/<n> to the
+          board) neither rule runs: every page is kept.
 USAGE
 }
 case "${1:-}" in
@@ -46,7 +47,7 @@ case "${1:-}" in
 esac
 export SALA_STATE_DIR
 # the config file is sourced (common.sh), so a `NAME=value` line there is a shell variable, not part of the environment lib/mockup.py reads: export the
-# three settings it takes (a no-op for one that is unset; the systemd service has only PATH in its environment, so the config is its only source)
-export SALA_MOCKUP_KEEP_DAYS SALA_MOCKUP_MAX_BYTES SALA_MOCKUP_REFERENCES
+# settings it takes (a no-op for one that is unset; the systemd service has only PATH in its environment, so the config is its only source)
+export SALA_MOCKUP_KEEP_DAYS SALA_MOCKUP_MAX_BYTES SALA_MOCKUP_REFERENCES SALA_CANVAS_FORWARD
 SALA_MOCKUP_TEMPLATE=$(session_url_template); export SALA_MOCKUP_TEMPLATE
 exec python3 -I -S "$SALA_ROOT/lib/mockup.py" "$@"

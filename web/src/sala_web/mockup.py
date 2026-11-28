@@ -64,6 +64,29 @@ HEADERS = {
 }
 
 
+# Forwarding to the board (SALA_CANVAS_FORWARD, SALA_CANVAS_FORWARD_URL; docs/mockup.md *Forwarding to the board*). Off unless the first is on.
+# The target is built from two things only: the configured base, which must be https://host[:port] with nothing after it, and an integer read
+# from the address with a strict all-digits match. Nothing else of the request (host, query, the rest of the path) reaches the target.
+FORWARD_ON = ("on", "1", "true", "yes")
+FORWARD_BASE_RE = re.compile(r"https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*(?::[0-9]{1,5})?/?")
+FORWARD_N_RE = re.compile(r"[0-9]{1,15}")
+
+
+def forward_on(value: str) -> bool:
+    return value.strip().lower() in FORWARD_ON
+
+
+def forward_target(raw: str, base: str) -> tuple[str | None, str]:
+    """(url, "") for the board address of canvas `raw` (the text after /mockup/), or (None, why) when there is none to send to. A `raw` that
+    is not plain digits (a version address, `1/`, `1%0d`, `../x`, a sign, a space, non-ASCII digits) gets (None, "") : it is not a canvas number,
+    so the page route answers as it always did. A base that is not valid gives (None, why) so the caller can log it."""
+    if not FORWARD_N_RE.fullmatch(raw):
+        return None, ""
+    if not FORWARD_BASE_RE.fullmatch(base):
+        return None, "SALA_CANVAS_FORWARD_URL is unset or not https://host[:port] with no path, query or credentials"
+    return base.rstrip("/") + "/canvas/" + str(int(raw)), ""
+
+
 # The link at the top of every served page. A page opened from a reply in the installed app has no address bar, and the page is not sala, so it
 # would be a dead end: this is a plain in-flow link (not fixed, so it covers nothing of the design), at least 44 px high, as wide as the page and
 # no wider (border-box, no margin), to the chat route. "../chat" is relative to /mockup/<n>, so it works under any path prefix; /chat answers a 302

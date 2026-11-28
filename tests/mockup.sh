@@ -21,6 +21,7 @@
 #             linked old one, stopping as soon as the folder is under the cap, the age rule running first, the cap's own unconfigured case, a folder still
 #             over with only linked pages left going down to the last one, --max-bytes and SALA_MOCKUP_MAX_BYTES, the 1 GB default
 #   config    SALA_MOCKUP_REFERENCES / _KEEP_DAYS / _MAX_BYTES set in the config file only (not the environment), as under the daily service
+#   forward   SALA_CANVAS_FORWARD on (environment or config file only): clean deletes nothing by either rule, also with --dry-run; off, unset or another value: as before
 #   units     the daily timer and its service (lane, project, ExecStart)
 # Usage: bash tests/mockup.sh   (exit 0 = pass; a few seconds)
 set -u
@@ -30,7 +31,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/sala-mockup.XXXXXX")
 exec 8< "$T"; flock -n 8 2>/dev/null   # systemd-tmpfiles' ageing skips a directory held with flock
 trap 'exec 8<&-; rm -rf "$T"' EXIT
 export HOME=$T/home SALA_CONFIG=/dev/null XDG_STATE_HOME=$T/state SALA_STATE_DIR=$T/state/salamander
-unset SALA_SESSION_URL SALA_MOCKUP_DIR SALA_MOCKUP_NOW SALA_MOCKUP_REFERENCES SALA_MOCKUP_KEEP_DAYS SALA_MOCKUP_MAX_BYTES SALA_MOCKUP_TEMPLATE
+unset SALA_SESSION_URL SALA_MOCKUP_DIR SALA_MOCKUP_NOW SALA_MOCKUP_REFERENCES SALA_MOCKUP_KEEP_DAYS SALA_MOCKUP_MAX_BYTES SALA_MOCKUP_TEMPLATE SALA_CANVAS_FORWARD
 mkdir -p "$HOME" "$T/in"
 S="bash $ROOT/bin/salamander mockup"
 D=$SALA_STATE_DIR/mockups
@@ -391,6 +392,24 @@ SALA_MOCKUP_REFERENCES="$T/nonexistent-reader" $S remove 1 >"$T/out" 2>"$T/err";
 [ "$rc" = 1 ] && [ -e "$D/1.html" ] && grep -q 'not removed' "$T/err" && ok "remove: a reader that cannot run refuses the removal (exit 1), page stays" || bad "remove failing reader: rc=$rc [$(cat "$T/err")]"
 SALA_MOCKUP_REFERENCES=false $S remove --force 1 >/dev/null 2>&1 && [ ! -e "$D/1.html" ] && ok "remove --force: skips a failing reader and removes the page" || bad "remove --force skips reader"
 reset 0; $S remove 1 >/dev/null 2>&1; [ "$?" = 1 ] && ok "remove of a page that is not there still exits 1" || bad "remove missing"
+
+# -- the cleanup hold while sala-web forwards Canvas addresses to the board (SALA_CANVAS_FORWARD) ---------------------------------------------------------
+reset; mkpage 1 100 30; mkpage 2 100 9; mkpage 3 100 0
+out=$(SALA_CANVAS_FORWARD=on SALA_MOCKUP_REFERENCES=none $S clean 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(pages)" = "1 2 3 " ] && echo "$out" | grep -q 'SALA_CANVAS_FORWARD is on' && ok "forward on: clean (age rule) deletes nothing and says why" || bad "forward hold: rc=$rc pages=$(pages) out=[$out]"
+SALA_CANVAS_FORWARD=on SALA_MOCKUP_REFERENCES=none $S clean --max-bytes 10 >/dev/null 2>&1; [ "$(pages)" = "1 2 3 " ] && ok "forward on: the size rule deletes nothing either" || bad "forward hold, cap: $(pages)"
+for v in 1 true yes ON; do
+    SALA_CANVAS_FORWARD=$v SALA_MOCKUP_REFERENCES=none $S clean >/dev/null 2>&1; [ "$(pages)" = "1 2 3 " ] || bad "forward value $v did not hold: $(pages)"
+done; ok "forward on: 1, true, yes and ON hold too"
+printf 'SALA_MOCKUP_REFERENCES=none\nSALA_CANVAS_FORWARD=on\n' > "$T/cfg-fwd"
+SALA_CONFIG="$T/cfg-fwd" $S clean >/dev/null 2>&1; [ "$(pages)" = "1 2 3 " ] && ok "forward on in the config file only (as under the daily service): nothing deleted" || bad "forward config: $(pages)"
+SALA_CANVAS_FORWARD=on SALA_MOCKUP_REFERENCES=none $S clean --dry-run 2>&1 | grep -q 'would delete' && bad "forward on: --dry-run still planned a deletion" || ok "forward on: --dry-run plans no deletion"
+for v in "" off 0 no; do
+    reset; mkpage 1 100 30; mkpage 2 100 3
+    SALA_CANVAS_FORWARD=$v SALA_MOCKUP_REFERENCES=none $S clean >/dev/null 2>&1; [ "$(pages)" = "2 " ] || bad "forward value [$v] changed the pass: $(pages)"
+done; ok "forward off, unset or any other value: the pass deletes as before"
+reset; mkpage 1 100 30; mkpage 2 100 3
+SALA_CANVAS_FORWARD=on SALA_MOCKUP_REFERENCES=none $S clean >/dev/null 2>&1; SALA_MOCKUP_REFERENCES=none $S clean >/dev/null 2>&1; [ "$(pages)" = "2 " ] && ok "forward switched off: the next pass applies its rules again" || bad "forward off again: $(pages)"
 
 echo "mockup: $([ $fail = 0 ] && echo pass || echo FAIL)"
 exit $fail
