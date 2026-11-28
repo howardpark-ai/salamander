@@ -417,12 +417,12 @@ out=$(tell sala-test-yy-main "[sala op 1-4] result four")
 has "$out" "rc=0" && ! grep -q 'result four' "$SOCKLOG" && grep -q 'reply FAILED: sala-test-yy-main has no live pane; nobody was told' "$OPLOG" && ! grep -q 'yy-main-main' "$OPLOG" \
     && ok "a dead *-main asker: no second fallback (no -main-main), a failure line" || bad "dead main: $out / $(<"$OPLOG")"
 
-echo "== SALA_CHAT_SESSION set: the reply for a gone pane goes to that one front session; unset, a <name>-main whose role is back gets none"
+echo "== SALA_CHAT_SESSION set: the reply for a gone pane goes to a live <name>-main whose role is front, else to that one session; unset, a <name>-main whose role is back gets none"
 mk chat "$(uuid 10)" -e FAKE_SOCK_LOG="$SOCKLOG"; fake_up sala-test-chat || exit 1
 : > "$SOCKLOG"; : > "$OPLOG"
 out=$(SALA_CHAT_SESSION=sala-test-chat tell sala-test-zq "[sala op 1-5] result five")
 has "$out" "rc=0" && waitfor "grep -q 'result five' '$SOCKLOG'" 20 && [ "$(grep -c 'result five' "$SOCKLOG")" = 1 ] && grep 'result five' "$SOCKLOG" | grep -q "^$(uuid 10) .*\"content\": \"\[for Rowan\]\\\\n\[sala op 1-5\] result five\"" \
-    && grep -q 'reply: sala-test-zq has no live pane; sent to sala-test-chat' "$OPLOG" && ok "set, a dead asker with a live <name>-main: sent to the chat session with [for Rowan] on line 1, not to <name>-main" || bad "set: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+    && grep -q 'reply: sala-test-zq has no live pane; sent to sala-test-chat' "$OPLOG" && ok "set, a dead asker with a live <name>-main of unknown role: sent to the chat session with [for Rowan] on line 1, not to <name>-main" || bad "set: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
 : > "$SOCKLOG"; : > "$OPLOG"
 out=$(SALA_CHAT_SESSION=sala-test-chat tell sala-test-yy-main "[sala op 1-6] result six")
 has "$out" "rc=0" && waitfor "grep -q 'result six' '$SOCKLOG'" 20 && grep 'result six' "$SOCKLOG" | grep -q "^$(uuid 10) .*\[for Rowan\]" && grep -q 'reply: sala-test-yy-main has no live pane; sent to sala-test-chat' "$OPLOG" \
@@ -447,6 +447,41 @@ has "$out" "rc=0" && ! grep -q 'result nine' "$SOCKLOG" && grep -q 'reply FAILED
 out=$(tell sala-test-vq "[sala op 1-10] result ten")
 has "$out" "rc=0" && waitfor "grep -q 'result ten' '$SOCKLOG'" 20 && grep 'result ten' "$SOCKLOG" | grep -q "^$(uuid 11) .*\[for Rowan\]" \
     && ok "unset, <name>-main with role front: sent there as before" || bad "unset, front main: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+: > "$SOCKLOG"; : > "$OPLOG"
+out=$(SALA_CHAT_SESSION=sala-test-chat tell sala-test-vq "[sala op 1-11] result eleven")
+has "$out" "rc=0" && waitfor "grep -q 'result eleven' '$SOCKLOG'" 20 && [ "$(grep -c 'result eleven' "$SOCKLOG")" = 1 ] && grep 'result eleven' "$SOCKLOG" | grep -q "^$(uuid 11) .*\[for Rowan\]" \
+    && grep -q 'reply: sala-test-vq has no live pane; sent to sala-test-vq-main' "$OPLOG" && ok "set, a live <name>-main with role front: it still gets the reply, the chat session does not" || bad "set, front main: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+: > "$SOCKLOG"; : > "$OPLOG"
+"$SALA" sessions tag sala-test-vq-main --role back >/dev/null 2>&1 || bad "tag sala-test-vq-main back failed (2)"
+out=$(SALA_CHAT_SESSION=sala-test-chat tell sala-test-vq "[sala op 1-12] result twelve")
+has "$out" "rc=0" && waitfor "grep -q 'result twelve' '$SOCKLOG'" 20 && [ "$(grep -c 'result twelve' "$SOCKLOG")" = 1 ] && grep 'result twelve' "$SOCKLOG" | grep -q "^$(uuid 10) .*\[for Rowan\]" \
+    && ok "set, <name>-main with role back: the reply goes to the chat session" || bad "set, back main: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+: > "$SOCKLOG"; : > "$OPLOG"
+out=$(SALA_CHAT_SESSION=sala-test-chat tell sala-test-yy "[sala op 1-13] result thirteen")
+has "$out" "rc=0" && waitfor "grep -q 'result thirteen' '$SOCKLOG'" 20 && grep 'result thirteen' "$SOCKLOG" | grep -q "^$(uuid 10) .*\[for Rowan\]" && grep -q 'reply: sala-test-yy has no live pane; sent to sala-test-chat' "$OPLOG" \
+    && ok "set, no <name>-main at all: the reply goes to the chat session" || bad "set, no main: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+: > "$SOCKLOG"; : > "$OPLOG"
+"$SALA" sessions tag sala-test-vq-main --role front >/dev/null 2>&1 || bad "tag sala-test-vq-main front failed (2)"
+$T respawn-pane -k -t =sala-test-vq-main: 'sleep 600' || bad "respawn sala-test-vq-main failed"   # the tmux session and its front row stay, its claude is gone
+out=$(SALA_CHAT_SESSION=sala-test-chat tell sala-test-vq "[sala op 1-14] result fourteen")
+has "$out" "rc=0" && waitfor "grep -q 'result fourteen' '$SOCKLOG'" 20 && [ "$(grep -c 'result fourteen' "$SOCKLOG")" = 1 ] && grep 'result fourteen' "$SOCKLOG" | grep -q "^$(uuid 10) .*\[for Rowan\]" \
+    && grep -q 'reply: sala-test-vq has no live pane; sent to sala-test-chat' "$OPLOG" && ok "set, a front <name>-main that is not live: the reply goes to the chat session" || bad "set, dead main: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+: > "$SOCKLOG"; : > "$OPLOG"
+out=$(SALA_CHAT_SESSION=sala-test-gone tell sala-test-vq "[sala op 1-15] result fifteen")
+has "$out" "rc=0" && ! grep -q 'result fifteen' "$SOCKLOG" && grep -q 'reply FAILED: sala-test-vq has no live pane and sala-test-vq-main has none either, nor has sala-test-gone; nobody was told' "$OPLOG" \
+    && ok "set, neither the front <name>-main nor the chat session live: a failure line naming both" || bad "set, both gone: $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+$T new-session -d -s sala-web-main -c "$HOME" -e FAKE_SESSION_ID="$(uuid 12)" -e FAKE_NAME=sala-web-main -e FAKE_LOG="$FAKE_LOG" -e FAKE_SOCK_LOG="$SOCKLOG"; $T send-keys -t sala-web-main 'claude' Enter
+fake_up sala-web-main || exit 1
+"$SALA" adopt sala-web-main >/dev/null 2>&1 || bad "adopt sala-web-main failed"
+"$SALA" sessions tag sala-web-main --role front >/dev/null 2>&1 || bad "tag sala-web-main front failed"
+for chat in sala-test-chat ""; do
+    : > "$SOCKLOG"; : > "$OPLOG"; out=""; lbl=unset; [ -z "$chat" ] || lbl=set
+    for f in sala-web sala-watch "somehost shell"; do out+=$(SALA_CHAT_SESSION=$chat tell "$f" "[sala op 1-16] result sixteen"); done
+    sleep 1
+    [ "$(grep -o 'rc=0' <<<"$out" | wc -l)" = 3 ] && ! grep -q 'result sixteen' "$SOCKLOG" && [ "$(grep -c 'no reply sent: .* is not a session' "$OPLOG")" = 3 ] && ! grep -qE 'reply:|reply FAILED' "$OPLOG" \
+        && ok "$lbl: a reply from sala-web, sala-watch or a plain shell reaches no front agent, a live sala-web-main included" || bad "no session (chat '$chat'): $out / $(<"$SOCKLOG") / $(<"$OPLOG")"
+done
+$T kill-session -t =sala-web-main 2>/dev/null; "$SALA" forget-row sala-web-main >/dev/null 2>&1
 $T kill-session -t =sala-test-chat 2>/dev/null; $T kill-session -t =sala-test-vq-main 2>/dev/null; "$SALA" forget-row sala-test-vq-main >/dev/null 2>&1
 
 echo "== the model verb for several sessions: one operation, one combined notice; the old single-session shape unchanged; an unknown session refuses the lot"
