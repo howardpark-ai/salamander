@@ -68,6 +68,19 @@ def meta(text: str, minute: int = 0) -> dict:
     return {"type": "user", "uuid": f"meta-{minute}-{len(text)}", "timestamp": ts(minute), "isMeta": True, "message": {"role": "user", "content": text}}
 
 
+def refusal(minute: int = 0, text: str = "add a line for the record") -> list[dict]:
+    """What Claude Code records when a Stop hook refuses a reply, in file order: the meta user line "Stop hook feedback:" (the refusal event itself), the
+    hook_blocking_error attachment and the stop_hook_summary system line (both say it again and add nothing to the thread)."""
+    return [
+        {"type": "user", "uuid": f"refusal-{minute}", "timestamp": ts(minute), "isMeta": True, "isSidechain": False, "sessionId": SID,
+         "message": {"role": "user", "content": f"Stop hook feedback:\n{text}"}},
+        {"type": "attachment", "uuid": f"blocked-{minute}", "timestamp": ts(minute), "isSidechain": False, "sessionId": SID,
+         "attachment": {"type": "hook_blocking_error", "hookName": "Stop", "hookEvent": "Stop", "blockingError": text}},
+        {"type": "system", "subtype": "stop_hook_summary", "uuid": f"summary-{minute}", "timestamp": ts(minute), "isSidechain": False,
+         "hookCount": 1, "hasOutput": True, "preventedContinuation": False, "stopReason": ""},
+    ]
+
+
 def task(minute: int = 0) -> dict:
     return {"type": "user", "uuid": f"task-{minute}", "timestamp": ts(minute), "origin": {"kind": "task-notification"},
             "message": {"role": "user", "content": "<task-notification><summary>a job finished</summary></task-notification>"}}
@@ -201,7 +214,6 @@ THREAD = [
     ("assistant", "demo#7 needs your answer today."),
     ("assistant", "The job finished."),
     ("user", "Draw slide 4"),
-    ("assistant", "Slide 4 is drawn."),
     ("assistant", "And the line is added."),
     ("user", "and slide 5?"),
     ("assistant", "Slide 5 is next."),
@@ -663,7 +675,85 @@ def test_a_hooks_follow_up_is_never_cut_from_its_turn(tmp_path, monkeypatch):
     p = tmp_path / f"{SID}.jsonl"
     write(p, [human("go", 1), assistant("Done.", 2), meta("Stop hook feedback:\nadd a line", 3), assistant("Added.", 4)])
     msgs, cursor, _, _ = T.read_tail_page(p, SID, OWNER, 1)
-    assert said(msgs) == [("user", "go"), ("assistant", "Done."), ("assistant", "Added.")] and cursor == 0
+    assert said(msgs) == [("user", "go"), ("assistant", "Added.")] and cursor == 0
+
+
+# ── a reply a Stop hook refused ──────────────────────────────────────────────
+def test_a_reply_a_stop_hook_refused_gives_way_to_the_one_that_follows(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("The whole answer.", 2), *refusal(3), assistant("The whole answer, again.", 4)])
+    assert said(msgs) == [("user", "go"), ("assistant", "The whole answer, again.")]
+
+
+def test_a_refused_reply_stays_until_a_later_one_arrives(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("The whole answer.", 2), *refusal(3)])
+    assert said(msgs) == [("user", "go"), ("assistant", "The whole answer.")]
+
+
+def test_refusals_in_a_row_leave_the_last_reply_alone(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("One.", 2), *refusal(3), assistant("Two.", 4), *refusal(5), assistant("Three.", 6)])
+    assert said(msgs) == [("user", "go"), ("assistant", "Three.")]
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("One.", 2), *refusal(3), assistant("Two.", 4), *refusal(5)])
+    assert said(msgs) == [("user", "go"), ("assistant", "Two.")], "the reply before the last refusal is the one that waits for a successor"
+
+
+def test_only_the_replies_right_before_a_refusal_are_hidden(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("Early.", 2), assistant("Late.", 3), *refusal(4), assistant("Final.", 5),
+                                human("and then?", 6), assistant("Then this.", 7)])
+    assert said(msgs) == [("user", "go"), ("assistant", "Final."), ("user", "and then?"), ("assistant", "Then this.")]
+
+
+def test_a_reply_before_a_refusal_in_an_earlier_turn_is_not_taken_by_the_owners_next_one(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("Answer.", 2), *refusal(3), human("never mind", 4), assistant("Fine.", 5)])
+    assert said(msgs) == [("user", "go"), ("assistant", "Answer."), ("user", "never mind"), ("assistant", "Fine.")]
+
+
+def test_a_refused_reply_that_made_a_tool_call_keeps_what_the_tool_row_drew(tmp_path):
+    """The thread draws no tool row (a line with a tool call is no final reply), so there is nothing of it to keep or lose: only the reply's text goes."""
+    lines = [human("go", 1), assistant("Checking.", 2, stop="tool_use", tool=True), tool_result(2), assistant("The answer.", 3), *refusal(4),
+             assistant("The answer, again.", 5)]
+    msgs, _ = thread(tmp_path, lines)
+    assert said(msgs) == [("user", "go"), ("assistant", "The answer, again.")]
+
+
+def test_the_texts_never_decide_it(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("Same words.", 2), assistant("Same words.", 3), human("again", 4),
+                                assistant("Same words.", 5), *refusal(6), assistant("Other words.", 7)])
+    assert said(msgs) == [("user", "go"), ("assistant", "Same words."), ("assistant", "Same words."), ("user", "again"), ("assistant", "Other words.")]
+
+
+def test_a_transcript_with_no_refusal_is_unchanged(tmp_path):
+    msgs, _ = thread(tmp_path, [human("go", 1), assistant("One.", 2), assistant("Two.", 3), human("more", 4), assistant("Three.", 5)])
+    assert said(msgs) == [("user", "go"), ("assistant", "One."), ("assistant", "Two."), ("user", "more"), ("assistant", "Three.")]
+
+
+def test_the_same_thread_comes_in_pages_and_from_a_tail_read_with_appends(tmp_path, monkeypatch):
+    lines = [human("go", 1), assistant("One.", 2), *refusal(3), assistant("Two.", 4)]
+    p = tmp_path / f"{SID}.jsonl"
+    write(p, lines)
+    want = [("user", "go"), ("assistant", "Two.")]
+    assert said(T.read_fwd(p, SID, OWNER, 0, 100)[0]) == want
+    q = tmp_path / "grows.jsonl"
+    write(q, lines[:-1])                                                    # before the later reply
+    msgs, _, end, sel = T.read_tail_page(q, SID, OWNER, 100)
+    assert said(msgs) == [("user", "go"), ("assistant", "One.")]
+    write(q, lines)
+    more, _ = T.read_from(q, sel, end)
+    assert said(more) == [("assistant", "Two.")], "an append only adds; the page read again (what the layer does) no longer holds the earlier reply"
+    assert said(T.read_tail_page(q, SID, OWNER, 100)[0]) == want
+
+
+def test_it_holds_with_replies_1_too(tmp_path):
+    p = tmp_path / f"{SID}.jsonl"
+    write(p, [human("go", 1), assistant("One.", 2), *refusal(3), assistant("Two.", 4)])
+    msgs, *_ = T.read_tail_page(p, SID, OWNER, 100, rest=True)
+    assert said(msgs) == [("user", "go"), ("assistant", "Two.")]
+
+
+def test_the_plain_session_view_still_shows_both_replies(tmp_path):
+    p = tmp_path / f"{SID}.jsonl"
+    write(p, [human("go", 1), assistant("One.", 2), *refusal(3), assistant("Two.", 4)])
+    msgs, *_ = TR.read_tail_page(p, SID, 100)
+    assert [t for r, t in said(msgs) if r == "assistant"] == ["One.", "Two."]
 
 
 def test_the_end_of_a_long_transcript_is_read_without_the_rest(tmp_path, monkeypatch):
@@ -702,7 +792,7 @@ def test_a_tail_read_and_appends_equal_the_history_wherever_the_file_is_cut(tmp_
             msgs, _, end, sel = T.read_tail_page(p, SID, OWNER, n)
             p.write_bytes(b"".join(raw))
             more, off = T.read_from(p, sel, end)
-            got = msgs + more
+            got = [m for m in msgs + more if m["uuid"] not in sel.hidden]      # an append cannot take back what an earlier read gave: the selector says which
             assert off == p.stat().st_size and got == want[len(want) - len(got):] and (n < 10_000 or got == want), (k, bool(torn))
 
 
@@ -719,6 +809,7 @@ def test_appends_one_line_at_a_time_equal_the_history(tmp_path, make, shown):
             f.flush()
             more, end = T.read_from(p, sel, end)
             got += more
+    got = [m for m in got if m["uuid"] not in sel.hidden]      # an append cannot take back what an earlier read gave: the selector says which
     assert got == full(p) and said(got) == shown
 
 
