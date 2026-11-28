@@ -50,7 +50,8 @@ Run by the side session itself (its own tmux session is the default `--name`). I
    the item's word. This is the one weak link, and it is why the flag exists. No item on the record (a fork started without
    `--item`): skipped, and said.
 2. **The project page has a timeline line from the session**: `- **YYYY-MM-DD** | <name> — …`, dated on or after the day it
-   started, in the local mirror of the pages (`$SALA_BRAIN_DIR`, unset by default; every put is committed to it at once). Where the
+   started, in the local mirror of the pages (`$SALA_BRAIN_DIR`, unset by default; every put is committed to it at once). A renamed
+   side session (below) may write the line under its new name or an earlier one. Where the
    mirror is not on the box, the page's last change from stackshot (`get page-ts`) after the start counts, said as the weaker proof.
    No project on the record: skipped, and said.
 3. **The summary reached the origin agent (a fork) or the project's main agent (a start about an item).** The full write-up stays
@@ -83,8 +84,15 @@ plan, so nothing is queued) and for real; the refusal says what is missing and p
 `--skip-writeup` is the only bypass, said when used (`--force` is gone: it was this and `--busy`). A session with no side record is untouched. After a retire the record and the
 marker move to `side/retired/`.
 
-**A side session that becomes an agent**: `sala rename <side session> <agent name>` (the name does not contain
-`-side-`) lists the new name as a front agent of the session's project through stackshot (`client.py post project-agent … --front
+**A side session that is renamed, with `SALA_CHAT_SESSION` set**: that session is then the installation's one front agent, so
+`sala rename <side session> <new name>` (a hand rename followed by `rename --sync` too, any new name) changes the name and lists **no
+agent**, front or background: nothing is read from or posted to stackshot, and no project or role is put on the registry row. It
+stays a side session: the record and a write-up marker move to the new name (`side/<new name>.side`, its `name` updated and the earlier
+name kept as `was=`), the row's `side*` fields stay, `side done` and the summary are owed and sent as before, `retire` still asks for
+the marker, and the watch's unregistered-session check stays quiet about it.
+
+**A side session that becomes an agent** (`SALA_CHAT_SESSION` unset): `sala rename <side session> <agent name>` (the name does not
+contain `-side-`) lists the new name as a front agent of the session's project through stackshot (`client.py post project-agent … --front
 --sender sala-web`: a pending entry in the project record, the page's own line stays its keeper's to add), renames the session, and
 ends the side record the way a retire leaves a finished one (record and marker to `side/retired/`, the row's `side*` fields cleared,
 the row tagged with the project and `front`). The write-up (`side done`, the summary) is then not owed: it is an ordinary agent. The

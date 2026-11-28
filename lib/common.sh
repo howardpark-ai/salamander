@@ -26,7 +26,7 @@ SALA_CONFIG="${SALA_CONFIG:-$HOME/.config/salamander/config}"
 : "${SALA_SCOPES:=}"                              # the scopes sessions are named by (<scope>-<project>-…), space-separated; empty = none. The web UI takes them from this first, and from stackshot's own settings file only when this is empty or unset
 : "${SALA_DEFAULT_SCOPE:=}"                       # the scope a page outside every scope's directory is named in; empty = the first of SALA_SCOPES
 : "${SALA_HELP_SESSION:=}"                       # web UI only: the session the overview's Get Help chip opens; empty = no chip
-: "${SALA_CHAT_SESSION:=}"                       # web UI only: the one session that is the owner's chat (its sidebar entry and strip; /chat opens it); empty = none is configured
+: "${SALA_CHAT_SESSION:=}"                       # the one session that is the owner's chat (web UI: its sidebar entry and strip, /chat opens it); set, it is the one front agent (chat_session_set); empty = none is configured
 : "${SALA_CHAT_NAME:=}"                          # web UI only: what the chat session's entry calls it; empty = the part of the session name after its last hyphen, capitalized
 : "${SALA_CHAT_LAYER:=}"                         # web UI only: on|1|yes|true = the chat session's thread is drawn by its own layer (owner's messages and replies only); empty or anything else = off (the default)
 : "${SALA_BRAND_SUFFIX:=}"                        # web UI only: what follows "salamander" in its title bar (salamander : <suffix>); empty = "salamander" alone
@@ -1551,6 +1551,8 @@ print(",".join(str(i.get("shown") or i.get("gid")) for i in items if isinstance(
 # the rename goes on and the side record ends (rename_side_end): the session is an ordinary agent from then on. The project is the record's `project`,
 # else the one its origin agent has; neither = a refusal, said in the plan. The call is idempotent (the same role and line again answers "already
 # recorded … as it stands"), which a busy pane's retry worker relies on. SALA_RENAME_LIST_SENDER overrides the label.
+# NONE OF THIS WITH SALA_CHAT_SESSION SET: that session is the installation's one front agent, so a renamed side session lists no agent and stays
+# a side session; its record follows the name (side_rename, below).
 : "${SALA_RENAME_LIST_SENDER:=sala-web}"
 side_origin_project() {  # <agent> → the page key the agent's registry row carries (stdout; empty when none)
     sessions_py resolve "$1" --live --json 2>/dev/null | python3 -c 'import json,sys
@@ -1597,6 +1599,17 @@ rename_side_end() {
     fi
     sessions_set "$new" side= side_origin= side_item= side_at= ${hub:+"project=$hub" role=front}
     return $rc
+}
+chat_session_set() { [[ ${SALA_CHAT_SESSION:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }   # → 0 when SALA_CHAT_SESSION names a session (an invalid name is the same as empty, as the web UI reads it)
+# side_rename <OLD> <NEW> → the side record, and a write-up marker if any, move to NEW's name; the record's `name` becomes NEW and a `was=OLD` line
+# keeps the earlier name, which `side done` still takes as the source of a timeline line. A marker left under NEW by an earlier session goes. rc 1: not moved.
+side_rename() {
+    local old=$1 new=$2 t
+    t="$(side_file "$new").t.$$"
+    { awk -v n="$new" 'index($0, "name=") == 1 { print "name=" n; next } { print }' "$(side_file "$old")" && printf 'was=%s\n' "$old"; } > "$t" \
+        && rm -f "$(side_done_file "$new")" && mv -f "$t" "$(side_file "$new")" || { rm -f "$t"; return 1; }
+    rm -f "$(side_file "$old")"
+    [ ! -f "$(side_done_file "$old")" ] || mv -f "$(side_done_file "$old")" "$(side_done_file "$new")"
 }
 # THE SIDE SESSIONS (quick side conversations; docs/side-sessions.md; lib/spawn.sh --side, lib/side.sh, lib/retire.sh).
 # A side session is a short-lived session of the owner's, started in one step: forked from a running agent (`spawn --side --fork-of

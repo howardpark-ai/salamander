@@ -17,6 +17,8 @@
 #      project = refused, in the plan (--dry-run) too. Called after the busy-pane wait of step 1, before /rename is typed; a refusal renames
 #      nothing and keeps the record. After step 3 the side record ends (moved to side/retired/, the registry row's side fields cleared, the row
 #      tagged project / front): no write-up (`side done`, the summary) is owed any more. --sync never does this.
+#      WITH SALA_CHAT_SESSION SET (that session is the one front agent) this is replaced: a side session renamed to any name, --sync included, lists
+#      no agent (no post, no record read, no project or role put on its row) and stays a side session; after step 3 its record and marker follow NEW.
 #   1. refuse: NEW already live (a tmux session, or a running claude's name on another conversation), OLD not a live
 #      Claude pane, OLD not in the pane map (adopt first; a spawn still landing its row is waited for, up to 60 s, and a side spawn its side record before step 0 / 0b decide which path), OLD the Remote Control server; a busy pane, a terminal-only
 #      prompt or unsent text is waited out (60 s here, then a detached retry every 60 s for 2 h, which posts its outcome)
@@ -166,8 +168,10 @@ spawn_wait() {  # <what it waits for> <ready command…> → 0 once the command 
 side_is "$OLD" || ! spawn_is_side "$OLD" || spawn_wait "side record" side_is "$OLD" || true
 # NEW is not on its project's page (a hand rename, --sync, is followed, not refused): stackshot renames OLD's entry there in place
 # (project-agent-rename, common.sh), once the checks below have passed; stackshot's refusal stops the rename, with its reason
-RL=0; SD=0; SDL=0
-if [ "${SALA_RENAME_SYNC:-}" != 1 ]; then
+RL=0; SD=0; SDL=0; SK=0
+if chat_session_set && side_is "$OLD"; then
+    SK=1   # ONE FRONT AGENT (the header, 0b): the side session stays one, by a hand rename too; no project is asked and nothing is listed
+elif [ "${SALA_RENAME_SYNC:-}" != 1 ]; then
     if side_is "$OLD" && [[ $NEW != *-side-* ]]; then
         # A SIDE SESSION becoming an agent: it is on no page's agents map, so there is no entry to rename in place. NEW unlisted (the project record says
         # so): sala lists NEW as a new front agent (stackshot's project-agent, listed in its project record) and the side record ends; refused here, in the plan,
@@ -254,6 +258,9 @@ if [ "$DRY" = 1 ]; then
         sdtag=""; [ "$SDL" = 1 ] && sdtag=", the row tagged $RL_HUB / front"
         echo "  the side record of '$OLD' ends (moved to $SALA_SIDE_DIR/retired/, its registry row's side fields cleared$sdtag): '$NEW' is an ordinary session from then on, so the write-up (sala side done, the summary to $(side_val "$OLD" summary_to)) is no longer owed"
     fi
+    if [ "$SK" = 1 ]; then
+        echo "  '$NEW' stays a side session and no agent is listed (SALA_CHAT_SESSION is set): the side record follows the name, and the write-up (sala side done, the summary to $(side_val "$OLD" summary_to)) is still owed"
+    fi
     if [ "$NOTMUX" = 1 ]; then echo "  pane map, lane and model rows, open notes; then a heartbeat"; else echo "  tmux session, pane map, open notes; then a heartbeat"; fi
     exit 0
 fi
@@ -326,6 +333,11 @@ if [ "$SD" = 1 ]; then   # the side record ends (above): from here on the sessio
     rename_side_end "$OLD" "$NEW" "$([ "$SDL" = 1 ] && echo "$RL_HUB")" \
         && echo "ℹ '$OLD' is no longer a side session: its record moved to $SALA_SIDE_DIR/retired/, so 'sala side done' and the summary to the origin are no longer owed" \
         || echo "⚠ the side record of '$OLD' could not be moved to $SALA_SIDE_DIR/retired/: move it by hand (the session is renamed)"
+fi
+if [ "$SK" = 1 ]; then
+    side_rename "$OLD" "$NEW" \
+        && echo "ℹ '$NEW' is still a side session (no agent listed): its record followed the name, and 'sala side done' and the summary are still owed" \
+        || echo "⚠ the side record of '$OLD' could not be moved to '$NEW' in $SALA_SIDE_DIR: move it by hand (the session is renamed)"
 fi
 NOTES="$SALA_LOG_DIR/salamander-notes.tsv"
 if [ -s "$NOTES" ]; then

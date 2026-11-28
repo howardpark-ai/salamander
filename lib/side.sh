@@ -119,14 +119,15 @@ sys.exit(1)' "$1" <<< "$out" 2>/dev/null) && [ -n "$ep" ] && { ITEM_UPD="$ep"; r
     return 1
 }
 page_line() {  # <page key> → 0 when a timeline line from this session is on the page (stdout: the proof); 1 with the why
-    local f="" since ts out mirror
+    local f="" since ts out mirror was
     [ -n "$SALA_BRAIN_DIR" ] && f="$SALA_BRAIN_DIR/$1.md"
     mirror="the brain mirror ${SALA_BRAIN_DIR:-(SALA_BRAIN_DIR, not set)}"
     since=$(cs_date -d "@$STARTED" +%Y-%m-%d)
     if [ -n "$f" ] && [ -r "$f" ]; then
-        out=$(python3 - "$f" "$NAME" "$since" <<'PY' 2>/dev/null
+        was=$(sed -n 's/^was=//p' "$(side_file "$NAME")")   # a renamed side session's earlier names (common.sh side_rename): a line under one counts
+        out=$(python3 - "$f" "$since" "$NAME" $was <<'PY' 2>/dev/null
 import re, sys
-path, name, since = sys.argv[1:4]
+path, since, names = sys.argv[1], sys.argv[2], sys.argv[3:]
 timeline = False
 for line in open(path, encoding="utf-8", errors="replace"):
     if re.match(r"^#{1,6}\s+Timeline\s*$", line):
@@ -136,7 +137,7 @@ for line in open(path, encoding="utf-8", errors="replace"):
     m = re.match(r"^- \*\*(\d{4}-\d{2}-\d{2})\*\*\s*\|\s*(.*)$", line) if timeline else None
     if not m or m.group(1) < since: continue
     head = m.group(2).split(" — ", 1)[0]
-    if name in re.split(r"[\s|,/]+", head):
+    if set(names) & set(re.split(r"[\s|,/]+", head)):
         print("a timeline line of %s on %s" % (m.group(1), path)); sys.exit(0)
 sys.exit(1)
 PY
