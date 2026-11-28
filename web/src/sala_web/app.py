@@ -375,7 +375,7 @@ from . import transcript as TR
 from . import unread as UR
 from . import usage as USG
 from . import usage_digest as USGD
-from .config import SHELL_SESSION, Settings, brand_suffix, chat_layer, chat_name, chat_session, help_session, log_dir, owner_name
+from .config import SHELL_SESSION, Settings, brand_suffix, chat_layer, chat_name, chat_session, help_session, log_dir, owner_name, sala_setting
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
@@ -859,6 +859,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return Response("method not allowed", status_code=405, media_type="text/plain",
                             headers={**MK.HEADERS, "Allow": "GET, HEAD"})
         raw = request.path_params.get("n", "")
+        # Forwarding to the board, off unless SALA_CANVAS_FORWARD is on (docs/mockup.md). Here, after the proxy's sign-in like every answer of this
+        # route, and only for GET/HEAD (the 405 above is first). The target is mockup.forward_target's: the configured base and the integer, nothing else.
+        if MK.forward_on(await run_in_threadpool(sala_setting, "SALA_CANVAS_FORWARD")):
+            url, why = MK.forward_target(raw, await run_in_threadpool(sala_setting, "SALA_CANVAS_FORWARD_URL"))
+            if why:
+                log.warning("canvas forward is on but not used: %s", why)
+            if url:
+                return Response(status_code=302, headers={**MK.HEADERS, "Location": url})
         # <n>/versions/<id> is a saved version of page n, read-only, with a way back to the current page; anything else is the current page
         va = MK.VERSION_ADDR_RE.fullmatch(raw)
         if va:

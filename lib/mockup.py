@@ -37,6 +37,7 @@ Cleanup (`clean`, run daily by sala-mockup-clean.timer) applies two rules, in th
      a page an open board item links goes last, and only when every unlinked page is already gone and the folder is still over.
 A page's versions (versions/<n>/) are deleted with the page and count toward the folder's size; they are never listed; sala-web serves one only read-only, through its page (docs/mockup.md, *The history on the page*). The
 versions of a page that is gone are deleted once they are older than the keep time.
+While SALA_CANVAS_FORWARD is on (sala-web forwards a Canvas address to the board), neither rule runs: the pass keeps every page and says so.
 Which pages the board links is read by a command the host names in SALA_MOCKUP_REFERENCES, because no supported read of the board gives a script
 the text of its items without a model call:
   unset or empty   nothing is deleted by either rule: the pass keeps every page and says why (a host that has not said how to read the board loses nothing)
@@ -493,6 +494,10 @@ def page_bytes(d: str, n: int) -> int:
 def clean(d: str, t: float, keep_days: float, spec: str, cap: int = CAP_BYTES_DEFAULT, dry_run: bool = False, say=print) -> int:
     """One cleanup pass at time t. Returns the exit status. `spec` is SALA_MOCKUP_REFERENCES's value, `cap` the folder's size limit in bytes
     (see the module text for the two rules and their order)."""
+    if os.environ.get("SALA_CANVAS_FORWARD", "").strip().lower() in ("on", "1", "true", "yes"):
+        # forwarding to the board is on (docs/mockup.md): the old store is held as it is until the setting is switched off, so no page goes
+        say("mockup clean: kept every page: SALA_CANVAS_FORWARD is on, so the Canvas folder is held as it is (no age or size deletion)")
+        return 0
     cutoff = t - keep_days * 86400
     pages = {}                                   # number -> (mtime, size of the page and its versions)
     for n in page_numbers(d):

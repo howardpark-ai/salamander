@@ -210,6 +210,192 @@ def test_the_route_has_no_sign_in_of_its_own_it_sits_behind_the_proxys_like_ever
     assert "everything except `/tty`" in proxy_doc.replace("\n", " ")
 
 
+# -- forwarding to the board -----------------------------------------------------------------------------------------------------------
+
+BOARD = "https://board.example.com"
+
+
+@pytest.fixture
+def fwd(env, monkeypatch, tmp_path):
+    """The env fixture with sala's settings isolated (no config file, none of the two settings in the environment); `on(base)` switches forwarding on."""
+    monkeypatch.setenv("SALA_CONFIG", str(tmp_path / "no-config"))
+    monkeypatch.delenv("SALA_CANVAS_FORWARD", raising=False)
+    monkeypatch.delenv("SALA_CANVAS_FORWARD_URL", raising=False)
+
+    def on(base=BOARD, flag="on"):
+        monkeypatch.setenv("SALA_CANVAS_FORWARD", flag)
+        monkeypatch.setenv("SALA_CANVAS_FORWARD_URL", base)
+
+    return {**env, "on": on, "env": monkeypatch}
+
+
+def get(c, path, **kw):
+    return c.get(path, follow_redirects=False, **kw)
+
+
+def test_forwarding_is_off_by_default_and_the_page_is_served_as_before(fwd):
+    store(fwd["root"], 1)
+    r = get(fwd["client"], "/mockup/1")
+    assert r.status_code == 200 and r.content == MK.with_back_link(PAGE).encode("utf-8") and "location" not in r.headers
+    assert get(fwd["client"], "/mockup/9").status_code == 404
+
+
+@pytest.mark.parametrize("flag", ["", "off", "0", "no", "false", "onn", "2"])
+def test_a_flag_that_is_not_on_forwards_nothing_even_with_a_base(fwd, flag):
+    store(fwd["root"], 1)
+    fwd["on"](flag=flag)
+    assert get(fwd["client"], "/mockup/1").status_code == 200
+
+
+def test_a_base_without_the_flag_forwards_nothing(fwd):
+    store(fwd["root"], 1)
+    fwd["env"].setenv("SALA_CANVAS_FORWARD_URL", BOARD)
+    assert get(fwd["client"], "/mockup/1").status_code == 200
+
+
+@pytest.mark.parametrize("flag", ["on", "ON", "1", "true", "yes", " on "])
+def test_get_and_head_of_a_canvas_are_a_302_to_the_boards_canvas(fwd, flag):
+    fwd["on"](flag=flag)
+    for method in ("GET", "HEAD"):
+        r = fwd["client"].request(method, "/mockup/7", follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == BOARD + "/canvas/7", method
+        assert r.content == b""
+        check_sandbox_headers(r)                                    # a redirect carries the route's headers too
+
+
+def test_the_page_need_not_exist_here_and_a_leading_zero_is_dropped(fwd):
+    fwd["on"]()
+    assert get(fwd["client"], "/mockup/40").headers["location"] == BOARD + "/canvas/40"
+    assert get(fwd["client"], "/mockup/007").headers["location"] == BOARD + "/canvas/7"
+    assert get(fwd["client"], "/mockup/0").headers["location"] == BOARD + "/canvas/0"
+
+
+@pytest.mark.parametrize("base,expect", [
+    ("https://board.example.com", "https://board.example.com/canvas/3"),
+    ("https://board.example.com/", "https://board.example.com/canvas/3"),
+    ("https://board.example.com:8443", "https://board.example.com:8443/canvas/3"),
+    ("https://a-b.c.example.org/", "https://a-b.c.example.org/canvas/3"),
+])
+def test_the_base_is_https_host_and_optional_port(fwd, base, expect):
+    fwd["on"](base)
+    assert get(fwd["client"], "/mockup/3").headers["location"] == expect
+
+
+def test_the_request_cannot_change_the_target(fwd):
+    fwd["on"]()
+    r = get(fwd["client"], "/mockup/3?next=//evil.example&host=evil.example#//evil.example",
+            headers={"Host": "evil.example", "X-Forwarded-Host": "evil.example", "X-Forwarded-Proto": "http", "Referer": "https://evil.example/"})
+    assert r.status_code == 302 and r.headers["location"] == BOARD + "/canvas/3"
+
+
+@pytest.mark.parametrize("path", [
+    "/mockup/3/",                       # a trailing slash
+    "/mockup/3%2F",                     # an encoded slash
+    "/mockup/3%2f..%2f..%2fx",
+    "/mockup/%2F%2Fevil.example",       # //evil as the number
+    "/mockup//evil.example",
+    "/mockup/3//evil.example",
+    "/mockup/3/evil.example",
+    "/mockup/3%5Cevil.example",         # an encoded backslash
+    "/mockup/%5C%5Cevil.example",
+    "/mockup/3\\evil.example",
+    "/mockup/3@evil.example",
+    "/mockup/%40evil.example",
+    "/mockup/3%0d%0aLocation:%20https://evil.example",   # CRLF
+    "/mockup/3%0d",
+    "/mockup/%0d%0a3",
+    "/mockup/3%00",
+    "/mockup/abc", "/mockup/-3", "/mockup/+3", "/mockup/3.5", "/mockup/1e3", "/mockup/0x10", "/mockup/%203", "/mockup/3%20",
+    "/mockup/%D9%A3",                   # an Arabic-Indic digit three
+    "/mockup/%EF%BC%93",                # a full-width digit three
+    "/mockup/3/versions/20260101T000000.000000Z",   # a saved version stays here
+    "/mockup/..", "/mockup/%2e%2e", "/mockup/",
+    "/mockup/1234567890123456",         # 16 digits
+    "/mockup/" + "9" * 400,
+])
+def test_nothing_but_a_bare_integer_is_forwarded(fwd, path):
+    fwd["on"]()
+    r = get(fwd["client"], path)
+    assert r.status_code != 302 and "location" not in r.headers, (path, r.status_code, r.headers.get("location"))
+
+
+def test_fifteen_digits_is_the_longest_number_forwarded(fwd):
+    fwd["on"]()
+    assert get(fwd["client"], "/mockup/" + "9" * 15).headers["location"] == BOARD + "/canvas/" + "9" * 15
+
+
+@pytest.mark.parametrize("base", [
+    "", "   ",
+    "http://board.example.com",                 # not https
+    "ftp://board.example.com", "board.example.com", "//board.example.com", "https:board.example.com", "javascript:alert(1)",
+    "https://board.example.com/path",          # a path
+    "https://board.example.com/a/",
+    "https://board.example.com//",
+    "https://board.example.com?x=1", "https://board.example.com/?x=1", "https://board.example.com#f",
+    "https://user@board.example.com", "https://user:pw@board.example.com", "https://board.example.com@evil.example",
+    "https://board.example.com\\@evil.example", "https://board.example.com\\evil.example",
+    "https://board.example.com\r\nX: y", "https://board.example.com\n", " https://board.example.com", "https://board.example.com ",
+    "https://", "https:///", "https://:443", "https://board.example.com:", "https://board.example.com:x", "https://board.example.com:123456",
+    "https://[::1]", "https://-bad.example.com", "https://bad-.example.com", "https://a..b.example.com", "https://ex%61mple.com",
+])
+def test_an_invalid_base_forwards_nothing_and_logs_a_line(fwd, base, caplog):
+    store(fwd["root"], 1)
+    fwd["on"](base)
+    with caplog.at_level("WARNING", logger="sala_web"):
+        r = get(fwd["client"], "/mockup/1")
+    assert r.status_code == 200 and "location" not in r.headers      # the page is served as it is without forwarding
+    assert any("SALA_CANVAS_FORWARD_URL" in m for m in caplog.messages), caplog.messages
+
+
+def test_a_base_that_is_not_set_at_all_is_logged_too(fwd, caplog):
+    fwd["env"].setenv("SALA_CANVAS_FORWARD", "on")
+    with caplog.at_level("WARNING", logger="sala_web"):
+        assert get(fwd["client"], "/mockup/1").status_code == 404
+    assert any("SALA_CANVAS_FORWARD_URL" in m for m in caplog.messages)
+
+
+def test_a_path_that_is_not_a_number_logs_nothing(fwd, caplog):
+    fwd["on"]("http://bad.example")
+    with caplog.at_level("WARNING", logger="sala_web"):
+        get(fwd["client"], "/mockup/abc")
+    assert not caplog.messages
+
+
+@pytest.mark.parametrize("method", ["post", "put", "patch", "delete", "options"])
+def test_other_methods_are_not_forwarded(fwd, method):
+    fwd["on"]()
+    r = fwd["client"].request(method.upper(), "/mockup/1", content=b"x", follow_redirects=False)
+    assert r.status_code == 405 and "location" not in r.headers and r.headers["allow"] == "GET, HEAD"
+
+
+def test_the_settings_are_read_from_sala_config_too_and_per_request(fwd, tmp_path):
+    cfg = tmp_path / "config"
+    cfg.write_text(f'SALA_CANVAS_FORWARD=on\nSALA_CANVAS_FORWARD_URL="{BOARD}"   # the board\n', encoding="utf-8")
+    fwd["env"].setenv("SALA_CONFIG", str(cfg))
+    assert get(fwd["client"], "/mockup/5").headers["location"] == BOARD + "/canvas/5"
+    cfg.write_text("SALA_CANVAS_FORWARD=off\n", encoding="utf-8")
+    assert get(fwd["client"], "/mockup/5").status_code == 404
+
+
+def test_the_redirect_is_inside_the_route_so_it_is_behind_the_same_sign_in(fwd):
+    # sala-web has no sign-in of its own: the proxy in front gates every path, /mockup included, before the app sees a request. The redirect is
+    # answered by the one route that serves /mockup, not by a second route or a middleware ahead of it, so it cannot be reached without it.
+    fwd["on"]()
+    app = fwd["client"].app
+    routes = [r for r in app.routes if getattr(r, "path", "").startswith("/mockup")]
+    assert {r.path for r in routes} == {"/mockup/{n:path}", "/mockup"}
+    assert len({r.endpoint for r in routes}) == 1
+    assert get(fwd["client"], "/mockup/2").status_code == 302
+
+
+def test_forward_target_builds_from_the_base_and_the_integer_only():
+    assert MK.forward_target("12", BOARD) == (BOARD + "/canvas/12", "")
+    assert MK.forward_target("x", BOARD) == (None, "")
+    url, why = MK.forward_target("12", "http://board.example.com")
+    assert url is None and "SALA_CANVAS_FORWARD_URL" in why
+    assert MK.forward_target("12\n", BOARD)[0] is None
+
+
 # -- the sandbox policy ----------------------------------------------------------------------------------------------------------------
 
 

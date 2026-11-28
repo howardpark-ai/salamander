@@ -141,15 +141,29 @@ status, not the text of an item's description without a model call, and reading 
 
 A command that prints nothing readable but exits 0 means nothing is linked. The command is the host's to write (for example a small script over the board client that prints the open items' descriptions).
 
+## Forwarding to the board
+
+Canvas pages are moving to the board's own store. Until they have moved, sala can forward a Canvas address there. It is off by default, and with it off every answer is exactly what it was.
+
+With `SALA_CANVAS_FORWARD=on` (also `1`, `true`, `yes`) and `SALA_CANVAS_FORWARD_URL=https://board.example.com`, `GET` and `HEAD` of `/mockup/<n>` answer `302` with `Location: https://board.example.com/canvas/<n>`. The visitor has signed in to sala first, as for every sala address; the redirect is part of the page route, behind that sign-in.
+
+- The target is the configured base plus the number, which must be digits only (1 to 15 of them) and nothing else; the request's host, query and the rest of its path never reach the target.
+- The base must be `https://host` or `https://host:port`, with no path, query, fragment or credentials. Anything else, or an unset base, means no redirect, and sala-web logs a line saying why; the page route then answers as before.
+- Only a bare number is forwarded. A saved version (`/mockup/<n>/versions/<id>`), a path that is not a number, and any method other than `GET` and `HEAD` are answered as before.
+- While `SALA_CANVAS_FORWARD` is on, `sala mockup clean` deletes nothing, by either rule, and says so, so no Canvas goes during the hold. `sala mockup remove` still works by hand. Switch the setting off and the daily pass applies its rules again.
+- Export and import of the existing pages is not part of this setting.
+
 ## Settings
 
 | Setting | Default | |
 |---|---|---|
+| `SALA_CANVAS_FORWARD` | unset (off) | `on` forwards `/mockup/<n>` to the board and holds the cleanup (*Forwarding to the board*) |
+| `SALA_CANVAS_FORWARD_URL` | unset | the board's base address, `https://host[:port]` and no path; read per request, so a change applies at the next load |
 | `SALA_MOCKUP_KEEP_DAYS` | `7` | the age rule's days |
 | `SALA_MOCKUP_MAX_BYTES` | `1073741824` (1 GB) | the folder's size cap; a named constant in `lib/mockup.py` (`CAP_BYTES_DEFAULT`) |
 | `SALA_MOCKUP_REFERENCES` | unset | how the pass learns which pages are linked (above) |
 
-All three are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
+All of them are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
 
 Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, new-window targets on `add` and `update`, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, the history icon and the version view with their
 addresses and refusals, and a real headless browser at a 390 px phone width in light and dark).
