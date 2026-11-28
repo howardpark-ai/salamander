@@ -1107,7 +1107,7 @@ the width and the display mode, so a resize or a rotation changes the next actio
   taken as it is and recorded. It is not walked back over: an entry without a record is also what an older sala left in
   a tab still open, and a Back onto one of those must show that page. Every in-page link to a view (`s/<name>`, `overview`)
   stays a real `<a href>` (Ctrl/Cmd/Shift/middle click open a tab); a plain click on one follows the rules. That holds for
-  a link in a reply too: every link there is `target=_blank`, but one to a view of sala's own (a relative
+  a link in a reply too: every link there is `target=_blank` (but a link to one of sala's own mockup pages, which has no target and opens in the same window, *Mockup pages*), but one to a view of sala's own (a relative
   `s/<name>` or the full `https://sala.example.com/s/<name>`, or either in the older `#s=<name>` form) is taken by sala like the sidebar's, so on a phone the
   installed app does not open Chrome's in-app view; a link to another origin (stackshot, GitHub) or another path still opens
   outside sala. A
@@ -1794,12 +1794,12 @@ A page should carry `<meta name="viewport" content="width=device-width, initial-
 
 **The history icon.** When page N has a saved earlier version, one small history icon sits at the right end of the back link's row (the link is that much narrower, so neither covers the other). A tap opens the list of versions below that row, in the page's flow, newest first, each row at least 44 px high and reading "Until <time>" in Korea time ("Until Wed Oct 28th 14:07 KST"); a tap on one opens `/mockup/<n>/versions/<id>`, read-only with the same sandbox headers, under a bar of one 44 px row: a "Current page" link back at the left and the same "Until <time>" at the right (cut with an ellipsis where both do not fit; the link never is). The id is the UTC time the version was replaced, as the CLI names the file (`20261127T142709.123456Z`); `mockup.version_block` and `mockup.history_block` build the bars, `mockup.read_version` and `mockup.list_versions` read the files, and an address is served only for a page that exists and an id that is a regular version file of that page, with no link on the way down. The list is a `<details>`, so it needs no script. Nothing is restored from here: `sala mockup undo N` is the only restore.
 
-**A back link at the top of every page.** The installed app (manifest `start_url` and `scope` are `./`, so the whole origin is the app's scope) keeps a same-origin link inside its own window even when the link is `target=_blank`:
+**A back link at the top of every page.** The installed app (manifest `start_url` and `scope` are `./`, so the whole origin is the app's scope) opens a same-origin `target=_blank` link in a window of its own on an Android phone, where Back closes that window to the home screen instead of returning to the chat; so a link to a mockup page carries no `target`, and the installed app opens it where it is tapped:
 a tap on `https://<host>/mockup/<n>` in a reply replaces the chat in that window, and a standalone window has no address bar and no Back button of its own to return with. Only a link out of scope opens in a Custom Tab.
 So the server puts one plain link at the top of the body when it serves a page (`mockup.with_back_link`; the stored file is not changed): "Back to sala", an ordinary `<a href="../chat">` (relative, so it works under any path prefix;
 `/chat` answers a 302 to the chat session, or to the main page with none set). It is in the page's flow, not fixed, so it covers nothing; 44 px high at least, as wide as the page and no wider, styled inline (`all:initial`, so the
 page's own sheet does not change it). It goes right after the opening `<body>` tag (a tag inside a script, style or comment does not count); a page without a body gets it after `</head>`, else after `<html>`, else after the
-doctype. A link in a reply is **not** rewritten and the manifest is not changed: a narrower scope or another `start_url` could change how the installed app opens.
+doctype. A link to a page of sala's own (`/mockup/<n>` and `/mockup/<n>/versions/<id>` under the app's root, same origin) in a reply (markdown, or a bare address in a prompt, a notice or a tool result) or in a link card has no `target` and no `rel` (`isOwnMockupLink` and `linkTarget` in `app.js`), so it opens in the window it is tapped in, and the browser's Back returns to the chat: the chat's page is left, the app's own load opens that session again (a reload; whether the browser restores the old page from its back/forward cache is the browser's), and it lands at the bottom of the thread as any opened session does; sala's own click handler leaves a `/mockup/` link to the browser. Every other link, another origin and another path of this one included, keeps `target=_blank` and `rel="noopener noreferrer"`. Sala's own chat addresses (`s/<name>`) are as before. The manifest is not changed: a narrower scope or another `start_url` could change how the installed app opens.
 
 ## The chat session
 
@@ -1894,7 +1894,7 @@ card under its text, for every reply the session's reads send (the last page, an
 `chatpage.cards`'s rule (each address once, at most six, a Canvas's title from the local Canvas store, an artifact's from the link text, any other link none) over the reply's text blocks and puts `cards` on the message,
 `[{kind: "mockup" | "artifact", url, title, n (a Canvas only)}]`; a message with no such link has no `cards` key and another session's messages never have one. Nothing is fetched, by the server or by the page. The page draws each card in
 `renderMessage`, the one renderer every session uses (`linkCard` in `app.js`, called for an assistant message that has `cards`), as one `<a class="link-card">` under the reply's text and before its copy row: the title (or, with none, the kind of
-page), the kind in a smaller line ("Canvas 7", "Claude artifact") and "opens a page". It opens in a new tab with `rel="noopener noreferrer"`, the keyboard reaches it like any link, and a card whose address is neither shape is not drawn (the link
+page), the kind in a smaller line ("Canvas 7", "Claude artifact") and "opens a page". A Canvas card opens in the same window (no `target`, so the browser's Back returns to the chat; *Mockup pages*), a claude.ai artifact card in a new tab with `rel="noopener noreferrer"`; the keyboard reaches it like any link, and a card whose address is neither shape is not drawn (the link
 stays the plain link in the text). The words are the keys `chat.card.*` in English and Korean and follow a language change in place. It is sala's own card look: the panel gray, the border and the 8 px corner of the tool-call folds, the
 themes' tokens (so it follows the dark and light palettes and the stored color look), the accent focus ring, no color of its own. Like everything in the view it never makes the page wider: the card shrinks to the thread (420 px at most) and every
 line of it breaks anywhere.
@@ -2678,7 +2678,7 @@ path against Claude Code itself, start one on a private server
 
 The frontend is `src/sala_web/static/` (one HTML file, vanilla JS, CSS, no build step). A reply (and its thinking) is
 markdown, rendered by `marked` and sanitized by `DOMPurify` (`md()`: every link opens in a new tab with
-`rel="noopener noreferrer"`; a `javascript:` URL loses its href). A reply keeps what `DOMPurify` keeps by default, drawings
+`rel="noopener noreferrer"`, but one to a mockup page of sala's own, which opens in the same window; a `javascript:` URL loses its href). A reply keeps what `DOMPurify` keeps by default, drawings
 (`svg`), video, audio, formulas (`math`) and its own inline `style` included, and its box (`.md`, `style.css`) has layout and
 paint containment: nothing the reply draws, positioned, fixed, moved, scaled, raised, shadowed or pulled by a negative margin,
 paints, takes a click or stretches the page outside the box. The one

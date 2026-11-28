@@ -2,7 +2,7 @@
 
 The chat session (SALA_CHAT_SESSION) is sala's own view of a session. A reply of that session that links a /mockup/<n> page of this site or a claude.ai artifact is drawn with a
 card under its text, by the one renderer every session uses. Held here, at 1280 x 800 and 390 x 844, against the real server and a real transcript (nothing is replaced):
-  - each such link is one card under the reply's text: the right address, a new tab, rel noopener, its title and the kind of page it is, focusable by keyboard; a link that is
+  - each such link is one card under the reply's text: the right address, the window it opens in (a mockup page the same one, an artifact a new tab), its title and the kind of page it is, focusable by keyboard; a link that is
     not a mockup or an artifact has no card and stays the plain link in the text;
   - the card is sala's own: the panel gray with the border and corner of sala's folds, the text colors tokens, readable (4.5:1) in the dark and the light palette;
   - a card follows the interface language in place (English, Korean) with no redraw;
@@ -93,7 +93,9 @@ def test_each_mockup_and_artifact_link_has_a_card_under_the_text_and_a_plain_lin
     assert (art["href"], art["title"], art["kind"]) == (ART, "the plan", "Claude artifact"), art
     assert (bare["href"], bare["title"], bare["kind"]) == (ART_LONG, "Claude artifact", None), bare   # no link text: the kind is the title
     for c in d["cards"]:
-        assert c["tag"] == "A" and c["target"] == "_blank" and "noopener" in c["rel"] and c["tab"] >= 0, c      # a link: the keyboard reaches it, a new tab
+        assert c["tag"] == "A" and c["tab"] >= 0, c      # a link: the keyboard reaches it
+        # sala's own page opens in the window it is tapped in (Back returns to the chat); a claude.ai artifact in a new tab
+        assert (c["target"], "noopener" in c["rel"]) == (("", False) if c["href"].startswith("mockup/") else ("_blank", True)), c
         assert c["opens"] and "↗" in c["opens"] and c["below"], c
     for want in (PLAIN, "https://docs.example.test/guide/start", "/mockup/3", ART):
         assert want in d["plain"], (want, d["plain"])      # the text keeps every link it had, and the two that are not cards are only that
