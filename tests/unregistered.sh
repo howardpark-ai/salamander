@@ -134,6 +134,16 @@ if [ -n "$GEN" ] && tmux has-session -t "=$GEN" 2>/dev/null; then
     $T kill-session -t "=$GEN"
 else bad "no throwaway made by a name-less spawn: $SPOUT"; fi
 
+echo "== e: a session with no agent role (spawn --role none: its registry row's no_role mark) is exempt although its name is not on the list"
+$T set-environment -g FAKE_SESSION_ID aaaaaaaa-1111-4000-8000-00000000000a; $T set-environment -g FAKE_NAME nr-demo; $T set-environment -g FAKE_LOG "$FAKE_LOG"
+NRN=delta-demo-quiet; SPOUT=$("$SALA" spawn "$NRN" --project projects/delta-demo --role none 2>&1)
+if tmux has-session -t "=$NRN" 2>/dev/null; then
+    fake_up nr-demo 2>/dev/null
+    reset; uw SALA_UNREGISTERED_GRACE=0
+    [ "$(nmiss)" = 1 ] && ! grep -q "$NRN" "$POSTS" && [ "$(nkeys)" = 1 ] && ok "the no-role session '$NRN' is not posted and has no key (only $B is)" || bad "no_role: posts=$(nmiss) keys=$(nkeys): $(slurp "$POSTS")"
+    $T kill-session -t "=$NRN"
+else bad "no session made by spawn --role none: $SPOUT"; fi
+
 echo "== c: a box with no stackshot, and the two switches, post nothing"
 reset; mv "$SALA_PROJECT_RECORD" "$HOME/projects.json.away"
 uw SALA_UNREGISTERED_GRACE=0

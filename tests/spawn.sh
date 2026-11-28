@@ -223,10 +223,20 @@ run orphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has
 # a session with no agent role (--role none): on no agents map, stackshot is not asked, the row is marked, the start folder is $HOME
 run gamma-foo-sess --project projects/foo --role none --dry-run
 [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-foo-sess' as a session with no agent role, named after projects/foo" && ! has "$OUT" "REGISTER:" && ! has "$OUT" "[dry-run] register:" && ok "--role none: the plan names no agent role, asks no register, needs no listing" || bad "role none dry run: rc=$RC — $OUT"
+has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ! has "$OUT" "$BACKD" && ok "--role none: it starts in \$HOME, not in SALA_BACK_CWD ($BACKD)" || bad "role none cwd: $OUT"
 list projects/foo gamma-foo-listed "a listed agent"
 run gamma-foo-listed --project projects/foo --role none --dry-run
-[ "$RC" != 0 ] && has "$OUT" "agent" && ok "--role none on a name the record lists as an agent: refused" || bad "role none listed: rc=$RC — $OUT"
+[ "$RC" != 0 ] && has "$OUT" "'gamma-foo-listed' is on a project's agents map" && has "$OUT" "a session with no agent role takes a name the record does not list" && ok "--role none on a name the record lists as an agent: refused with the record's reason" || bad "role none listed: rc=$RC — $OUT"
 unlist gamma-foo-listed
+# a record that cannot answer is no answer: the listed-name check fails closed (exit 6, no pane), as every other project spawn does; SALA_AGENT_CHECK=off is the one way past
+for how in missing stale garbage; do
+    recbreak "$how"
+    run gamma-foo-sess --project projects/foo --role none --dry-run
+    [ "$RC" = 6 ] && has "$OUT" "stackshot's project record cannot answer" && has "$OUT" "a session with no agent role must not take that name" && ok "--role none with a $how project record: refused (exit 6), not started on a guess" || bad "role none $how record: rc=$RC — $OUT"
+    SALA_AGENT_CHECK=off run gamma-foo-sess --project projects/foo --role none --dry-run
+    [ "$RC" = 0 ] && ok "--role none with a $how record and SALA_AGENT_CHECK=off: goes through" || bad "role none $how, check off: rc=$RC — $OUT"
+done
+rebuild_rec
 SALA_AGENT_CHECK=off run gamma-foo-main --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && has "$OUT" "not checked (SALA_AGENT_CHECK=off)" && ok "SALA_AGENT_CHECK=off: the record is not read, the dry run says so" || bad "check off: rc=$RC — $OUT"
 
@@ -825,6 +835,7 @@ run gamma-rec-rcv2 --project projects/foo --role front --mandate "rcv2 work" --l
 # a real spawn with --role none: the pane starts, the row has the project, no role and no_role=1, nothing is registered with stackshot
 creset; run gamma-rec-sess --project projects/foo --role none
 [ "$RC" = 0 ] && [ "$(sregf gamma-rec-sess no_role)" = "projects/foo None 1" ] && [ "$(cposts)" = 0 ] && tmux has-session -t =gamma-rec-sess 2>/dev/null && ok "--role none: the pane starts, the row has the project and no_role=1 and no role, nothing registered" || bad "role none real: rc=$RC row='$(sregf gamma-rec-sess no_role)' — $OUT"
+[ "$(tmux display -p -t gamma-rec-sess:0 '#{pane_current_path}' 2>/dev/null)" = "$HOME" ] && ok "--role none: the pane starts in \$HOME, not in SALA_BACK_CWD" || bad "role none pane cwd: '$(tmux display -p -t gamma-rec-sess:0 '#{pane_current_path}' 2>/dev/null)' (home $HOME, back $BACKD)"
 tmux kill-session -t =gamma-rec-sess 2>/dev/null
 
 # THE EXEMPTION'S REACH on a project spawn: it skips the requirement to be listed, never the role of a name the record DOES list

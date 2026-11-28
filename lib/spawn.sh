@@ -31,7 +31,7 @@
 # A SESSION WITH NO AGENT ROLE (--project <page key> --role none): a session the owner creates to work with, named after a project. It is on no agents map: stackshot is
 # not asked and nothing is registered (the gate and the unregistered-agent watch skip it by the row's no_role mark), no mandate is required, and it starts in $HOME, where the
 # CLI loads the front rules, never in SALA_BACK_CWD. Its registry row carries the project and no role, so the sessions list shows it as it shows a front agent's. A name the
-# project record lists is refused: the record gives that name's role. Only a project's lead (--role back) starts in SALA_BACK_CWD.
+# project record lists is refused: the record gives that name's role (a record that cannot answer refuses too, as every other project spawn does). Only a project's lead (--role back) starts in SALA_BACK_CWD.
 #
 # A PROJECT AGENT (--project <page key> --role front|back; both or neither): a session of a project, registered by its line
 # on the hub page's `agents:` map — a front agent (the ones the owner talks to) a top-level entry, a background one under
@@ -631,7 +631,10 @@ elif [ -n "$PROJECT" ]; then
         LISTED="no agent role: on no agents map, stackshot is not asked"
         if [ "${SALA_AGENT_CHECK:-on}" != off ]; then
             rec=$(project_record_agent "" "$NAME"); rrc=$?
-            [ "$rrc" != 0 ] || { spawn_log "refused: $rec"; die "'$NAME' is on a project's agents map ($(sed -n 1p <<< "$rec")): a session with no agent role takes a name the record does not list; spawn it with the role the record gives (--role front or back), or pick another name"; }
+            case "$rrc" in
+                0) spawn_log "refused: $rec"; die "'$NAME' is on a project's agents map ($(sed -n 1p <<< "$rec")): a session with no agent role takes a name the record does not list; spawn it with the role the record gives (--role front or back), or pick another name" ;;
+                1) spawn_log "project record: no answer ($rec)"; spawn_record_refuse "$rec" "whether '$NAME' is an agent on a project's agents map (a session with no agent role must not take that name)" ;;
+            esac
         fi
     elif [ "${SALA_AGENT_CHECK:-on}" = off ]; then LISTED="not checked (SALA_AGENT_CHECK=off)"
     elif exempt=$(agent_gate_exempt "$NAME" 0 "$GENERATED"); then
