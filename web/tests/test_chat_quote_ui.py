@@ -229,7 +229,7 @@ def test_a_sent_quote_is_a_blockquote_and_the_line_after_it_is_outside(served, b
     assert wait_for(browser, "!!document.querySelector('.msg.user .bubble blockquote')", 8.0)
     b = browser.evaluate(BUBBLE)
     assert b["kids"] == [["BLOCKQUOTE", "Alpha line one is here.\nBeta"], ["DIV", "After the quote"]], b
-    assert b["margin"] == "0px 6px", b      # nothing above the box, 6px between it and the line after it
+    assert b["margin"] == "0px 8px", b      # nothing above the box, 8px between it and the line after it
 
 
 QUOTE_LOOK = """(() => { const q = [...document.querySelectorAll('.msg.user .bubble blockquote')].pop(), c = getComputedStyle(q);
@@ -250,7 +250,7 @@ def test_a_sent_quote_is_a_tinted_box_with_small_text_in_the_message_colour(serv
     b = browser.evaluate(QUOTE_LOOK)
     assert b["size"] == "13px", b
     assert b["color"] == b["text"], b                      # the quote keeps the text colour, not the muted one
-    assert b["radius"] == "6px", b
+    assert b["radius"] == "8px", b
     assert b["edge"].startswith("4px solid "), b
     assert b["bg"] != "rgba(0, 0, 0, 0)" and b["bg"] != b["bubble"], b   # a tint is drawn over the bubble
     assert b["qw"] <= b["bw"], b                           # the box stays inside the bubble
