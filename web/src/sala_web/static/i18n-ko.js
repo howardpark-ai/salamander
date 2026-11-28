@@ -312,7 +312,7 @@ window.SALA_I18N_KO = {
   "chat.ask.howTerm": "\ud130\ubbf8\ub110 \ud0ed\uc5d0\uc11c \ub2f5\ud574 \uc8fc\uc138\uc694.",
   "chat.ask.multi": "\uc5ec\ub7ec \uac1c\ub97c \uace0\ub97c \uc218 \uc788\uc5b4\uc694.",
   "chat.card.artifact": "Claude \uc544\ud2f0\ud329\ud2b8",
-  "chat.card.mockup": "\ubaa9\uc5c5 {n}",
+  "chat.card.mockup": "\uce94\ubc84\uc2a4 {n}",
   "chat.card.opens": "\ud398\uc774\uc9c0 \uc5f4\uae30 \u2197",
   "chat.group": "\ub0b4 \ucc28\ub840",
   "chat.kept.count": "\uc624\ub298 \ubcf4\ub958 {n}\uac74",
