@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `web/tests/test_chat_quote_ui.py` +4, one check changed: a sent quote's look (Sat Nov 28th 2026)
+
+The paths guarded: a quote inside a sent message bubble (`.msg.user .bubble blockquote`, the "> " format unchanged) must read as a quote; the old rule drew a thin grey edge and dimmed text, which a reader took for a faded line.
+Held (headless Chromium, computed styles): the quote is a box with an 8px radius, a 4px solid accent left edge, a tint over the bubble, 13px text in the message's own text colour (not the muted one), inside the bubble; in the light and the dark theme, at 1280 x 800 and at 360 x 740. The old check of "no space above or below" now reads 0 above and 8px below when a line follows.
+Not covered, and why: the contrast of the edge and the tint is read by eye from the mock the look was chosen on, not measured; a real phone is not run (the 360 px width is emulated). Runs in GitHub CI with the browser checks.
+
 ### `tests/feedbackdrain.sh` new, 31; `tests/op.sh` +6, one check extended (Sat Nov 28th 2026)
 
 The paths guarded: the drain presses keys in a live pane, where a wrong key sends a transcript or deletes an unsent draft; Esc at the exit's drafts gate deletes the drafts; a draft the drain cannot send must not keep a pane from its relaunch. In the queue, an operation judged stuck starts a `claude -p` and raises an alarm.
