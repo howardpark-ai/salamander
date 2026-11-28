@@ -11,7 +11,7 @@ nobody's work. It exists to be talked to, and it must leave a write-up behind be
 | Start | Command | The session |
 |---|---|---|
 | **Fork** | `sala spawn --side --fork-of AGENT [--item ID] [NAME]` | continues the live conversation of `AGENT` (`claude --resume <its current uuid> --fork-session`, found for you), started in the agent's directory (the CLI finds a conversation by it) unless `--cwd` says otherwise. Named `<agent>-side-<word><nn>` (the agent's name cut at a previous `-side-`). Its summary goes to the agent. |
-| **Discuss** | `sala spawn --side --project KEY --item ID [--agents A,B] [NAME]` | a **fresh** session (not a fork), scoped to the item's project page `KEY`. Named `<the project's usual agent prefix>-side-<word><nn>` (its main agent in stackshot's project record, else the `--suggest-name` convention). Its summary goes to the project's main agent. |
+| **Discuss** | `sala spawn --side --project KEY --item ID [--agents A,B] [NAME]` | a **fresh** session (not a fork), scoped to the item's project page `KEY`. Named `<the project's usual agent prefix>-side-<word><nn>` (from its contact in stackshot's project record: the front `-main` agent, else the lead, the one agent not marked front; a lead whose name ends in neither `-main` nor `-engineer`, or no contact, gives the `--suggest-name` convention). Its summary goes to the project's contact. |
 
 `--suggest-name --side (--fork-of AGENT | --project KEY)` prints a name. A given name must be an agent name containing
 `-side-` (at most 48 characters). The item id is any form stackshot shows: `board#N`, a temporary `board-tmp-box#N`, an
@@ -53,7 +53,7 @@ Run by the side session itself (its own tmux session is the default `--name`). I
    started, in the local mirror of the pages (`$SALA_BRAIN_DIR`, unset by default; every put is committed to it at once). Where the
    mirror is not on the box, the page's last change from stackshot (`get page-ts`) after the start counts, said as the weaker proof.
    No project on the record: skipped, and said.
-3. **The summary reached the origin agent (a fork) or the project's main agent (a start about an item).** The full write-up stays
+3. **The summary reached the origin agent (a fork) or the project's contact, its front `-main` agent or else its lead (a start about an item).** The full write-up stays
    on the item and the page (checks 1 and 2 prove it); `side done` sends the receiver a **pointer** through stackshot's client
    `message`, once, only when everything else holds, and a repeat never sends it again. To an agent (a `-main`, any other front
    agent, a background agent; `--summary-to NAME` picks another one) the pointer is **one line, sent with `--fyi` and no

@@ -686,6 +686,64 @@ mkrec 5 '{"projects/foo": {"gamma-rec-solo": [true, "a"], "gamma-rec-b-main": [t
 run gamma-rec-new --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && has "$OUT" "main agent: gamma-rec-a-main" && ok "the project's main is a front entry ending in -main (the first of two by name; a back entry ending so does not count)" || bad "main: rc=$RC — $OUT"
 
+echo "== the lead: a project with no front -main is looked up through its one agent not marked front"
+# every lookup of a project's -main, against records of: a front -main beside a lead · a lead alone (named -engineer, -main, or neither) · a lead beside a
+# front agent that is no -main · no agents · two agents not marked front · a sole agent with no front/back mark · a record that cannot be read. gamma-lamp
+# is not the page's conventional prefix (gamma-foo), so each answer says where it came from
+declare -A LAMP=(
+  [both]='{"gamma-lamp-main": [true, "m"], "gamma-lamp-engineer": [false, "e"]}'
+  [lead]='{"gamma-lamp-engineer": [false, "e"]}'
+  [leadmain]='{"gamma-lamp-main": [false, "m"]}'
+  [leadfront]='{"gamma-lamp-engineer": [false, "e"], "gamma-desk-rowan": [true, "r"]}'
+  [named]='{"gamma-lamp-worker": [false, "w"]}'
+  [empty]='{}'
+  [two]='{"gamma-lamp-engineer": [false, "e"], "gamma-lamp-scout": [false, "s"]}'
+  [unmarked]='{"gamma-lamp-engineer": [null, "e"]}'
+)
+lamprec() { if [ "$1" = unreadable ]; then recbreak garbage; else mkrec 5 "{\"projects/foo\": ${LAMP[$1]}}"; fi; }
+same() { [ "$2" = "$3" ] && ok "$1: $(tr '\n' ' ' <<< "$3")" || bad "$1: wanted '$3', got '$2'"; }
+LN=gamma-lamp-new-scout; LOLD=gamma-lamp-side-old91; LSIDE=gamma-lamp-side-wren91
+mkdir -p "$SALA_SIDE_DIR"; printf 'name=%s\nproject=projects/foo\n' "$LOLD" > "$(side_file "$LOLD")"
+# record|rc of the contact read|contact|third line|project that owns a new name|role word|what the refusal calls the contact|role in the register command|side prefix|summary to|agent prefix
+while IFS='|' read -r -u 3 f crc contact kind owner role label cmdrole sidep sumto agentp; do
+    lamprec "$f"
+    out=$(project_record_agent projects/foo side-probe-nobody); rc=$?
+    if [ "$crc" = 1 ]; then same "$f, the contact read" "$rc" 1; else same "$f, the contact and its kind" "$rc|$(sed -n 2p <<< "$out")|$(sed -n 3p <<< "$out")" "3|$contact|$kind"; fi
+    out=$(project_for_name "$LN") || out=none
+    same "$f, the project that owns $LN" "$out" "$owner"
+    same "$f, the role word of $LN" "$(agent_role_word "$LN" "$contact")" "$role"
+    rename_side_plan "$LOLD" "$LN"; same "$f, a renamed side session's role" "$RL_ROLE" "$role"
+    run "$LN" --project projects/foo --role back --mandate scout --dry-run
+    if [ "$crc" = 1 ]; then
+        [ "$RC" = 6 ] && ok "$f, a project spawn: exit 6, no pane" || bad "$f project spawn: rc=$RC — $OUT"
+    else
+        [ "$RC" = 3 ] && [[ $(cmdline "$OUT") == *"projects/foo $LN --role $cmdrole --back "* ]] && ok "$f, a project spawn's register command: --role $cmdrole" || bad "$f register command: rc=$RC — $OUT"
+        if [ -n "$label" ]; then has "$OUT" "; $label: $contact)" && ok "$f, the refusal calls $contact the $label" || bad "$f label: $OUT"
+        else ! has "$OUT" "main agent:" && ! has "$OUT" "; lead:" && ok "$f, the refusal names no contact" || bad "$f label: $OUT"; fi
+    fi
+    run "$LN" --dry-run
+    if [ "$crc" = 1 ]; then [ "$RC" = 6 ] && ok "$f, a plain spawn: exit 6, no pane" || bad "$f plain spawn: rc=$RC — $OUT"
+    elif [ "$owner" = none ]; then [ "$RC" = 3 ] && has "$OUT" "no project of the record owns the name" && ! has "$OUT" "REGISTER:" && ok "$f, a plain spawn: refused, no project guessed" || bad "$f plain spawn: rc=$RC — $OUT"
+    else [ "$RC" = 3 ] && has "$OUT" "REGISTER: $owner" && [[ $(cmdline "$OUT") == *"$owner $LN --role $role "* ]] && ok "$f, a plain spawn: REGISTER $owner, --role $role" || bad "$f plain spawn: rc=$RC — $OUT"; fi
+    run --suggest-name --side --project projects/foo
+    [ "$RC" = 0 ] && grep -qE "^$sidep-side-[a-z]+[0-9]{2}\$" <<< "$OUT" && ok "$f, a side session's name: $sidep-side-…" || bad "$f side name: rc=$RC — $OUT"
+    run "$LSIDE" --side --project projects/foo --item board#12 --dry-run
+    [ "$RC" = 0 ] && has "$OUT" "its write-up summary goes to $sumto)" && ok "$f, a side session's summary goes to $sumto" || bad "$f summary: rc=$RC — $OUT"
+    run --suggest-name --project projects/foo --role back
+    [ "$RC" = 0 ] && grep -qE "^$agentp-[a-z]+\$" <<< "$OUT" && ok "$f, a new agent's name: $agentp-…" || bad "$f agent name: rc=$RC — $OUT"
+done 3<<'T'
+both|3|gamma-lamp-main||projects/foo|new-scout|main agent|new-scout|gamma-lamp|gamma-lamp-main|gamma-lamp
+lead|3|gamma-lamp-engineer|lead|projects/foo|new-scout|lead|new-scout|gamma-lamp|gamma-lamp-engineer|gamma-lamp
+leadmain|3|gamma-lamp-main|lead|projects/foo|new-scout|lead|new-scout|gamma-lamp|gamma-lamp-main|gamma-lamp
+leadfront|3|gamma-lamp-engineer|lead|projects/foo|new-scout|lead|new-scout|gamma-lamp|gamma-lamp-engineer|gamma-lamp
+named|3|gamma-lamp-worker|lead|none|scout|lead|<role>|gamma-foo|gamma-lamp-worker|gamma-lamp
+empty|3|||none|scout||<role>|gamma-foo|gamma-foo-main|gamma-foo
+two|3|||none|scout||<role>|gamma-foo|gamma-foo-main|gamma-lamp
+unmarked|3|||none|scout||<role>|gamma-foo|gamma-foo-main|gamma-lamp
+unreadable|1|||none|scout|||gamma-foo|gamma-foo-main|gamma-foo
+T
+rm -f "$(side_file "$LOLD")"
+
 echo "== record_name_unlisted (a plain spawn's and rename's question): listed → no; on no project → yes; the record cannot answer → rc 2 with the reason; the exemptions and SALA_AGENT_CHECK=off → no"
 mkrec 5 "$REC"
 record_name_unlisted gamma-rec-worker; rc=$?; [ "$rc" = 1 ] && ok "listed on a project of the record (a back agent): not unlisted" || bad "unlisted listed: rc=$rc"

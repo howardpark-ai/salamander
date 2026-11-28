@@ -42,8 +42,8 @@
 #     then a number, the prefix cut to fit and never left ending in a dash; rc 1 and a message when none is free. A real
 #     spawn with no NAME keeps the older rule: a front is `<prefix>-main` (the spawn's own checks then say whether it is on the
 #     page's agents map: exit 3 if not), a back agent a free word. The prefix is, in this order: --prefix P when given (the
-#     web form's: the project's own, or stackshot's `<scope>-<slug>` for a new one); the project record's own (its -main agent's
-#     name without `-main`, else what all its agents' names share); else the convention `<scope>-<slug>`, the scope being
+#     web form's: the project's own, or stackshot's `<scope>-<slug>` for a new one); the project record's own (its front -main agent's
+#     name without `-main`; with none, its lead's without `-main` or `-engineer`, common.sh THE LEAD AND THE CONTACT; else what all its agents' names share); else the convention `<scope>-<slug>`, the scope being
 #     SALA_SCOPES' word that is the page's directory (work/<slug> → work-<slug>), else a slug that already leads with another
 #     scope is the prefix as it is (projects/work-ir → work-ir), else the default scope (SALA_DEFAULT_SCOPE, else the first of
 #     SALA_SCOPES) in front of the slug (projects/ir → home-ir when home is the default);
@@ -102,8 +102,8 @@
 #     <agent>-side-<word><nn> (the agent's name cut at a previous -side-, the whole name at most SALA_AGENT_NAME_MAX characters);
 #     its write-up summary goes to the agent.
 #   · DISCUSS (--project KEY --item board#N): a fresh session scoped to the item's project page, named <the project's usual agent
-#     prefix>-side-<word><nn> (its -main agent in stackshot's project record, else the suggestion of --suggest-name); the page must
-#     exist (cannot tell: said, not refused). Its write-up summary goes to the project's -main.
+#     prefix>-side-<word><nn> (from its contact in stackshot's project record, else the suggestion of --suggest-name); the page must
+#     exist (cannot tell: said, not refused). Its write-up summary goes to the project's contact: its front -main agent, else its lead.
 # The name is generated (--suggest-name prints one; NAME given must contain -side- and be an agent name). THE MANDATE is written for it to
 # $SALA_STATE_DIR/mandates/side-<name>.md at run time (the dry run only says so): what the conversation is, the item (board#N and its
 # link), the project page's Current state and the item to read, the involved agents (--agents A,B: the item's owner, needs and sessions,
@@ -189,12 +189,13 @@ suggest_prefix() {  # <page key> → the conventional agent-name prefix (the hea
     for s in "${scopes[@]}"; do [ "$s" != "$scope" ] && [[ "$slug" == "$s"-* ]] && { echo "$slug"; return 0; }; done   # a slug that leads with another scope is the prefix as it is (the default scope is always put in front)
     if [ -n "$scope" ]; then echo "$scope-$slug"; else echo "$slug"; fi   # no scopes configured: the slug alone
 }
-project_record_naming() {  # <page key> → rc 0: line 1 the prefix the project's agents share (its -main agent's name without -main, else the leading dash-parts all its agents' names have; empty for none), line 2 how many agents it has · rc 1 the record cannot say (missing, stale, unreadable, no such project)
+project_record_naming() {  # <page key> → rc 0: line 1 the prefix the project's agents share (its front -main agent's name without -main; with none, its lead's name, contact_stem; else the leading dash-parts all its agents' names have; empty for none), line 2 how many agents it has · rc 1 the record cannot say (missing, stale, unreadable, no such project)
     local rf out
     record_file_r rf projects || return 1
-    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>/dev/null <<'PY'
+    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$_PY_LEAD" 2>/dev/null <<'PY'
 import datetime, json, sys
 path, max_age, key = sys.argv[1:4]
+exec(sys.argv[4])   # lead_of, stem_of (_PY_LEAD)
 try:
     d = json.load(open(path, encoding="utf-8"))
     if not isinstance(d, dict) or d.get("schema") != 1: sys.exit(1)
@@ -208,7 +209,9 @@ try:
     ag = p.get("agents") if isinstance(p.get("agents"), dict) else {}
     names = sorted(n for n, a in ag.items() if isinstance(a, dict) and isinstance(n, str))
     mains = [n for n in names if ag[n].get("front") is True and n.endswith("-main")]
+    led = stem_of(lead_of(ag))
     if mains: prefix = mains[0][:-5]
+    elif led: prefix = led
     elif names:
         parts = [n.split("-") for n in names]
         common = []
@@ -274,19 +277,19 @@ suggest_name() {  # <page key> <role> [prefix] [new] [real] → see the header (
 }
 
 # THE SIDE SESSIONS' NAMES (the header): <prefix>-side-<word><nn>
-side_prefix() {  # → the prefix: the agent forked from (cut at a previous -side-), else the project's usual agent prefix (its -main agent in stackshot's project record, else the suggestion)
-    local rec main
+side_prefix() {  # → the prefix: the agent forked from (cut at a previous -side-), else the project's usual agent prefix (its contact's name in stackshot's project record, contact_stem, else the suggestion)
+    local rec stem
     if [ -n "$FORK_OF" ]; then echo "${FORK_OF%%-side-*}"; return 0; fi
-    rec=$(project_record_agent "$SIDE_PROJECT" "side-probe-nobody" 2>/dev/null)   # not on any map: rc 3, line 2 the project's -main agent
-    main=$(sed -n 2p <<< "$rec")
-    case "$main" in ?*-main) echo "${main%-main}"; return 0;; esac
+    rec=$(project_record_agent "$SIDE_PROJECT" "side-probe-nobody" 2>/dev/null)   # not on any map: rc 3, line 2 the project's contact
+    stem=$(contact_stem "$(sed -n 2p <<< "$rec")")
+    [ -z "$stem" ] || { echo "$stem"; return 0; }
     suggest_prefix "$SIDE_PROJECT"
 }
-side_summary_to() {  # → who the write-up summary goes to: the agent forked from, else the project's -main (the record's, else <prefix>-main)
-    local rec main
+side_summary_to() {  # → who the write-up summary goes to: the agent forked from, else the project's contact (its front -main agent, else its lead; with neither <prefix>-main)
+    local rec contact
     if [ -n "$FORK_OF" ]; then echo "$FORK_OF"; return 0; fi
-    rec=$(project_record_agent "$SIDE_PROJECT" "side-probe-nobody" 2>/dev/null); main=$(sed -n 2p <<< "$rec")
-    echo "${main:-$(suggest_prefix "$SIDE_PROJECT")-main}"
+    rec=$(project_record_agent "$SIDE_PROJECT" "side-probe-nobody" 2>/dev/null); contact=$(sed -n 2p <<< "$rec")
+    echo "${contact:-$(suggest_prefix "$SIDE_PROJECT")-main}"
 }
 side_name_taken() {  # <name> → 0 when a tmux session or a live claude already carries it
     local pid
@@ -486,15 +489,15 @@ register_line() {  # → the line the register call lists the agent with: the ma
 shell_dq() {  # <text> → the text double-quoted for a shell (backslash, ", $ and ` escaped)
     printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"
 }
-register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate line> <the project's -main agent, or empty> [slack] → stackshot's register command (words only: sala never runs it); a slack agent's carries --surface slack
+register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate line> <the project's contact, or empty> [slack] → stackshot's register command (words only: sala never runs it); a slack agent's carries --surface slack
     local key=$1 r=$2 name=$3 line=$4 pmain=${5:-} sf=${6:-} role='<role>' pre flag rel
     stackshot_rel_r rel "${SALA_STACKSHOT_DIR:-$HOME/stackshot}" client   # the client's path below the checkout, as this box has it (lib/stackshot-path.sh)
-    pre=${pmain%-main}   # the project's name is its -main agent's without -main; the role is the part of NAME after it
-    if [ -n "$pmain" ] && [ "$pre" != "$pmain" ] && [ "${name#"$pre"-}" != "$name" ] && [ -n "${name#"$pre"-}" ]; then role=${name#"$pre"-}; fi
+    pre=$(contact_stem "$pmain")   # the project's name is its contact's without the ending; the role is the part of NAME after it
+    if [ -n "$pre" ] && [ "${name#"$pre"-}" != "$name" ] && [ -n "${name#"$pre"-}" ]; then role=${name#"$pre"-}; fi
     case "$r" in front) flag=--front ;; back) flag=--back ;; *) flag='--front|--back' ;; esac
     printf 'python3 ~/stackshot/%s post project-agent %s %s --role %s %s%s --mandate %s' "$rel" "$key" "$name" "$role" "$flag" "${sf:+ --surface $sf}" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
 }
-refuse_unlisted() {  # <page key> <role> <what the record said> [the project's -main agent] — the refusal (stderr), the marker and the register command (stdout), exit 3; nobody is messaged
+refuse_unlisted() {  # <page key> <role> <what the record said> [the project's contact] — the refusal (stderr), the marker and the register command (stdout), exit 3; nobody is messaged
     local line cmd; line=$(mandate_line); cmd=$(register_cmd "$1" "$2" "$NAME" "$line" "${4:-}" "$SURFACE")
     echo "✗ '$NAME' is not on the agents map of $1 ($3): a project agent is registered with stackshot before its session is made. Register it, then spawn again: $cmd" >&2
     echo "REGISTER: $1"
@@ -555,7 +558,7 @@ spawn_refuse_plain() {  # <why the record did not list it> → the refusal of a 
     local hub why=$1 line cmd note="" pmain; line=$(mandate_line)
     echo "✗ '$NAME' is not on stackshot's project record ($why): a session made for a project's work is registered with stackshot before its pane exists. Either spawn it with the registration (spawn $NAME --project <page key> --role front|back --mandate <one line>, or spawn $NAME --role <role word> [--front|--back] --mandate <one line>), or give it a throwaway's name (scratch-*, *-check-*, *-test-*, *-probe-*, or no name at all), or make it a side conversation (--side)." >&2
     if hub=$(project_for_name "$NAME"); then
-        pmain=$(project_record_agent "$hub" "$NAME" 2>/dev/null | sed -n 2p)   # the project's -main agent: the role is the part of NAME after its name
+        pmain=$(project_record_agent "$hub" "$NAME" 2>/dev/null | sed -n 2p)   # the project's contact: the role is the part of NAME after its name
         cmd=$(register_cmd "$hub" "" "$NAME" "$line" "$pmain")
         echo "   (register it with stackshot first; the command below leaves the side open: --front for a front agent, --back for a background one)" >&2
         echo "REGISTER: $hub"; echo "$cmd"
@@ -633,9 +636,9 @@ elif [ -n "$PROJECT" ]; then
         rec=$(project_record_agent "$PROJECT" "$NAME" "$ROLE"); rrc=$?
         case "$rrc" in
             0) LISTED=$(sed -n 1p <<< "$rec"); spawn_log "project record: '$NAME' is listed on $PROJECT ($ROLE)" ;;
-            3) pmain=$(sed -n 2p <<< "$rec")
+            3) pmain=$(sed -n 2p <<< "$rec"); pkind="main agent"; [ "$(sed -n 3p <<< "$rec")" != lead ] || pkind=lead
                if spawn_can_register; then spawn_register_plan "$PROJECT" "$(agent_role_word "$NAME" "$pmain")" "$ROLE"
-               else refuse_unlisted "$PROJECT" "$ROLE" "$(sed -n 1p <<< "$rec")${pmain:+; main agent: $pmain}" "$pmain"; fi ;;
+               else refuse_unlisted "$PROJECT" "$ROLE" "$(sed -n 1p <<< "$rec")${pmain:+; $pkind: $pmain}" "$pmain"; fi ;;
             5) spawn_log "refused: $rec"; die "$rec — a spawn takes the role the record gives: --role $([ "$ROLE" = front ] && echo back || echo front) (or change the page's line first)" ;;
             *) spawn_log "project record: no answer ($rec)"
                if spawn_can_register; then   # the record cannot say, stackshot can: it is asked to list the name (a repeat with the same side and mandate answers 200), and the read-back shows it
