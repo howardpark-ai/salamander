@@ -242,7 +242,7 @@ def test_the_only_input_is_a_disabled_checkbox():
 def test_the_page_hands_every_reply_to_these_rules():
     """app.js's own wiring, run in node against a stand-in for DOMPurify and the nodes it returns: the configuration, the
     hooks, and what is done to each element that comes back. test_md_rules_ui.py runs the real library in the page."""
-    wiring = APP[APP.index("if (window.DOMPurify) {"):APP.index("// A reply's box is a formatting context")]
+    wiring = APP[APP.index("function isOwnMockupLink(href) {"):APP.index("// A reply's box is a formatting context")]
     script = RULES + r"""
 const hooks = {}, removed = [], listeners = [];
 const element = (localName, attrs, name = localName) => ({ localName, attrs: { ...attrs },
@@ -253,7 +253,7 @@ const task = element("input", { type: "checkbox", disabled: "" }, "task"), live 
 const div = element("div", { id: "x", class: "msg", style: "cursor: url(a)" }), video = element("video", { src: "v" });
 let asked = null;
 globalThis.window = globalThis;
-globalThis.document = { addEventListener: (name) => listeners.push(name) };
+globalThis.document = { baseURI: "https://sala.example/", addEventListener: (name) => listeners.push(name) };
 globalThis.DOMPurify = {
   addHook: (name, fn) => { hooks[name] = fn; },
   sanitize: (html, cfg) => { asked = [html, cfg === MD_PURIFY]; return { querySelectorAll: () => [task, live, div, video] }; },
