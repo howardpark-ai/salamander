@@ -11,7 +11,9 @@ with the two endings below; what a final reply is, chatturns.reply_of's (strict)
      (transcript.parse_line: text and image blocks, a command's command block);
   2. the final replies of a turn the owner started: an assistant line reply_of calls final (a text block; a stop reason that is there and is not
      "tool_use", so a reply cut off at max_tokens counts; not a sidechain, not meta, not synthetic), its text blocks only. A leading [for <owner>] mark is
-     taken off (a reply that is only the mark keeps its text). A hook that sends such a turn back for one more reply gives two replies, and both show;
+     taken off (a reply that is only the mark keeps its text). A hook that sends such a turn back for one more reply (a user line, meta, "Stop hook feedback:") gives two replies, and only the later shows: the
+     reply or replies of the turn that stand directly before a refusal are left out once a reply follows it (several refusals in a row: the last reply
+     only; no reply after it yet: the earlier one stays). Only the refusal line decides, never what the texts say;
   3. a reply of a turn something else started (another session, a background task, a hook or a plugin, the board, a line sala typed) only when it opens with
      that mark and says something after it; it shows without the mark. A reply that belongs to no turn the read knows of is held to the same rule.
 
@@ -113,6 +115,12 @@ def _from_cli(d: dict) -> str | None:
     return "output" if text.startswith(_OUTPUT) else None
 
 
+def _refusal(d: dict) -> bool:
+    """Whether a line is Claude Code's record of a Stop hook refusing a reply: a user line, meta, not a sidechain, whose text is "Stop hook feedback:" and what
+    the hook said (the same line chatturns takes for a hook's follow-up). The summary system line and the blocking-error attachment beside it say it a second time."""
+    return (d.get("type") == "user" and d.get("isMeta") is True and not d.get("isSidechain") and _raw(d).startswith(CT._CONTINUATION_TEXT))
+
+
 def _questions(content: object) -> list[dict]:
     """A block of kind "question" for each question of the AskUserQuestion calls among a message's content blocks."""
     def words(d: dict, key: str) -> str:
@@ -174,11 +182,27 @@ class Selector(CK.Keeper):
         super().__init__(session_id, owner)
         self.rest = rest
         self.before: tuple | None = None    # (open, by) as the owner's slash command found them, while its local output may still follow
+        self.since: list[str] = []          # uuids of the replies shown since the last Stop hook refusal (or the turn's start)
+        self.held: list[str] = []           # those a Stop hook refusal came right after: hidden as soon as a later reply shows
+        self.hidden: set[str] = set()       # uuids of the replies a later reply took the place of
+        self._turn = self.turn
 
     def feed(self, d: dict, strict: bool = True) -> list[dict]:
         """`strict` is Keeper.feed's signature: here a reply always needs a stop reason, so a read never depends on whether the session is working."""
         if not isinstance(d, dict):
             return []
+        if self.turn != self._turn:      # a reply never takes the place of one of another turn
+            self._turn, self.since, self.held = self.turn, [], []
+        if _refusal(d):
+            self.held, self.since = self.held + self.since, []
+        out = self._feed(d)
+        if self.turn != self._turn:
+            self._turn, self.since, self.held = self.turn, [], []
+        if any(m["role"] == "user" and not (m.get("answer") or m.get("output") or m.get("interrupt")) for m in out):
+            self.since, self.held = [], []    # the owner wrote: what came before is answered
+        return out
+
+    def _feed(self, d: dict) -> list[dict]:
         if d.get("type") == "assistant":
             return self._reply(d)
         cli = _from_cli(d)
@@ -243,7 +267,12 @@ class Selector(CK.Keeper):
         out = super().feed(_words_only(d), True)
         if unplaced and not (self.mark.match(r["text"]) and self.mark.sub("", r["text"], count=1).strip()):
             return []
-        return [m for m in out if m["role"] == "assistant"]
+        replies = [m for m in out if m["role"] == "assistant"]
+        if replies:                      # a reply after a refusal takes the place of the replies before it
+            self.hidden.update(self.held)
+            self.held = []
+            self.since += [m["uuid"] for m in replies if m["uuid"]]
+        return replies
 
     def _rest_of(self, d: dict) -> list[dict]:
         """What a line that is no final reply still shows of a reply to the owner: the files and questions of its calls, or an API error's words."""
@@ -332,7 +361,7 @@ def _items(path: Path, start: int, end: int, sel: Selector) -> list[dict]:
         if d.get("type") != "system":     # a system line adds no message and starts no turn
             starts.setdefault(sel.turn, off)
         items.extend({"off": starts[sel.turn], "turn": sel.turn, "m": m} for m in out)
-    return items
+    return [it for it in items if it["m"]["uuid"] not in sel.hidden] if sel.hidden else items
 
 
 def _scan(path: Path, sid: str, owner: str, start: int, end: int, rest: bool = False) -> tuple[list[list[dict]], Selector]:
