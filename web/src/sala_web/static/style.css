@@ -1094,8 +1094,10 @@ body.dragging #drop-hint { display: flex; }
   .only-wide { display: none; }
   /* its top and height as #app's (the visible part of the screen), not the layout viewport's (bottom: 0 would be that) */
   #sidebar { position: fixed; z-index: 30; inset: var(--app-top, 0px) auto auto 0; height: var(--app-h, 100dvh); width: min(300px, 85vw);
-    transform: translateX(-100%); transition: transform .18s ease; }
-  body.side-open #sidebar { transform: none; }
+    transform: translateX(-100%); visibility: hidden; transition: transform .18s ease, visibility 0s .18s; }
+  /* closed, the drawer is hidden, not only slid away: a fixed, full-height, top-anchored box that is still rendered is what
+     iOS 26 WebKit reads as a top bar and softens the strip under the status bar for (the update strip came out blurred) */
+  body.side-open #sidebar { transform: none; visibility: visible; transition: transform .18s ease; }
   #scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20; }
   body.side-open #scrim { display: block; }
   /* the title bar spans the whole header on a phone too (the name is centred on the bar): the sidebar toggle is out of the
