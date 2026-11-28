@@ -217,15 +217,14 @@ def test_another_sessions_stream_carries_no_cards(served, monkeypatch):
 
 
 # ── linkCard, run in node ────────────────────────────────────────────────────
-LINK_TARGET = next(l for l in APP_JS.splitlines() if l.startswith("const linkTarget = ")) + "\n"
+NEW_TAB_DEF = next(l for l in APP_JS.splitlines() if l.startswith("const NEW_TAB = ")) + "\n"
 
 
 def run_cards(cards: list) -> list:
     """linkCard (the function's own text from app.js) with `el` and `tx` replaced by recorders: each card as {tag, attrs, kids} or null."""
     assert NODE, "node is not installed"
-    fn = (body_of(APP_JS, "function isOwnMockupLink(") + "\n}\n" + LINK_TARGET + body_of(APP_JS, "function linkCard(") + "\n}\n")
-    script = ("const document = { baseURI: 'https://sala.example.test/' };\n"
-              "const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids });\n"
+    fn = NEW_TAB_DEF + body_of(APP_JS, "function linkCard(") + "\n}\n"
+    script = ("const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids });\n"
               "const tx = (key, vars) => ({ 'data-i18n': key, ...(vars ? { 'data-i18n-vars': JSON.stringify(vars) } : {}) });\n"
               + fn + f"\nconsole.log(JSON.stringify({json.dumps(cards)}.map(linkCard)));")
     out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30)
@@ -233,13 +232,13 @@ def run_cards(cards: list) -> list:
 
 
 @pytest.mark.skipif(not NODE, reason="node is not installed")
-def test_a_card_is_one_link_with_its_words_by_key_a_mockup_in_the_same_window_an_artifact_in_a_new_tab():
+def test_a_card_is_one_link_with_its_words_by_key_both_in_a_new_tab():
     got = run_cards([{"kind": "mockup", "url": "/mockup/7", "n": 7, "title": "Pricing <b>page</b>"},
                      {"kind": "artifact", "url": ART, "title": "The plan"},
                      {"kind": "artifact", "url": "https://claude.ai/code/artifact/0a1b2c3d", "title": ""}])
     mock, art, bare = got
-    # sala's own page opens where it is tapped (Back returns to the chat); another site's opens in a new tab
-    assert mock["tag"] == "a" and mock["attrs"] == {"class": "link-card", "href": "mockup/7"}
+    # sala's own page and another site's both open in a new tab: the chat's page is never left
+    assert mock["tag"] == "a" and mock["attrs"] == {"class": "link-card", "href": "mockup/7", "target": "_blank", "rel": "noopener noreferrer"}
     assert art["attrs"]["href"] == ART and art["attrs"]["target"] == "_blank" and art["attrs"]["rel"] == "noopener noreferrer"
     assert [k["attrs"]["class"] for k in mock["kids"]] == ["lc-t", "lc-l", "lc-o"]
     assert mock["kids"][0]["attrs"] == {"class": "lc-t", "text": "Pricing <b>page</b>"}, "the title is set as text"
@@ -275,7 +274,7 @@ def test_one_renderer_draws_the_card_for_a_reply_only_and_nothing_is_fetched_or_
     card = body_of(APP_JS, "function linkCard(")
     for banned in ("innerHTML", "fetch(", "apiFetch(", "XMLHttpRequest", "window.open", "eval("):
         assert banned not in card, banned
-    assert "...linkTarget(href)" in card
+    assert "...NEW_TAB" in card
     assert "chat.js" not in (STATIC / "index.html").read_text(encoding="utf-8"), "no second page's script"
 
 
@@ -302,43 +301,9 @@ def test_the_cards_rules_are_sala_s_tokens_in_one_block_with_a_focus_ring_and_no
     assert "var(--link)" in " ".join(b for s, b in mine if s.endswith(".lc-o")) and "var(--muted)" in " ".join(b for s, b in mine if s.endswith(".lc-l"))
 
 
-# ── which links open where, run in node ──────────────────────────────────────
-def run_targets(hrefs: list, base: str = "https://sala.example.test/") -> list:
-    """linkTarget (app.js) over each address, with the page's base address set: the attributes a link to it gets."""
-    assert NODE, "node is not installed"
-    fn = body_of(APP_JS, "function isOwnMockupLink(") + "\n}\n" + LINK_TARGET
-    script = f"const document = {{ baseURI: {json.dumps(base)} }};\n" + fn + f"\nconsole.log(JSON.stringify({json.dumps(hrefs)}.map(linkTarget)));"
-    out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30)
-    return json.loads(out.stdout)
-
-
-NEW_TAB = {"target": "_blank", "rel": "noopener noreferrer"}
-
-
-@pytest.mark.skipif(not NODE, reason="node is not installed")
-@pytest.mark.parametrize("href", ["mockup/115", "/mockup/3", "https://sala.example.test/mockup/3", "https://sala.example.test/mockup/3/",
-                                  "https://sala.example.test/mockup/3/versions/20261127T142709.123456Z"])
-def test_a_link_to_sala_s_own_mockup_page_opens_in_the_same_window(href):
-    assert run_targets([href]) == [{}]
-
-
-@pytest.mark.skipif(not NODE, reason="node is not installed")
-@pytest.mark.parametrize("href", ["https://other.example.test/mockup/3", "https://sala.example.test.evil.example/mockup/3", "http://sala.example.test/mockup/3",
-                                  "https://sala.example.test/mockup/", "https://sala.example.test/mockup/0", "https://sala.example.test/mockup/x",
-                                  "https://sala.example.test/mockup/3/other", "https://sala.example.test/api/sessions", "https://sala.example.test/s/demo",
-                                  "https://claude.ai/artifact/abc", "https://example.com/x", "not a url", ""])
-def test_any_other_link_still_opens_in_a_new_tab(href):
-    assert run_targets([href]) == [NEW_TAB]
-
-
-@pytest.mark.skipif(not NODE, reason="node is not installed")
-def test_under_a_path_prefix_only_the_prefixed_mockup_page_is_sala_s():
-    base = "https://host.example.test/sala/"
-    assert run_targets(["mockup/4", "https://host.example.test/sala/mockup/4", "https://host.example.test/mockup/4"], base) == [{}, {}, NEW_TAB]
-
-
+# ── which links open where ───────────────────────────────────────────────────
 def test_the_reply_s_links_and_the_text_links_take_their_attributes_from_one_rule():
     hook = body_of(APP_JS, "DOMPurify.addHook(\"afterSanitizeAttributes\"")
-    assert "isOwnMockupLink(node.getAttribute(\"href\"))" in hook and 'setAttribute("target", "_blank")' in hook
+    assert "setAttribute(\"target\", NEW_TAB.target)" in hook and "isOwn" not in hook and "isOwn" not in APP_JS
     nodes = APP_JS[APP_JS.index("const linkNodes ="):][:300]
-    assert "...linkTarget(t.href)" in nodes
+    assert "...NEW_TAB" in nodes

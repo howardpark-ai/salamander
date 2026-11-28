@@ -712,16 +712,15 @@ def test_a_link_in_a_reply_to_sala_s_own_page_stays_in_sala(served, browser, wid
 
 
 @pytest.mark.parametrize("width", [390, 1280])
-def test_a_reply_s_link_to_sala_s_mockup_page_opens_in_the_same_window_and_another_link_in_a_new_tab(served, browser, width):
-    """the installed phone app opens a target=_blank link in a window of its own, where Back closes the app instead of
-    returning to the chat: a link to one of sala's own mockup pages has no target, every other link keeps _blank."""
+def test_a_reply_s_link_to_sala_s_mockup_page_opens_in_a_new_tab_like_any_other(served, browser, width):
+    """every link in a reply opens in a new tab, a link to one of sala's own mockup pages too: the chat's page is not left."""
     open_app(browser, served, f"#s={A}", width=width)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length >= 1", 10.0)
     links = {"rel": "mockup/115", "full": "{origin}/mockup/115", "other": "{origin}/api/sessions", "site": "https://example.com/mockup/115"}
     text = "\n\n".join(f"[{k}]({v})" for k, v in links.items())
     got = browser.evaluate(f"""(() => {{ const d = md({json.dumps(text)}.split("{{origin}}").join(location.origin));
       return [...d.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("target"), a.getAttribute("rel")]); }})()""")
-    assert got == [["rel", None, None], ["full", None, None], ["other", "_blank", "noopener noreferrer"], ["site", "_blank", "noopener noreferrer"]], got
+    assert got == [[k, "_blank", "noopener noreferrer"] for k in links], got
 
 
 @pytest.mark.parametrize("width", [390, 1280])
