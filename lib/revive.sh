@@ -90,7 +90,7 @@ LOG="$SALA_LOG_DIR/salamander-revive.log"
 RETRY_WHAT="${SALA_RETRY_WHAT:-Recycle}"   # the kind of a set a worker started by hand (no SALA_SET) makes for itself
 pane_exists() { tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qxF "$1"; }
 # transient_skip <skip line> → 0 when the reason clears by itself (worth retrying)
-transient_skip() { case "$1" in *"registry says"*|*"idle for only"*|*"background task is running"*|*"background work in flight"*|*"background agent or task wrote"*|*"no registry status"*|*"unsubmitted text"*|*"did not take /exit"*|*"a turn is running"*|*"a subagent is running"*|*"resting until"*) return 0;; *) return 1;; esac; }
+transient_skip() { case "$1" in *"registry says"*|*"idle for only"*|*"background task is running"*|*"background work in flight"*|*"background agent or task wrote"*|*"no registry status"*|*"unsubmitted text"*|*"did not take /exit"*|*"a turn is running"*|*"a subagent is running"*|*"resting until"*|*"work showed during the feedback send"*) return 0;; *) return 1;; esac; }
 # rest_applies → 0 when this run relaunches for a ROUTINE flag, so a pane that started less than SALA_RECYCLE_REST ago waits (common.sh,
 # recycle_rest_left): a recycle's sweep, or a retry worker's re-run of a recycle's pane, unless the flag came from the owner's
 # words (`sala op recycle`, src op-recycle). A direct revive, a lane or model switch and the reboot are explicit relaunches: no rest.
@@ -1013,8 +1013,9 @@ check_pane() {
 # every skip and failure here RELEASES the hold and records the row the serial loop recorded; the hold of a pane that is closed
 # is released after its resume (verify_pane).
 close_pane() {
-    local pane="$1" sess="$2" label="$3" cpid="$4" ver="$5" uuid="$6" hname="$7" rc draft jpid why
+    local pane="$1" sess="$2" label="$3" cpid="$4" ver="$5" uuid="$6" hname="$7" rc draft jpid why mark drained=""
     # a draft the drain cannot send holds nothing up: it stays queued on disk through the relaunch, and exit_wait passes the gate (lib/feedback.sh)
+    drain_mark mark "$cpid" "$uuid"
     unmode "$pane"; send_feedback_drafts "$pane" "$uuid" || emit ECHO "$label: feedback draft(s) not sent (see $SALA_LOG_DIR/salamander-feedback.log) — they stay queued through the relaunch"
     if ! prompt_clears "$pane" 10; then inbox_release "$uuid" "$hname"; SKIPPED+=("$label: a terminal prompt is showing — dismiss it (attach) and rerun"); return; fi
     # THE RE-CHECK, just before the /exit: phase 1 read the pane some seconds before its
@@ -1023,7 +1024,11 @@ close_pane() {
     # reading as phase 1 (is_idle_reason: registry status, the idle settle, the Stop hook's record of background work), and the same
     # outcome: a transient skip, retried later, its hold released.
     inbox_touch "$uuid" "$hname"   # a long sweep (SALA_SWEEP_JOBS panes at a time) must not age this hold past watch's 10-minute stale drop before its /exit
-    why=$(is_idle_reason "$cpid")
+    # the idle stamp the drain itself moved is not activity (common.sh, THE DRAIN'S OWN STAMP); anything else since the mark holds the pane
+    drain_settle "$cpid" "$uuid" "$mark" || drained="work showed during the feedback send"
+    # a marked pane may just have waited for the settle: the terminal prompt is looked at again, so that look is no older at the /exit
+    if [ -n "$mark" ] && ! prompt_clears "$pane" 10; then inbox_release "$uuid" "$hname"; SKIPPED+=("$label: a terminal prompt is showing — dismiss it (attach) and rerun"); return; fi
+    why=$(is_idle_reason "$cpid"); why=${why:-$drained}
     if [ -n "$why" ]; then inbox_release "$uuid" "$hname"; skip "$label: $why — it was not idle once its inbox was held, /exit not sent, left on $ver"; return; fi
     local parked="" named=""
     # An ordinary revive also passes --name <session> when the pane's CURRENT row carries another name that sala did not get from a hand

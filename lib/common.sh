@@ -7099,6 +7099,57 @@ scrub_text() {   # text that holds none of the words or shapes the patterns need
 # the caller says so and goes on (the draft is a file that outlives the relaunch), and its /exit stops at the drafts gate,
 # which drafts_gate_pass passes.
 send_feedback_drafts() { "$SALA_BIN" feedback drain "$1" ${2:+"$2"}; }
+# THE DRAIN'S OWN STAMP. The /feedback panel moves the registry row's statusUpdatedAt, so right after sala's own send an idle pane
+# reads "idle for only 2s", and the Stop hook's record, filed under the old stamp, is no longer read. drain_mark before the
+# drain, drain_settle after it and before the idle check. A turn can end with no Stop hook (an interrupt, an API error) and leave
+# the record's id as it was, so a marked pane that shows work since the mark (drain_new_work) is held and its record stays.
+# drain_mark <var> <claude-pid> <uuid> → in <var>, "<idle stamp> <record id or -> <epoch> <transcript bytes> <work child pid>…" of a
+# pane that is idle and has a draft queued; else empty
+drain_mark() {
+    local _dm="" _did="" _dat _dt _dn=0 _dk
+    printf -v "$1" '%s' ""
+    drafts_queued "$3" || return 0
+    registry_field_r _dm "$2" statusUpdatedAt; _kv_first_r _did "$SALA_BUSY_DIR/$3" id
+    _now_r _dat; _dt=$(transcript_for_uuid "$3"); [ -z "$_dt" ] || _dn=$(($(wc -c < "$_dt")))
+    _dk=$(work_children "$2" | tr '\n' ' ')
+    [ -n "$(is_idle_reason "$2")" ] || printf -v "$1" '%s' "$_dm ${_did:--} $_dat $_dn $_dk"
+}
+# drain_new_work <claude-pid> <uuid> <epoch> <transcript bytes> [work child pid…] → 0 when something shows work since the mark: a work
+# child that was not there, a file written in a scratch folder of the session (or a folder that cannot be searched), or a model
+# answer added to the transcript (a turn ran)
+drain_new_work() {
+    local pid="$1" uuid="$2" since="$3" size="$4" k d f had; shift 4; had=" $* "
+    for k in $(work_children "$pid"); do [[ $had == *" $k "* ]] || return 0; done
+    while IFS= read -r d; do
+        [ -d "$d" ] || continue
+        f=$(find "$d" -type f -newermt "@$((since - 1))" -print -quit 2>/dev/null) || return 0
+        [ -z "$f" ] || return 0
+    done < <(session_scratch_dirs "$pid" "$uuid")
+    f=$(transcript_for_uuid "$uuid"); [ -n "$f" ] || return 1
+    grep -q '"type":"assistant"' < <(tail -c "+$((size + 1))" "$f" 2>/dev/null)   # no pipe: under pipefail an early match reads as none
+}
+# drain_settle <claude-pid> <uuid> <mark> — for a marked pane under a new stamp: the settle is waited out, then the old stretch's
+# record moves to that stamp. 1: the caller holds the pane, the record where it was: a turn is running or one ended during the drain,
+# the row changed during the wait, or there is new work. The idle check alone would not do: for a pane that said ready, or a paused
+# one, it looks at the settle and not at a new child.
+drain_settle() {
+    local was id since size kids st stamp now age i
+    read -r was id since size kids <<< "$3"; [ -n "$was" ] || return 0
+    registry_field_r st "$1" status; registry_field_r stamp "$1" statusUpdatedAt
+    [ "$stamp" != "$was" ] && [ "$st" != shell ] || return 0   # an unmoved stamp, or a row at 'shell' (a parked pane's too): left to the idle check
+    _kv_first_r now "$SALA_BUSY_DIR/$2" id
+    [ "$st" = idle ] && [ "${now:--}" = "$id" ] || return 1
+    for ((i = 0; i < SALA_IDLE_SETTLE; i++)); do
+        _stamp_age_r age "$stamp"; [ "$age" -lt "$SALA_IDLE_SETTLE" ] || break
+        sleep 1
+        registry_field_r now "$1" statusUpdatedAt; [ "$now" = "$stamp" ] || break
+    done
+    # the row first, the work after it: a turn that stamps the row after this read leaves the moved record unread
+    registry_field_r st "$1" status; registry_field_r now "$1" statusUpdatedAt
+    [ "$st" = idle ] && [ "$now" = "$stamp" ] || return 1
+    ! drain_new_work "$1" "$2" "$since" "$size" $kids || return 1
+    ! _busy_current "$1" "$2" "$was" >/dev/null || busy_stamp "$2" "$id" "$stamp" || :
+}
 # THE DRAFTS GATE AND PANEL (the CLI's own screens; lib/feedback.sh describes them).
 # drafts_panel_up <pane> → 0 when the /feedback drafts panel is showing, in any state: its header or one of its footers (a
 # long review scrolls the header off, and its first view has no footer)
