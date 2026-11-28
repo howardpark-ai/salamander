@@ -123,6 +123,17 @@ PYL
             intro="This session was just relaunched (recycle, revive or reboot). At $(local_human "$at") ($(ago "$at")) it left itself this note: \"$text\" — judge whether it still holds and carry on with it; nobody needs to cue you. Once it is handled, run \`sala note --done $id\`; until then it comes back after every relaunch."
             tail_="(Automatic salamander message; the note is this session's own words, not ${SALA_OWNER_NAME}'s.)"
         fi
+        if [ "${text:0:7}" = "[stop] " ]; then   # the one-time stop notice of a busy pane that is to be taken down (lib/common.sh pause_stop_notice): handed to the live pid, then retired; retired undelivered once that process is gone
+            tail_="(Automatic salamander message: sala wrote this before it restarts a busy session, not ${SALA_OWNER_NAME}. It is delivered once.)"
+            if [ -z "$cpid" ] || [ "$cpid" != "$pid" ]; then archive "$row" "sala (that process is gone; not delivered)" && { lock; awk -F'\t' -v i="$id" '$1!=i' "$NOTES" > "$NOTES.tmp.$$" && mv -f "$NOTES.tmp.$$" "$NOTES"; unlock; }
+            elif ! pause_active "$cpid" && sock=$(session_socket "$cpid") && [ -n "$sock" ] \
+               && session_push "$sock" "[sala note $id] ${text:7} $tail_"; then
+                archive "$row" "sala (delivered once)" || continue
+                lock; awk -F'\t' -v i="$id" '$1!=i' "$NOTES" > "$NOTES.tmp.$$" && mv -f "$NOTES.tmp.$$" "$NOTES"; unlock
+                nlog "delivered once and retired: $sess $id"; sent+=("$sess")
+            fi
+            continue
+        fi
         if [ "${text:0:9}" = "[escape] " ]; then   # the one-time note of a pause whose Escape did not take (lib/common.sh pause_escape_note): handed to the live pid, then retired
             tail_="(Automatic salamander message: sala wrote this when it sent the pause Escape, not ${SALA_OWNER_NAME}. It is delivered once.)"
             if [ -n "$cpid" ] && ! pause_active "$cpid" && sock=$(session_socket "$cpid") && [ -n "$sock" ] \

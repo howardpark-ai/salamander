@@ -214,9 +214,9 @@ retry_worker() {
                 fi
                 [ "$w" -ge "$SALA_READY_WAIT" ] && rlog "$label: ready by its own word but still not idle after ${SALA_READY_WAIT}s — $(is_idle_reason "$oldpid")"
             elif [ $((now - last)) -ge "$SALA_RETRY_EVERY" ]; then due=1
-            # THE PAUSE (common.sh): a pane whose clock has run out is tried now, not at the next SALA_RETRY_EVERY (at most every 2 min: a pane
+            # THE PAUSE (common.sh): a pane whose clock has run out is tried now, not at the next SALA_RETRY_EVERY (at most every 30 s: a pane
             # the pause refused is not tried over and over)
-            elif [ -n "$uuid" ] && [ $((now - last)) -ge 120 ] && pause_due "$uuid"; then due=1; rlog "$label: the pause's deadline is reached — tried now"; fi
+            elif [ -n "$uuid" ] && [ $((now - last)) -ge 30 ] && pause_due "$uuid"; then due=1; rlog "$label: the pause's deadline is reached — tried now"; fi
             [ "$due" = 1 ] || { still+=("$pane|$sess|$label|$oldpid|$last|$tries|$lastwhy"); continue; }
             round=$((round+1)); tries=$((tries+1))
             panepid=$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null); npid=$(claude_pid_under "$panepid")
@@ -473,7 +473,7 @@ while [ $# -gt 0 ]; do
                    echo "  every plan says \"lane: <runs on now> → <relaunched on>\"; a pane with no lane row that runs on another lane than the default is refused"
                    echo "  (salamander lane <lane> <session> records it; --lane-default accepts the default) · --dry-run: the verdicts, nothing relaunched or written"
                    echo "  a pane skipped for a passing reason (a turn running, a background child, a running subagent) is retried every $((SALA_RETRY_EVERY/60)) min for up to $((SALA_RETRY_WINDOW/60)) min, then deferred (watch relaunches it once it is free); one that said ready but is held by background shells only is deferred at once"
-                   echo "  a running subagent is never cut: it holds the pane until it ends, the skip line and watch's one log line name it, and the in-session mod's own answer (the busy probe) is asked before an exit is tried; an exit the mod refuses for a turn it cannot name, with every other check idle, goes by keys after $SALA_STALE_TURN_AFTER refusals, then the tries thin out (10 min, then 30 min)"
+                   echo "  a running subagent holds the pane (see docs/recycle.md), the skip line and watch's one log line name it, and the in-session mod's own answer (the busy probe) is asked before an exit is tried; an exit the mod refuses for a turn it cannot name, with every other check idle, goes by keys after $SALA_STALE_TURN_AFTER refusals, then the tries thin out (10 min, then 30 min)"
                    echo "  --rescue (with --only or --self): a stale background-task row — the exit dialog, the Stop hook's record or the mod listing work while NO child process runs under the claude — no longer holds the pane: the dialog is confirmed"
                    exit 0 ;;
         *) die "unknown option: $1 (see: salamander revive --help)" ;;
@@ -880,9 +880,9 @@ pause_try() {
     fi
     if ! pause_scope_ok "$sess"; then
         if [ "$DRY" = 1 ]; then   # the plan names the rule: a front agent is never paused unless the scope says all
-            case "${SALA_PAUSE_SCOPE:-background}" in
+            case "${SALA_PAUSE_SCOPE:-all}" in
                 off|no|false|0) ref="the pause is off (SALA_PAUSE_SCOPE=off)";;
-                *) ref="SALA_PAUSE_SCOPE=${SALA_PAUSE_SCOPE:-background} pauses only the back agents; a front agent is never paused and waits for its turn to end (SALA_PAUSE_SCOPE=all pauses every session)";;
+                *) ref="SALA_PAUSE_SCOPE=${SALA_PAUSE_SCOPE:-all} pauses only the back agents; a front agent is never paused and waits for its turn to end (SALA_PAUSE_SCOPE=all pauses every session)";;
             esac
             emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
         fi
@@ -894,18 +894,21 @@ pause_try() {
         pause_refusal_r ref "$pane" "$sess" "$cpid"
         [ -n "$ref" ] || pause_within_cap "$a" || ref="SALA_PAUSE_AFTER is not below SALA_HOLD_MAX, where the pause stops, so it waits for the pane to be free"
         if [ -n "$ref" ]; then emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
-        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it, then pause its turn (one Escape), relaunch it and leave it a note saying what it was doing"; fi
+        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it$(pause_notice_off || echo " after a stop notice (it is told to stop, leave a note and end with sala ready)"), then stop its turn (one Escape) and its subagents, hold its messages, relaunch it and leave it a note saying what it was doing"; fi
         return 1
     fi
     pause_refusal_r ref "$pane" "$sess" "$cpid"
     if [ -n "$ref" ]; then pause_clock_age_r held "$uuid"; [ "$held" -lt "$a" ] || emit ECHO "$label: not paused — $ref; it is waited for as before"; return 1; fi
     pause_hold "$uuid" "$hname"
     pause_clock_r held "$uuid"
+    # step one: the stop notice, once per wait (tell it to stop, leave a note, end with `sala ready`); the pane's inbox is held from here on.
+    # After the clock is read: a clock that starts here forgets the notice marker of an older wait
+    if pause_stop_notice "$sess" "$uuid" "$cpid"; then emit ECHO "$label: held ($why); sent it a stop notice, and its queued messages are held; sala stops its turn and subagents after $(hold_age_words "$a") if it has not ended its turn"; fi
     [ "$held" -ge "$a" ] || return 1
     pause_retry_in_r ref "$uuid"; [ "$ref" -le 0 ] || return 1   # a try that did not take is tried again SALA_PAUSE_RETRY s later (common.sh, pause_failed), not at every pass
     hold_pause_gate "$uuid" "${SALA_SET:-}" || return 1   # the cap again, right before the Escape; passed, the hold is not lifted under this relaunch
     if pause_pane "$pane" "$sess" "$cpid" "$uuid"; then
-        emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — its turn was interrupted with one Escape; it is relaunched next and a note leaves it what it was doing"
+        emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — $([ "${PAUSE_ESC:-0}" = 1 ] && echo "its turn was interrupted with one Escape" || echo "it had no turn of its own, so no Escape was sent, and its subagents are stopped by the exit"); it is relaunched next and a note leaves it what it was doing"
         set_paused "${SALA_SET:-}" "$sess: paused at $(local_clock "$PAUSE_AT") after $(hold_age_words "$PAUSE_HELD") of holding the relaunch"
         return 0
     fi

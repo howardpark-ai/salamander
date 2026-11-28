@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # THE PAUSE (lib/common.sh "THE PAUSE", lib/revive.sh pause_try, lib/watch.sh pause_watch_due, lib/pauseinfo.py, lib/note.sh):
-# a relaunch that has waited SALA_PAUSE_AFTER seconds (default 900) for a busy pane interrupts the turn with ONE Escape, relaunches the
+# a relaunch that has waited SALA_PAUSE_AFTER seconds (default 60) for a busy pane interrupts the turn with ONE Escape, relaunches the
 # session through the ordinary path and leaves it a note, written by the relaunch, saying what it was doing. Checked here with a short
 # SALA_PAUSE_AFTER (6 s) and a fake claude whose Esc turns a busy registry row idle (FAKE_ESC_IDLE) and that shows the CLI's "esc to
 # interrupt" hint under its composer (FAKE_FOOTER):
 #   - what counts as a running turn: the hint below the input box (cut short in a narrow pane; never the scrollback's or the agent list's
-#     words), or the mod's busy probe naming the main loop; a busy row alone does not. A row held busy by a background subagent gets no
-#     Escape, no note and no /exit, and is relaunched once the row is free; a turn that ends while background work keeps the row busy
-#     gets that one Escape only, and its note says so;
-#   - the knobs: SALA_PAUSE_AFTER (seconds; 0/off/no = the old wait; junk = the default 900), SALA_PAUSE_SCOPE (all | background | off), the
+#     words), or the mod's busy probe naming the main loop; a busy row alone does not. A row held busy by a background subagent gets a stop notice first, then no
+#     Escape: the exit stops the subagent and the pane is relaunched with a note; a turn that ends while background work keeps the row busy
+#     gets that one Escape and the same exit (the pause marker says tasks=1); a turn that starts again is never typed into;
+#   - the knobs: SALA_PAUSE_AFTER (seconds; 0/off/no = the old wait; junk = the default 60), SALA_PAUSE_SCOPE (all | background | off), the
 #     clock (starts on the first pass, restarts when the pane was last seen held longer ago than SALA_PAUSE_GAP, stops when the pane is free);
 #   - before the deadline: nothing is sent, the pane waits as before, its stackshot inbox is held; at the deadline: one Escape, the pane
 #     relaunched (same conversation), the held inbox released, the note written for the session and handed over after the resume, the row
@@ -45,7 +45,7 @@ printf '#!/bin/sh\necho "$*" >> "%s/systemd-run.txt"\n' "$HOME" > "$HOME/.local/
 export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log" FAKE_SOCK_LOG="$HOME/sock.log" FAKE_TYPED_LOG="$HOME/typed.log"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="{ cat; echo '%%'; } >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off SALA_AGENT_CHECK=off SALA_MOD_WAIT=1
-export SALA_PAUSE_SCOPE=all SALA_PAUSE_AFTER=6 SALA_PAUSE_IDLE_WAIT=4 SALA_IDLE_SETTLE=2 SALA_PAUSE_QUIET=0 SALA_PAUSE_RETRY=10 SALA_PAUSE_TRIES=2   # the production values are 900, 20, 10, 120, 120 and 5
+export SALA_STOP_NOTICE=off SALA_PAUSE_SCOPE=all SALA_PAUSE_AFTER=6 SALA_PAUSE_IDLE_WAIT=4 SALA_IDLE_SETTLE=2 SALA_PAUSE_QUIET=0 SALA_PAUSE_RETRY=10 SALA_PAUSE_TRIES=2   # the production values are 60, 20, 10, 120, 120 and 5
 export SALA_DEFERRED_TRY=1   # a direct `revive --only` that skips a busy pane starts no retry worker of its own: the passes are the test's, and the retry worker is started by hand where it is checked
 SALA="$ROOT/bin/salamander"; SOCK="sala-pause-$$"; T="tmux -L $SOCK -f /dev/null"; WLOG="$HOME/.claude/salamander-watch.log"
 unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
@@ -73,17 +73,17 @@ echo "== the knobs"
 SALA_PAUSE_AFTER=off pause_after_r v; [ "$v" = 0 ] && ok "SALA_PAUSE_AFTER=off reads as 0 (the old wait)" || bad "off → $v"
 SALA_PAUSE_AFTER=0 pause_after_r v; [ "$v" = 0 ] && ok "SALA_PAUSE_AFTER=0 reads as 0" || bad "0 → $v"
 SALA_PAUSE_AFTER=45 pause_after_r v; [ "$v" = 45 ] && ok "SALA_PAUSE_AFTER=45 reads as 45 s" || bad "45 → $v"
-SALA_PAUSE_AFTER=soon pause_after_r v; [ "$v" = 900 ] && ok "a word that is no number reads as the default, 15 min" || bad "junk → $v"
-grep -q ': "${SALA_PAUSE_AFTER:=900}"' "$ROOT/lib/common.sh" && grep -q ': "${SALA_PAUSE_SCOPE:=background}"' "$ROOT/lib/common.sh" && ok "the defaults are 900 s (15 min) and scope background" || bad "defaults in lib/common.sh"
+SALA_PAUSE_AFTER=soon pause_after_r v; [ "$v" = 60 ] && ok "a word that is no number reads as the default, 1 min" || bad "junk → $v"
+grep -q ': "${SALA_PAUSE_AFTER:=60}"' "$ROOT/lib/common.sh" && grep -q ': "${SALA_PAUSE_SCOPE:=all}"' "$ROOT/lib/common.sh" && ok "the defaults are 60 s (1 min) and scope all" || bad "defaults in lib/common.sh"
 SALA_PAUSE_SCOPE=off pause_after_r v; [ "$v" = 0 ] && ok "SALA_PAUSE_SCOPE=off switches the pause off too" || bad "scope off → $v"
 ORIG_BLN=$(declare -f back_lane_names); back_lane_names() { echo sala-test-back; }   # the registry's back agents, stubbed
 SALA_PAUSE_SCOPE=all pause_scope_ok sala-test-front && ok "scope all: a front agent may be paused (only when asked for)" || bad "scope all refused a front agent"
 SALA_PAUSE_SCOPE=background pause_scope_ok sala-test-front && bad "scope background let a front agent through" || ok "scope background: a front agent is not paused"
 SALA_PAUSE_SCOPE=background pause_scope_ok sala-test-back && ok "scope background: a back agent is" || bad "scope background refused a back agent"
 SALA_PAUSE_SCOPE=off pause_scope_ok sala-test-back && bad "scope off let a back agent through" || ok "scope off: nobody"
-(unset SALA_PAUSE_SCOPE; pause_scope_ok sala-test-front) && bad "the default scope let a front agent through" || ok "the default scope: a front agent is never paused"
+(unset SALA_PAUSE_SCOPE; pause_scope_ok sala-test-front) && ok "the default scope: a front agent may be paused too" || bad "the default scope refused a front agent"
 (unset SALA_PAUSE_SCOPE; pause_scope_ok sala-test-back) && ok "the default scope: a back agent may be" || bad "the default scope refused a back agent"
-(SALA_PAUSE_SCOPE=everyone; pause_scope_ok sala-test-front) && bad "a word that is no scope let a front agent through" || ok "a word that is no scope reads as the narrower default, background"
+(SALA_PAUSE_SCOPE=everyone; pause_scope_ok sala-test-front) && bad "a word that is no scope let a front agent through" || ok "a word that is no scope reads as background (back agents only)"
 eval "$ORIG_BLN"
 
 echo "== the clock"
@@ -173,7 +173,7 @@ grep -qF "$UA" "$HM" 2>/dev/null && ok "its stackshot inbox is held while the re
 wait_lock; revive_only sala-test-a
 [ "$(escs "$UA")" = 0 ] && [ "$(starts "$UA")" = 1 ] && ok "a second pass before the deadline: still nothing sent" || bad "pass 2: escs $(escs "$UA")"
 age_clock "$UA" 100; wait_lock; revive_only sala-test-a
-has "$OUT" "sala-test-a:0: paused after" && has "$OUT" 'its turn was interrupted with one Escape' && ok "at the deadline: paused, said in the output" || bad "pass 3: $OUT"
+has "$OUT" "sala-test-a:0: paused after" && has "$OUT" 'its turn was interrupted with one Escape' && ! has "$OUT" 'no Escape was sent' && ok "at the deadline: paused, said in the output" || bad "pass 3: $OUT"
 [ "$(escs "$UA")" = 1 ] && ok "exactly one Escape reached the pane" || bad "escs: $(escs "$UA")"
 has "$OUT" 'pause — the exit dialog listed background work (subagent · worker), stopped by the pause' && ok "the exit dialog's background work is stopped by the pause, said" || bad "dialog: $OUT"
 waitfor '[ "$(starts "$UA")" = 2 ]' 40 && fake_up sala-test-a && has "$OUT" 'sala-test-a:0: 9.9.9 → 9.9.9' && ok "relaunched on the same conversation" || bad "relaunch: starts $(starts "$UA") $OUT"
@@ -304,29 +304,59 @@ gnote=$(grep "$UG" "$NOTES" | grep -F '[paused] ' | tail -1)
 has "$OUT" 'rc=0 esc=1' && [ "$(escs "$UG")" = 1 ] && has "$gnote" "was sala's Escape" && [ "$(escrows "$UG")" = 0 ] && ok "a pause that takes with its Escape: the sentence is in the [paused] note, the earlier [escape] note is dropped" || bad "g sent: $OUT escs $(escs "$UG") $(cat "$NOTES")"
 rm -f "$PD/$UG".*
 
-echo "== j: a row held busy by a background subagent alone: no Escape, no note, no /exit; relaunched once the row is free"
-UJ=$(uuid 43); FOOT=$'  shift+tab to cycle\n  ● main\n  ◯ builder  mend the esc to interrupt check' mk j "$UJ" -e FAKE_ESC_IDLE=stay; fake_up sala-test-j; busy j
-age_clock "$UJ" 100; revive_only sala-test-j
-has "$OUT" 'not paused — no running turn of its own is seen' && has "$OUT" 'so no Escape was sent and /exit stays unsent' && ok "at the deadline: not paused, and the line says why" || bad "j try 1: $OUT"
-[ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 0 ] && [ "$(starts "$UJ")" = 1 ] && [ ! -e "$PD/$UJ.paused" ] && ok "no Escape, no /exit, not relaunched, no pause marker" || bad "j: escs $(escs "$UJ") /exit $(typed "$UJ" /exit) starts $(starts "$UJ")"
-[ "$(grep -c "$UJ" "$NOTES")" = 0 ] && ok "no note of any kind" || bad "j notes: $(grep "$UJ" "$NOTES")"
-read -r ft fc < "$PD/$UJ.failed"; pause_clock_age_r v "$UJ"; [ "$fc" = 1 ] && [ "$v" -ge 100 ] && ok "the try is recorded and the clock keeps running" || bad "j record $fc clock $v"
-printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UJ.failed"; wait_lock; revive_only sala-test-j
-has "$OUT" '(failed try 2)' && [ "$(escs "$UJ")" = 0 ] && [ "$(grep -c "$UJ" "$NOTES")" = 0 ] && ok "the retry sends nothing either" || bad "j try 2: escs $(escs "$UJ") $OUT"
-set_reg_status "$(cpid j)" idle; wait_lock; revive_only sala-test-j
-waitfor '[ "$(starts "$UJ")" = 2 ]' 40 && fake_up sala-test-j && [ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 1 ] && ok "the row free (the subagent ended): relaunched the ordinary way, no Escape" || bad "j free: starts $(starts "$UJ") escs $(escs "$UJ") $OUT"
-[ "$(grep -c "$UJ" "$NOTES")" = 0 ] && [ ! -e "$PD/$UJ.failed" ] && ok "no note about a pause, the failed tries forgotten" || bad "j after: $(grep "$UJ" "$NOTES") $(ls "$PD")"
+echo "== j: a row held busy by a background subagent alone: a stop notice first (once), then, at the deadline, no Escape, the exit stops the subagent, relaunched"
+UJ=$(uuid 43); FOOT=$'  shift+tab to cycle\n  ● main\n  ◯ builder  mend the esc to interrupt check' mk j "$UJ" -e FAKE_ESC_IDLE=stay -e FAKE_EXIT_DIALOG='subagent · builder'; fake_up sala-test-j; busy j; JP=$(cpid j)
+export SALA_STOP_NOTICE=on
+rm -f "$PD/$UJ".*; revive_only sala-test-j
+has "$OUT" 'sent it a stop notice' && ok "the first pass says it sent a stop notice and holds the messages" || bad "j notice line: $OUT"
+[ -e "$PD/$UJ.notified" ] && [ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 0 ] && [ "$(starts "$UJ")" = 1 ] && ok "before the deadline: notice only, no Escape, no /exit, not relaunched" || bad "j before: escs $(escs "$UJ") starts $(starts "$UJ") $(ls "$PD")"
+waitfor '[ "$(nsock "$UJ")" -ge 1 ]' 40 && has "$(slurp "$FAKE_SOCK_LOG")" 'leave a note with' && has "$(slurp "$FAKE_SOCK_LOG")" 'sala ready' && ok "the notice reached the pane at once and tells it to stop, leave a note and end with sala ready" || bad "j notice not delivered: $(tail -2 "$FAKE_SOCK_LOG" 2>/dev/null)"
+waitfor '[ "$(grep -cF "$(printf "\t[stop] ")" "$NOTES")" = 0 ]' 40 && ok "the notice is one-time: retired once delivered" || bad "j notice stays: $(cat "$NOTES")"
+wait_lock; revive_only sala-test-j; n1=$(nsock "$UJ")
+[ "$(nsock "$UJ")" = "$n1" ] && [ "$(escs "$UJ")" = 0 ] && ok "a second pass inside the wait sends no second notice" || bad "j second notice: $(nsock "$UJ")"
+age_clock "$UJ" 100; wait_lock; revive_only sala-test-j
+waitfor '[ "$(starts "$UJ")" = 2 ]' 60 && fake_up sala-test-j && [ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 1 ] && ok "at the deadline: no Escape (no turn), /exit typed, the subagent stopped by the exit, relaunched" || bad "j: starts $(starts "$UJ") escs $(escs "$UJ") /exit $(typed "$UJ" /exit) $OUT"
+has "$OUT" 'no Escape was sent' && ! has "$OUT" 'interrupted with one Escape' && ok "the paused line says no Escape was sent (a pane with no turn of its own)" || bad "j wording: $OUT"
+has "$OUT" 'stopped by the pause' && [ "$(grep "$UJ" "$NOTES" | grep -cF '[paused] ')" = 1 ] && ok "the exit dialog's work is said stopped, and the [paused] note is left" || bad "j after: $OUT $(cat "$NOTES")"
+[ ! -e "$PD/$UJ.notified" ] && [ ! -e "$PD/$UJ.wait" ] && ok "the clock and the notice marker are gone with the relaunch" || bad "j markers: $(ls "$PD")"
 wait_lock
 
-echo "== k: the Escape ends the turn and background work keeps the row busy: that one Escape only, and the note says so"
-UK=$(uuid 44); mk k "$UK" -e FAKE_ESC_IDLE=turn; fake_up sala-test-k; busy k; KP=$(cpid k)
+export SALA_STOP_NOTICE=off
+echo "== k: the Escape ends the turn and background work keeps the row busy: one Escape, then the exit stops the rest (it is not left waiting)"
+UK=$(uuid 44); mk k "$UK" -e FAKE_ESC_IDLE=turn -e FAKE_EXIT_DIALOG='subagent · worker'; fake_up sala-test-k; busy k; KP=$(cpid k)
 age_clock "$UK" 100; revive_only sala-test-k
-has "$OUT" 'not paused — one Escape ended its turn, but work in the background still holds the pane' && [ "$(escs "$UK")" = 1 ] && [ "$(typed "$UK" /exit)" = 0 ] && ok "one Escape, the turn gone, the row still busy: said, nothing more sent" || bad "k try 1: escs $(escs "$UK") $OUT"
-knote=$(grep "$UK" "$NOTES")
-[ "$(escrows "$UK" "$KP")" = 1 ] && has "$knote" 'your turn ended, but work in the background' && ! has "$knote" 'the turn was still running' && ok "its [escape] note says the turn ended and the background work holds the pane" || bad "k note: $knote"
-printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UK.failed"; wait_lock; revive_only sala-test-k
-has "$OUT" 'no running turn of its own is seen' && [ "$(escs "$UK")" = 1 ] && [ "$(grep -c "$UK" "$NOTES")" = 1 ] && ok "the retry sends no second Escape and writes no new note" || bad "k try 2: escs $(escs "$UK") $OUT"
-rm -f "$PD/$UK".*; wait_lock
+waitfor '[ "$(starts "$UK")" = 2 ]' 60 && fake_up sala-test-k && [ "$(escs "$UK")" = 1 ] && [ "$(typed "$UK" /exit)" = 1 ] && ok "one Escape, the turn gone, the row still busy: /exit typed, relaunched" || bad "k: escs $(escs "$UK") starts $(starts "$UK") $OUT"
+[ "$(escrows "$UK" "$KP")" = 0 ] && ok "no [escape] note: the pause took" || bad "k note: $(grep "$UK" "$NOTES")"
+wait_lock
+
+echo "== l: a turn that starts again after a no-turn pause: nothing typed into it, the marker goes so the next pass pauses again"
+UL=$(uuid 45); mk l "$UL" -e FAKE_ESC_IDLE=stay; fake_up sala-test-l; busy l; LP=$(cpid l)
+mkdir -p "$PD"; printf 'at=%s\npid=%s\nsession=sala-test-l\nheld=100\ntasks=1\n' "$(date +%s)" "$LP" > "$PD/$UL.paused"
+pause_tasks_only "$LP" && ok "the marker says only background work held the row" || bad "l marker not read"
+tm=$(pane_exit "$(tmux display -p -t sala-test-l '#{pane_id}')" "$LP"); rc=$?
+[ "$rc" = 4 ] && [ ! -e "$PD/$UL.paused" ] && [ "$(typed "$UL" /exit)" = 0 ] && ok "a running turn: exit refused (4), nothing typed, the pause marker removed" || bad "l: rc $rc typed $(typed "$UL" /exit) $(ls "$PD")"
+rm -f "$PD/$UL".*
+
+echo "== m: the stop notice marker is written only after the note is stored; no notice when the pause comes at or after SALA_HOLD_MAX"
+UM=$(uuid 46); mk m "$UM" -e FAKE_ESC_IDLE=stay; fake_up sala-test-m; busy m; MP=$(cpid m)
+export SALA_STOP_NOTICE=on
+rm -f "$PD/$UM".*
+( note_add_for() { return 1; }; pause_stop_notice sala-test-m "$UM" "$MP" ); rc=$?
+[ "$rc" = 1 ] && [ ! -e "$PD/$UM.notified" ] && [ "$(grep -cF '[stop] ' "$NOTES" 2>/dev/null)" = 0 ] && ok "a note that failed leaves no marker" || bad "m failed note: rc $rc $(ls "$PD")"
+pause_stop_notice sala-test-m "$UM" "$MP"; rc=$?
+[ "$rc" = 0 ] && [ -e "$PD/$UM.notified" ] && ok "tried again, the notice is written and the marker follows" || bad "m retry: rc $rc $(ls "$PD")"
+pause_stop_notice sala-test-m "$UM" "$MP"; rc=$?
+[ "$rc" = 1 ] && ok "and then it is once" || bad "m once: rc $rc"
+waitfor '[ "$(grep -cF "$(printf "\t[stop] ")" "$NOTES")" = 0 ]' 40
+rm -f "$PD/$UM".*
+( SALA_HOLD_MAX=5; pause_stop_notice sala-test-m "$UM" "$MP" ); rc=$?
+[ "$rc" = 1 ] && [ ! -e "$PD/$UM.notified" ] && [ "$(grep -cF '[stop] ' "$NOTES" 2>/dev/null)" = 0 ] && ok "SALA_PAUSE_AFTER at or above SALA_HOLD_MAX: no notice and no marker" || bad "m cap: rc $rc $(ls "$PD")"
+n1=$(nsock "$UM")
+SALA_HOLD_MAX=5 revive_only sala-test-m
+[ ! -e "$PD/$UM.notified" ] && ! has "$OUT" 'stop notice' && [ "$(grep -cF '[stop] ' "$NOTES" 2>/dev/null)" = 0 ] && [ "$(nsock "$UM")" = "$n1" ] && ok "the real path sends no notice that says sala will stop the turn" || bad "m real path: $OUT $(ls "$PD")"
+export SALA_STOP_NOTICE=off
+rm -f "$PD/$UM".*
+wait_lock
 
 echo "== i again: watch's deferred list tries a pause that did not take again after SALA_PAUSE_RETRY s, not after 10 min"
 now=$(date +%s)
@@ -368,16 +398,18 @@ rm -f "$PD/$UH".*
 
 echo "== e: the dry run, off, the scope"
 rm -f "$PD/$UE.wait"; OUT=$("$SALA" revive --dry-run --force --only sala-test-e 2>&1)
-has "$OUT" '[dry-run] sala-test-e:0: held' && has "$OUT" 'would wait 6 s' && has "$OUT" 'then pause its turn (one Escape)' && ok "the plan says it would wait, then pause its turn" || bad "dry run: $OUT"
+has "$OUT" '[dry-run] sala-test-e:0: held' && has "$OUT" 'would wait 6 s' && ! has "$OUT" 'stop notice' && has "$OUT" 'then stop its turn' && ok "SALA_STOP_NOTICE=off: the plan says it would wait, then stop its turn, with no notice named" || bad "dry run, notice off: $OUT"
+OUT=$(env SALA_STOP_NOTICE=on "$SALA" revive --dry-run --force --only sala-test-e 2>&1)
+has "$OUT" 'would wait 6 s' && has "$OUT" 'after a stop notice' && has "$OUT" 'then stop its turn' && ok "SALA_STOP_NOTICE=on: the plan says it would wait after a stop notice, then stop its turn" || bad "dry run, notice on: $OUT"
 [ ! -e "$PD/$UE.wait" ] && [ "$(escs "$UE")" = 0 ] && ok "the dry run writes no clock and sends nothing" || bad "dry run wrote: $(ls "$PD")"
-OUT=$(env -u SALA_PAUSE_SCOPE "$SALA" revive --dry-run --force --only sala-test-e 2>&1)
-has "$OUT" 'it would not be paused' && has "$OUT" 'a front agent is never paused' && has "$OUT" 'SALA_PAUSE_SCOPE=all pauses every session' && ok "the plan under the default scope says a front agent is never paused, and how to change it" || bad "dry run, default scope: $OUT"
+OUT=$(env SALA_PAUSE_SCOPE=background "$SALA" revive --dry-run --force --only sala-test-e 2>&1)
+has "$OUT" 'it would not be paused' && has "$OUT" 'a front agent is never paused' && has "$OUT" 'SALA_PAUSE_SCOPE=all pauses every session' && ok "the plan under scope background says a front agent is never paused, and how to change it" || bad "dry run, scope background: $OUT"
 age_clock "$UE" 100; OUT=$(SALA_PAUSE_AFTER=off "$SALA" revive --force --only sala-test-e 2>&1)
 [ "$(escs "$UE")" = 0 ] && [ "$(starts "$UE")" = 1 ] && has "$OUT" "registry says 'busy'" && ok "SALA_PAUSE_AFTER=off: the old wait, nothing sent" || bad "off: escs $(escs "$UE") $OUT"
 wait_lock; OUT=$(SALA_PAUSE_SCOPE=off "$SALA" revive --force --only sala-test-e 2>&1)
 [ "$(escs "$UE")" = 0 ] && [ "$(starts "$UE")" = 1 ] && ok "SALA_PAUSE_SCOPE=off: nothing sent" || bad "scope off: escs $(escs "$UE") $OUT"
-wait_lock; OUT=$(env -u SALA_PAUSE_SCOPE "$SALA" revive --force --only sala-test-e 2>&1)
-[ "$(escs "$UE")" = 0 ] && [ "$(starts "$UE")" = 1 ] && ok "the default scope: a front agent (no back-agent role) waits as before, nothing sent" || bad "default scope: escs $(escs "$UE") $OUT"
+wait_lock; OUT=$(env SALA_PAUSE_SCOPE=background "$SALA" revive --force --only sala-test-e 2>&1)
+[ "$(escs "$UE")" = 0 ] && [ "$(starts "$UE")" = 1 ] && ok "scope background: a front agent (no back-agent role) waits as before, nothing sent" || bad "scope background: escs $(escs "$UE") $OUT"
 wait_lock; OUT=$(SALA_PAUSE_SCOPE=background "$SALA" revive --force --only sala-test-e 2>&1)
 [ "$(escs "$UE")" = 0 ] && [ "$(starts "$UE")" = 1 ] && ok "SALA_PAUSE_SCOPE=background: a session with no back-agent role waits as before" || bad "scope background: escs $(escs "$UE") $OUT"
 wait_lock

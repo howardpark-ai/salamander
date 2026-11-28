@@ -14,7 +14,7 @@
 #     (relaunch_text) names it too.
 #  2. watch's deferred list asks the mod first (the `busy` probe, mod_hold): a turn the mod names holds the pane, said ONCE in the
 #     log with the holder, and no exit is tried against it, so no "is free now" line and no retry worker per tick. A pane held only by a
-#     running subagent (old mod, no holder named) is held the same way and never cut, however many ticks pass. A pane the mod keeps
+#     running subagent (old mod, no holder named) is held the same way (pausing off), however many ticks pass. A pane the mod keeps
 #     refusing for a turn it cannot name, while the registry, the Stop record, the children and the subagent transcripts all read it as
 #     idle, is tried every tick SALA_STALE_TURN_AFTER times, counted in the refusal memory (refused/<uuid>); the next try goes by keys,
 #     is logged so, and relaunches it; the memory goes with the relaunch.
@@ -120,8 +120,24 @@ holders_run() { printf '1\npid 99, up 2400 s, task tk1, started by a subagent (s
 [ -z "$(is_idle_reason "$K1")" ] && ok "a killed subagent's leftover process does not make it live either" || bad "killed with process: '$(is_idle_reason "$K1")'"
 eval "$ORIG_HR"; rm -f "$PARENT"
 mksub "$U1" s1 builder "Build the package move"
+NOPAUSE="no pause is tried for it, so the relaunch follows once it ends"
+STOPS="the pause stops it with the exit"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
-    && has "$n" "sala never cuts a running subagent" && ok "the relaunch notice names it and says it is not cut" || bad "notice: $n"
+    && has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" && ok "pausing off: the relaunch notice names it and says it waits for its end, with no pause" || bad "notice: $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all relaunch_text recycle "$K1"); has "$n" "subagent builder: Build the package move" \
+    && has "$n" "if it still runs 1 min after the notice, $STOPS" && has "$n" "$STOPS unless this is the pane the recycle runs from or the pane that asked for the relaunch, a person is at the pane, the pane holds unsent text or a dialog is open, or a \`sala op\` of its own is running" && ! has "$n" "$NOPAUSE" && ok "pausing on: the notice says when the pause stops it, unless it is the recycle or requesting pane, a person, unsent text or a dialog is there" || bad "notice (pause on): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_STOP_NOTICE=off relaunch_text recycle "$K1"); has "$n" "if it still runs 1 min into the wait, $STOPS" && ! has "$n" "after the notice" \
+    && ok "stop notice off: the pause is counted from the wait, with no notice named" || bad "notice (notice off): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_HOLD_MAX=60 relaunch_text recycle "$K1"); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \
+    && ok "SALA_PAUSE_AFTER at the cap: no pause comes, the notice says the relaunch waits" || bad "notice (pause-after at the cap): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all relaunch_text recycle "$K1" over); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \
+    && ok "a relaunch past the cap: no pause is tried, the notice says the relaunch waits" || bad "notice (past the cap): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=background relaunch_text recycle "$K1" "" sala-test-front); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \
+    && ok "a session outside SALA_PAUSE_SCOPE: no pause, the notice says the relaunch waits" || bad "notice (scope): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=all SALA_NO_PAUSE="sala-test-front" relaunch_text recycle "$K1" "" sala-test-front); has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" && ! has "$n" "unless a person" \
+    && ok "a session in SALA_NO_PAUSE is never paused: no pause is tried, the notice says the relaunch waits" || bad "notice (SALA_NO_PAUSE): $n"
+n=$(SALA_PAUSE_AFTER=60 SALA_PAUSE_SCOPE=background relaunch_text recycle "$K1"); has "$n" "whether a pause stops it depends on the session's kind" && ! has "$n" "$NOPAUSE" && ! has "$n" "$STOPS" \
+    && ok "an unknown session with a scope that is not all: the notice does not say no pause is tried" || bad "notice (unknown session): $n"
 bash -c 'trap : USR1; while :; do sleep 1; done' & WK=$!; PIDS+=("$WK"); echo "$WK" > "$HOME/.claude/salamander-retry.$WK.pid"   # a pending recycle's retry worker, so ready_wake succeeds
 # wait for the `sala ready` process to exit (its .done marker), not for the file's first byte: it writes the holder block, then the ready: line
 : > "$HOME/go1"; waitfor '[ -e "$HOME/ready1.done" ]' 20
@@ -130,6 +146,13 @@ has "$r" "Holding the relaunch: 1 subagent running in this session" && has "$r" 
     && has "$r" "ready: t ($U1) — held by the subagent(s) above; the relaunch follows within minutes after they end, not when this turn does" \
     && ! has "$r" "as soon as this turn ends" && ok "sala ready names the subagent and does not promise a relaunch when the turn ends" || bad "ready: $r"
 kill "$WK" 2>/dev/null; rm -f "$HOME/.claude/salamander-retry.$WK.pid"
+U6=$(uuid 54); rm -f "$SALA_DEFERRED"
+fake "while [ ! -e $HOME/go6 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready6.txt 2>&1; : > $HOME/ready6.done; wait" "$U6"
+mksub "$U6" s6 builder "Build the package move"
+: > "$HOME/go6"; waitfor '[ -e "$HOME/ready6.done" ]' 20; r=$(slurp "$HOME/ready6.txt")
+has "$r" "no recycle is waiting right now" && ! has "$r" "the pause stops it" && ! has "$r" "Holding the relaunch" \
+    && ok "sala ready with a running subagent and no relaunch pending names no pause" || bad "ready, no relaunch: $r"
+rm -f "$(subdir "$U6")"/agent-s6.*
 
 echo "== 4. the skip line names its cause, never only 'busy'"
 [ "$(_count_words 1 0 0 0)" = "1 subagent" ] && [ "$(_count_words 4 6 1 0)" = "4 subagents, 6 monitors and 1 shell" ] && [ "$(_count_words 0 2 1 0)" = "2 monitors and 1 shell" ] \
@@ -169,7 +192,7 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' sala-test-x "$(( $(date +%s) - 144
 has "$r" "this pane is on the deferred list since" && ! has "$r" "no recycle is waiting right now" && ok "a pane on the deferred list is waiting, whatever its sets said" || bad "ready, row: $r"
 rm -f "$SALA_DEFERRED"
 
-echo "== 2. watch's deferred list: the mod's answer, one line with the holder, the tries thin out, a running subagent is never cut"
+echo "== 2. watch's deferred list: the mod's answer, one line with the holder, the tries thin out, a running subagent is held (pausing off)"
 UH=$(uuid 61); UM=$(uuid 62)
 MODE="$HOME/fakemod.mode"; HEARD="$HOME/fakemod.heard"; MSOCK="$HOME/fakemod.sock"; RUN="$XDG_RUNTIME_DIR/sala/mod"
 cat > "$HOME/fakemod.py" <<'PY'
@@ -246,11 +269,11 @@ has "$out" "sala-test-hm:0: $BGW — left on 9.9.9" && [ "$(heard_n '[sala-mod] 
 refusal_get rf "$UH"; [ -z "$rf" ] && ok "work in flight is not counted in the refusal memory (it only thins out a mod's stale turns)" || bad "refusal memory: '$rf'"
 echo named > "$MODE"; rm -f "$SALA_REFUSED_DIR/$UH.said"
 
-echo "-- an older mod's refusal, a subagent running: never cut, however many ticks"
+echo "-- an older mod's refusal, a subagent running: held (pausing off), however many ticks"
 echo turnold > "$MODE"; : > "$WLOG"; : > "$HEARD"; mksub "$UH" h1 builder "Build the package move"; touch -d "10 minutes ago" "$(subdir "$UH")"/agent-h1.*   # quiet for 10 min: the 2-minute scratch test does not see it, the transcript does
 for i in 1 2 3 4 5 6; do watch_tick; done
 [ "$(nlog "deferred: sala-test-hm held — a subagent is running: subagent builder: Build the package move" "$WLOG")" = 1 ] && ok "six ticks, ONE log line, naming the subagent" || bad "held lines: $(grep deferred "$WLOG")"
-[ "$(heard_n '[sala-mod] exit')" = 0 ] && [ "$(cpid hm)" = "$HP" ] && [ "$(nlog "is free now" "$WLOG")" = 0 ] && ok "no exit tried, the pane untouched: a running subagent is never cut" || bad "cut: exits $(heard_n '[sala-mod] exit') pid $(cpid hm)"
+[ "$(heard_n '[sala-mod] exit')" = 0 ] && [ "$(cpid hm)" = "$HP" ] && [ "$(nlog "is free now" "$WLOG")" = 0 ] && ok "no exit tried, the pane untouched: with pausing off a running subagent is held" || bad "cut: exits $(heard_n '[sala-mod] exit') pid $(cpid hm)"
 
 echo "-- the subagent finished, the old mod still refuses: three refusals, then the exit by keys"
 mksub "$UH" h1 builder "Build the package move" finished; touch -d "10 minutes ago" "$(subdir "$UH")"/agent-h1.*

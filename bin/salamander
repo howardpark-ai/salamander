@@ -25,7 +25,7 @@
 #                                      (a Claude session's pane queues it with `sala op recycle`)
 #                                      (--update: `claude update` first — the two halves of "recycle")
 #                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
-#                                      (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before; a pause that does not take is tried again every SALA_PAUSE_RETRY s, default 120; no pause once the relaunch has waited past SALA_HOLD_MAX)
+#                                      (a busy pane a relaunch must take down is sent a stop notice (stop, leave a `sala note`, end with `sala ready`); SALA_PAUSE_AFTER s later, default 60, the pause interrupts its turn and the session is relaunched with a note of what it was doing (when it applies: docs/recycle.md); SALA_PAUSE_SCOPE=all|background|off (default all; background: back agents only), 0 = wait as before; a pause that does not take is tried again every SALA_PAUSE_RETRY s, default 120; no pause once the relaunch has waited past SALA_HOLD_MAX)
 #                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
 #   salamander recycle --when-idle [--from NAME] [--change REF] "<reason>" | --list | --cancel [ID]   any session: ask for a recycle; it
 #                                      only records the request — `watch` runs the recycle at its next run, each busy pane once idle (lib/recycle-request.sh); --change REF (a commit sha or pr<N>) holds it until that change is in the checkout
@@ -103,7 +103,7 @@
 #   salamander settings-apply [--check|--run] [HOST…]   the spec's Claude Code settings steps, applied by sala and never by a session:
 #                                      no flag = the state; --check prints what it would apply; --run (the unit sala-auto-settings) applies and logs
 #   salamander heartbeat [--no-push|--dry-run|--check]   sweep every box over ssh: liveness, CLI version, live sessions → the fleet live store (timer)
-#   salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path; shells may be cut, a running subagent never is: it is named and the relaunch waits for it; a pane on the deferred list counts as waiting)
+#   salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path; shells may be cut; a running subagent is named, see docs/recycle.md; a pane on the deferred list counts as waiting)
 #   salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
 #   salamander op <verb> [args…] --from NAME --words "<the owner's words>"   queue a fleet operation for `watch` to run with no model (lib/op.sh):
 #                                      recycle [--update] [--force] · update [HOST…|--fleet] · revive [--only NAME]… [--force] ·

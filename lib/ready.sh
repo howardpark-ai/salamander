@@ -7,7 +7,7 @@
 # The registry's `idle` is an observation from outside; it cannot say whether a background child
 # or a subagent's work matters, so recycle refuses such panes (is_idle_reason) and retries every
 # few minutes. A ready marker is the session saying, from inside: I am at a checkpoint, whatever
-# is still running may be cut: a shell or a task. A running SUBAGENT is never cut: the in-session mod refuses the exit for it, and
+# is still running may be cut: a shell or a task. A running SUBAGENT is held by the in-session mod's refusal of the exit (docs/recycle.md says when the pause stops it), and
 # the idle check reads its transcript (subagent_holders), so `ready` names it and says the relaunch waits for it. With the word, the idle guard needs only registry-idle ≥ 10 s, and the
 # retry worker is woken by it (SIGUSR1) instead of waiting for its next SALA_RETRY_EVERY tick. The
 # marker is consumed by the relaunch and expires after SALA_READY_TTL s. Run from inside the
@@ -32,12 +32,13 @@ mkdir -p "$SALA_READY_DIR"; date +%s > "$SALA_READY_DIR/$uuid"
 # Read-only, one python reading /proc; nothing is printed when nothing runs, and the lines below are as before.
 holders_block "$cpid" "ready: ${name:-?} ($uuid) — but <n> still run under this pane and will be cut at the relaunch, or hold it:" "$SALA_HOLDERS_HOWTO"
 woke=1; ready_wake && woke=0
-# a subagent the session started is never cut, and the in-session mod refuses the exit for it: name it, with how it ends, so "ready" is not
+# a subagent the session started holds the relaunch (docs/recycle.md): subagents_block names it, with how it ends, so "ready" is not
 # read as "relaunching now" (subagent_holders, common.sh: the same definition the recycle's idle check and the mod use)
-subagents_block "$cpid"
-nsub=$(subagent_holders "$cpid" "$uuid" | grep -c .)
 drow=$(deferred_row_for "$cpid")   # a pane on the deferred list is a relaunch waiting for it, whatever the recycle's sets say now
-if [ "${nsub:-0}" -gt 0 ]; then
+pending=0; { [ "$woke" = 0 ] || [ -n "$drow" ]; } && pending=1   # with no relaunch waiting there is no pause to name
+[ "$pending" = 0 ] || subagents_block "$cpid"
+nsub=$(subagent_holders "$cpid" "$uuid" | grep -c .)
+if [ "${nsub:-0}" -gt 0 ] && [ "$pending" = 1 ]; then
     echo "ready: ${name:-?} ($uuid) — held by the subagent(s) above; the relaunch follows within minutes after they end, not when this turn does"
 elif [ "$woke" = 0 ]; then
     echo "ready: ${name:-?} ($uuid) — the pending recycle relaunches this pane as soon as this turn ends; make this the turn's last action"

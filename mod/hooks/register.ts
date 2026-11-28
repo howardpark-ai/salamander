@@ -128,7 +128,7 @@ async function turns($: EngineInterface): Promise<Turn[]> {
 
 // the turns still running, after a turn that never completed has been taken off the list. An agent loop the engine's own
 // list shows as ended for good (completed, failed, killed) has no running turn, whatever its turn.complete said; one the
-// list does not show (its task dropped) is kept, since sala never cuts a subagent it cannot see end. `stopped`: the main
+// list does not show (its task dropped) is kept, so a turn that may still be running is not read as ended. `stopped`: the main
 // loop has just stopped, so no main-loop turn runs (a Stop with other work attached still ends the turn that made it)
 async function settle($: EngineInterface, stopped: boolean): Promise<Turn[]> {
   const list = await $.agent.list().catch(() => undefined)
