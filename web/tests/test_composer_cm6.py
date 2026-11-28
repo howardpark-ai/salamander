@@ -48,6 +48,10 @@ def test_the_bundle_is_vendored_pinned_and_loaded_before_the_app():
     assert head.startswith("/*!") and "MIT" in head and "CodeMirror" in head and "web/vendor-src/cm6-composer/LICENSE" in head
     for v in VERSIONS.values():
         assert v in head, v
+    # the one borrowed function (the numbered lists' counting) with its notice, in the banner and beside the recipe
+    assert "overtype 2.8.0" in head and "David Miranda" in head and "LICENSE-overtype" in head
+    assert (RECIPE / "LICENSE-overtype").read_text().startswith("MIT License") and "David Miranda" in (RECIPE / "LICENSE-overtype").read_text()
+    assert "export function renumberLists" in (RECIPE / "renumber-lists.js").read_text()
     assert BUNDLE.read_bytes().count(b"\n") < 60  # minified: one bundle, not a source tree
     body = BUNDLE.read_bytes().decode(errors="replace")
     assert not re.search(r"\bimport\(|importScripts|jsdelivr|unpkg|cdnjs|cdn\.", body)  # nothing is loaded from elsewhere at runtime
