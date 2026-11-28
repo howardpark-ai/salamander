@@ -27,7 +27,9 @@
  * FAKE_DRAFTS_PANEL=<tests/fake-drafts-panel.py> (the feedback drafts: /feedback runs its panel in the pane, and a /exit with a
  * queued draft of this conversation stops at its exit gate; the script's header names its own knobs) · FAKE_PANEL_STAMP=1 (the row
  * says waiting while /feedback's panel is open, then idle with a fresh stamp, as the CLI's) · FAKE_PANEL_TURN=<after ms>,<turn ms>
- * (that long after the panel closed a turn starts and runs that long, then idle with a fresh stamp). */
+ * (that long after the panel closed a turn starts and runs that long, then idle with a fresh stamp) · FAKE_PANEL_CHILD=1 (Linux:
+ * as the panel closes, before the row goes idle, a live child starts: what a turn during the send that ran no Stop hook left) ·
+ * FAKE_PANEL_APPEND=<file> (at that same moment one assistant line is appended to the file). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,13 +55,13 @@ static int drafts_panel(const char *mode, const char *sid) {   /* FAKE_DRAFTS_PA
     snprintf(cmd, sizeof cmd, "python3 -I '%s' %s '%s'", py, mode, sid);
     fflush(stdout); return system(cmd) != 0;
 }
-static void child_start(void) {   /* FAKE_CHILD: a live child process under the fake (Linux: named, and gone with its parent) */
+static void child_spawn(void) {   /* a live child process under the fake (Linux: named, and gone with its parent) */
 #ifdef __linux__
-    if (!getenv("FAKE_CHILD")) return;
     child = fork();
     if (child == 0) { prctl(PR_SET_NAME, "fakechild", 0, 0, 0); prctl(PR_SET_PDEATHSIG, SIGTERM); for (;;) pause(); }
 #endif
 }
+static void child_start(void) { if (getenv("FAKE_CHILD")) child_spawn(); }   /* FAKE_CHILD: one for the fake's life */
 static void child_stop(void) { if (child > 0) { kill(child, SIGTERM); waitpid(child, NULL, 0); child = 0; } }
 static int exit_dialog(void) {   /* FAKE_EXIT_DIALOG: the dialog, then one key; 1 = exit (Enter on the selected choice), 0 = stay (Esc) */
     const char *rows = getenv("FAKE_EXIT_DIALOG"); if (!rows || !*rows) return 1;
@@ -292,6 +294,9 @@ int main(int argc, char **argv) {
         if (!strcmp(line, "/feedback\n") && getenv("FAKE_DRAFTS_PANEL")) {
             if (getenv("FAKE_PANEL_STAMP")) write_row(sid, "waiting", (long)time(NULL));
             drafts_panel("panel", sid);
+            if (getenv("FAKE_PANEL_CHILD")) child_spawn();   /* beside a FAKE_CHILD one, which then goes by PDEATHSIG alone */
+            { const char *ap = getenv("FAKE_PANEL_APPEND"); FILE *af = ap ? fopen(ap, "a") : NULL;
+              if (af) { fputs("{\"type\":\"assistant\"}\n", af); fclose(af); } }
             if (getenv("FAKE_PANEL_STAMP")) write_row(sid, "idle", (long)time(NULL));
             long after = 0, run = 0; const char *pt = getenv("FAKE_PANEL_TURN");
             if (pt && sscanf(pt, "%ld,%ld", &after, &run) == 2) {
