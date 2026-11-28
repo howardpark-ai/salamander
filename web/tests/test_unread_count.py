@@ -559,7 +559,7 @@ def test_the_count_is_on_a_front_row_only_at_its_far_right_and_reads_9_plus(sala
     # after the label and the ⋯, at the row's far right; the row carries no board count any more
     order = browser.evaluate("[...document.querySelector('#session-list .sess[data-key=\"example-alpha-main\"]').children].map((c) => c.className.split(' ')[0])")
     assert order == ["dot", "label", "sess-more", "ucount"], order
-    st = browser.evaluate("""(() => { const c = document.querySelector('.ucount'), cs = getComputedStyle(c), r = c.getBoundingClientRect(), row = c.parentElement.getBoundingClientRect(),
+    st = browser.evaluate("""(() => { const c = document.querySelector('#session-list .ucount'), cs = getComputedStyle(c), r = c.getBoundingClientRect(), row = c.parentElement.getBoundingClientRect(),
       p = document.createElement('i'); p.style.background = 'var(--accent)'; p.style.color = 'var(--accent-text)'; document.body.append(p);
       const accent = getComputedStyle(p).backgroundColor, accentText = getComputedStyle(p).color; p.remove();
       return { h: r.height, w: r.width, color: cs.color, bg: cs.backgroundColor, accent, accentText, fs: cs.fontSize, fw: cs.fontWeight, radius: cs.borderTopLeftRadius,
@@ -576,7 +576,7 @@ def test_the_count_is_filled_in_both_themes(sala, served, browser):
     """The light theme's count is the page's accent filled, --accent-text (white) on it. The dark theme's is the shipped small label: the orange
     (#f0a06a) text on a deep brown fill (#3a2619). Either differs from the sidebar's background."""
     open_page(browser, served)
-    probe = "(() => { const c = document.querySelector('.ucount'), cs = getComputedStyle(c); return [cs.color, cs.backgroundColor, getComputedStyle(document.getElementById('sidebar')).backgroundColor]; })()"
+    probe = "(() => { const c = document.querySelector('#session-list .ucount'), cs = getComputedStyle(c); return [cs.color, cs.backgroundColor, getComputedStyle(document.getElementById('sidebar')).backgroundColor]; })()"
     dark = browser.evaluate(probe)
     browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "light"}]})
     assert wait_for(browser, f"JSON.stringify({probe}) !== {json.dumps(json.dumps(dark))}", 5.0), dark
@@ -592,8 +592,8 @@ def test_the_count_holds_the_ui_component_contrast_in_both_themes(sala, served, 
     open_page(browser, served)
     for theme in ("dark", "light"):
         browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": theme}]})
-        assert wait_for(browser, "document.querySelector('.ucount') !== null", 5.0)
-        got = browser.evaluate(CONTRAST + "('.ucount')")
+        assert wait_for(browser, "document.querySelector('#session-list .ucount') !== null", 5.0)
+        got = browser.evaluate(CONTRAST + "('#session-list .ucount')")
         assert got, theme
         for t in got:
             assert t["fgAlpha"] == 1 and t["bgAlpha"] == 1 and t["ratio"] >= 4.5, (theme, t)

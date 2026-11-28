@@ -90,6 +90,12 @@ The paths guarded: a quote inside a sent message bubble (`.msg.user .bubble bloc
 Held (headless Chromium, computed styles): the quote is a box with an 8px radius, a 4px solid accent left edge, a tint over the bubble, 13px text in the message's own text colour (not the muted one), inside the bubble; in the light and the dark theme, at 1280 x 800 and at 360 x 740. The old check of "no space above or below" now reads 0 above and 8px below when a line follows.
 Not covered, and why: the contrast of the edge and the tint is read by eye from the mock the look was chosen on, not measured; a real phone is not run (the 360 px width is emulated). Runs in GitHub CI with the browser checks.
 
+### `web/tests/test_chat_session_view_ui.py` +4 (two checks, each at desktop and phone width); `web/tests/test_chat_session_view.py` +2 asserts; `web/tests/test_chat_group_words.py` mock extended (Sat Nov 28th 2026)
+
+The path guarded: the chat session's sidebar entry showed only the count of items waiting on the owner, so an unread reply to that session could not be seen, and a phone had no way to read what either number meant (a tooltip needs a hover).
+Held: the entry shows the same unread chip as every other row, at the far right, with the waiting count immediately left of it on one line, at 1280 px, 390 px and 360 px with the drawer open; the counts hold no explaining text, each carries its tooltip ("2 items in Your move", "3 unread replies") and the unread chip reads 9+ above nine; a touch tap on each count shows that tooltip as a bubble inside the screen and does not open the session; a mouse click on a count opens the session, and the open session shows no unread count. The markup test holds the chip's place after the waiting chip and the style test its hidden rule and the bubble's rule.
+Not covered, and why: a real finger on a real phone (the tap is a synthetic touch click in headless Chromium, which runs in GitHub CI only), and the Unread total, which keeps leaving the chat session out as before.
+
 ### `tests/feedbackdrain.sh` new, 31; `tests/op.sh` +6, one check extended (Sat Nov 28th 2026)
 
 The paths guarded: the drain presses keys in a live pane, where a wrong key sends a transcript or deletes an unsent draft; Esc at the exit's drafts gate deletes the drafts; a draft the drain cannot send must not keep a pane from its relaunch. In the queue, an operation judged stuck starts a `claude -p` and raises an alarm.

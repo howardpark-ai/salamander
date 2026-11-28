@@ -159,6 +159,60 @@ def test_a_long_name_is_cut_by_the_ellipsis_and_the_marks_stay_whole(served, bro
             assert e["right"] <= min(300, 0.85 * w) + 1, (w, e)
 
 
+COUNTS = """(() => { const a = document.querySelector('#side-chat'), w = a.querySelector('.wchip'), u = a.querySelector('.ucount'), r = a.getBoundingClientRect();
+  const box = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; };
+  return { w: w.hidden ? null : w.textContent, u: u.hidden ? null : u.textContent, wBox: box(w), uBox: box(u), row: { left: r.left, right: r.right },
+           wTitle: w.title, uTitle: u.title, uAria: u.getAttribute('aria-label'), inlineWords: [...a.children].map((e) => e.textContent).filter(Boolean).join(' ') }; })()"""
+TAP = """(() => { const c = document.querySelector('#side-chat ' + %s);
+  const ev = new PointerEvent('click', { bubbles: true, cancelable: true, pointerType: 'touch', button: 0 }); c.dispatchEvent(ev);
+  const t = document.querySelector('.chip-tip'); return { prevented: ev.defaultPrevented, tip: t ? t.textContent : null, here: SalaAddress.here() }; })()"""
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_entry_shows_the_unread_count_right_of_the_waiting_count_with_both_explained_by_a_tooltip(served, browser, monkeypatch, size):
+    open_page(browser, served, monkeypatch, size, api_chat(), hash_="#sessions", ready=False)
+    widths = [size[0]] if not phone(size) else [390, 360]
+    for w in widths:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": w, "height": size[1], "deviceScaleFactor": 1, "mobile": phone(size)})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {w}", 10.0)
+        show_panel(browser)
+        assert wait_for(browser, "!document.querySelector('#side-chat').hidden && !!state.byName.get(%s)" % json.dumps(NAME), 8.0)
+        browser.evaluate("(() => { const s = state.byName.get(%s); s.role = 'front'; s.surface = ''; s.unread_count = 3; s.unread = true; paintChatEntry(); })(); ''" % json.dumps(NAME))
+        c = browser.evaluate(COUNTS)
+        assert (c["w"], c["u"]) == ("2", "3"), (w, c)
+        assert c["wBox"]["right"] <= c["uBox"]["left"] + 0.5 and c["uBox"]["right"] <= c["row"]["right"] + 0.5, (w, c)       # the waiting count immediately left, unread at the far right
+        assert c["uBox"]["left"] - c["wBox"]["right"] <= 12 and abs(c["wBox"]["top"] - c["uBox"]["top"]) < 1, (w, c)
+        assert c["wTitle"] == "2 items in Your move" and c["uTitle"] == "3 unread replies" and c["uAria"] == c["uTitle"], (w, c)
+        assert c["inlineWords"] == "Ada chat 2 3", (w, c)      # no explanation in the row itself
+        # the same chip the other rows wear
+        assert browser.evaluate("document.querySelector('#side-chat .ucount').className") == "ucount"
+        # above nine it reads 9+
+        browser.evaluate("(() => { state.byName.get(%s).unread_count = 12; paintChatEntry(); })(); ''" % json.dumps(NAME))
+        assert browser.evaluate("document.querySelector('#side-chat .ucount').textContent") == "9+"
+        browser.evaluate("(() => { state.byName.get(%s).unread_count = 3; paintChatEntry(); })(); ''" % json.dumps(NAME))
+        # a tap (touch) on each count shows its tooltip and does not open the session
+        for sel, words in ((".wchip", "2 items in Your move"), (".ucount", "3 unread replies")):
+            t = browser.evaluate(TAP % json.dumps(sel))
+            assert t["prevented"] and t["tip"] == words and t["here"] != "#s=" + NAME, (w, sel, t)
+            tip = browser.evaluate("(() => { const b = document.querySelector('.chip-tip').getBoundingClientRect(); return { l: b.left, r: b.right, vw: document.documentElement.clientWidth }; })()")
+            assert tip["l"] >= 0 and tip["r"] <= tip["vw"], (w, sel, tip)
+        browser.evaluate("document.body.click(); ''")
+        assert browser.evaluate("document.querySelectorAll('.chip-tip').length") == 0
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_mouse_click_on_a_count_opens_the_session_and_the_open_session_shows_no_unread(served, browser, monkeypatch, size):
+    open_page(browser, served, monkeypatch, size, api_chat(), hash_="#sessions", ready=False)
+    show_panel(browser)
+    assert wait_for(browser, "!document.querySelector('#side-chat').hidden && !!state.byName.get(%s)" % json.dumps(NAME), 8.0)
+    browser.evaluate("(() => { const s = state.byName.get(%s); s.role = 'front'; s.surface = ''; s.unread_count = 3; s.unread = true; paintChatEntry(); })(); ''" % json.dumps(NAME))
+    if browser.evaluate("matchMedia('(hover: none)').matches"):
+        pytest.skip("a touch-only emulation: a click is a tap there")
+    browser.evaluate("document.querySelector('#side-chat .ucount').dispatchEvent(new PointerEvent('click', { bubbles: true, cancelable: true, pointerType: 'mouse', button: 0 })); ''")
+    assert wait_for(browser, "SalaAddress.here() === '#s=" + NAME + "'", 8.0)
+    assert wait_for(browser, "document.querySelector('#side-chat .ucount').hidden", 8.0), "opened: its replies count as read, like any row"
+
+
 @pytest.mark.parametrize("size", SIZES)
 def test_a_click_opens_the_sessions_own_view_and_a_phones_drawer_closes(served, browser, monkeypatch, size):
     open_page(browser, served, monkeypatch, size, api_chat(), hash_="#sessions", ready=False)
