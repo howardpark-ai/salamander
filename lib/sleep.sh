@@ -11,8 +11,8 @@
 # default), holds no background command, task or subagent, has no dialog showing and nothing typed in its input box, and has nothing a sleep would lose: no
 # scheduled job, no queued operation or note naming it, no relaunch waiting for it, no stackshot inbox message for it, no limit or network stop, no open question.
 # Refused outright: the Remote Control session, a side session, the sdk lane, a session in SALA_NO_RELAUNCH, and the session this command runs in (a sleep would end the
-# call that made it); for a NAME given by hand also a front agent (a project's -main agent, or a registry row with role front: the owner talks to it). A refusal says why,
-# in one line, and nothing is touched. There is no bypass flag: a busy session is asked again once it is idle.
+# call that made it); for a NAME given by hand also a front agent (a session whose role is front, or the one SALA_CHAT_SESSION names: the owner talks to it; a name
+# ending in -main alone does not make one). A refusal says why, in one line, and nothing is touched. There is no bypass flag: a busy session is asked again once it is idle.
 #
 # A project KEY is its page key without `projects/`, as stackshot's project-activity names it: words of letters, digits, . _ - joined by single slashes (`solo`, `team/alpha`); a pin keeps a slash as %2F in its file name.
 # THE SLEEP OF A PROJECT (--project KEY; lib/wrapup.sh, THE SLEEP OF INACTIVE PROJECTS): the unit is the project, never one session. Its sessions (front agents too) sleep

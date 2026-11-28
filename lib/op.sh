@@ -240,8 +240,9 @@
 # nothing brings back. The queue goes on meanwhile: a later operation waits only for
 # the lock. Every result is one short post (✅ done: ONE line · 🚨 stuck: the headline, one plain sentence of why, who asked and
 # the log; THE OP POST, above op_finish) and one line into the hearing
-# session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to <name>-main with
-# `[for <owner>]` first and the op log says `reply: … sent to …`; when neither is live, the op log says `reply FAILED` and the post stands), then the archive. The same end is reported once to stackshot (`client.py event --kind fleet_op`, op_event,
+# session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to a front agent with
+# `[for <owner>]` first, the session SALA_CHAT_SESSION names or, with that unset, <name>-main unless its role is back, and the
+# op log says `reply: … sent to …`; when neither is live, the op log says `reply FAILED` and the post stands), then the archive. The same end is reported once to stackshot (`client.py event --kind fleet_op`, op_event,
 # THE OP-END EVENT above op_finish): a failure of that report is a line in the op log and nothing else.
 #
 # A runner that ended without a result (its unit gone, no pid alive, the marker still `running`) is found by the next tick
@@ -1677,19 +1678,24 @@ op_push() {  # <tmux session> <text> → 0 pushed into that session's inbox · 1
     fi
     return 1
 }
-op_tell() {  # <tmux session> <text> → into that session's inbox when it is live here. A project-name pane that retired
-    # is no longer live, so the reply goes to the same project's front agent, <session>-main, with the line [for <owner>] first (a front
-    # agent takes a message only then); neither live → one failure line in the op log (the post stands). Always returns 0.
+op_tell() {  # <tmux session> <text> → into that session's inbox when it is live here. A session that is no longer live (a
+    # retired project-name pane) has its reply sent to a front agent instead, with the line [for <owner>] first (a front agent takes
+    # a message only then): the one front session SALA_CHAT_SESSION names, when it is set; unset, <session>-main, unless that
+    # session's role is back. Neither live → one failure line in the op log (the post stands). Always returns 0.
     local s="$1" t="$2" rc m=""
     op_push "$s" "$t"; rc=$?
     [ "$rc" = 0 ] && return 0
     if [ "$rc" = 1 ]; then
-        case "$s" in
-            *-main) ;;   # already a front agent: no further name to try
-            *) m="$s-main"
-               op_push "$m" "[for ${SALA_OWNER_NAME}]
-$t" && { op_log "reply: $s has no live pane; sent to $m"; return 0; } ;;
-        esac
+        if [ -n "${SALA_CHAT_SESSION:-}" ]; then
+            [ "$s" = "$SALA_CHAT_SESSION" ] || m="$SALA_CHAT_SESSION"
+        else
+            case "$s" in
+                *-main) ;;   # no <session>-main-main
+                *) back_lane_names back 2>/dev/null | grep -qxF -- "$s-main" || m="$s-main" ;;
+            esac
+        fi
+        if [ -n "$m" ] && op_push "$m" "[for ${SALA_OWNER_NAME}]
+$t"; then op_log "reply: $s has no live pane; sent to $m"; return 0; fi
         op_log "reply FAILED: $s has no live pane${m:+ and $m has none either}; nobody was told, the Slack post stands — ${t:0:120}"; return 0
     fi
     op_log "reply FAILED: $s is live but the push to its messaging socket failed; nobody was told, the Slack post stands — ${t:0:120}"; return 0

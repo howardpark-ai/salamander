@@ -18,6 +18,7 @@ unset ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR \
       AWS_PROFILE AWS_REGION CLAUDE_EFFORT ANTHROPIC_AUTH_TOKEN
 export BRIEFING_GMAIL_CONNECTOR=demo   # a made-up connector word (config.example): the tools are mcp__claude_ai_Google_Workspace_demo__* and the portal's gdemo_*
 export SALA_OWNER_NAME=Alex   # release-watch.sh names the owner in the front-agent marker from this setting (default "the owner")
+unset SALA_CHAT_SESSION SALA_SESSIONS SALA_SIDECAR   # who is a front agent: the relay checks below set what they need
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); D=$ROOT/contrib/briefing
 fail=0; ok() { echo "  ok   $*"; }; bad() { echo "  FAIL $*"; fail=1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -201,11 +202,11 @@ out=$(relay "$NOW" text:DONE)
 [ "$(cat "$T/sdk-pwd" 2>/dev/null)" = "$T/home" ] && ok "relay: the SDK turn runs in the same directory" || bad "relay sdk cwd: '$(cat "$T/sdk-pwd" 2>/dev/null)'"
 grep -qF 'RELAY_CWD=${RELEASE_WATCH_RELAY_CWD:-$HOME}' "$D/release-watch.sh" && ok "relay directory defaults to \$HOME, as before" || bad "relay directory default changed"
 
-# release-watch.sh relay to a front agent (*-main): its message must start with the line `[for Alex]`, or SendMessage logs it
-# instead of delivering it; any other recipient gets the text unchanged
+# release-watch.sh relay to a front agent: its message must start with the line `[for Alex]`, or SendMessage logs it instead of
+# delivering it; any other recipient gets the text unchanged. With no role to go by and SALA_CHAT_SESSION unset, *-main is a front agent
 relay_to() { # relay_to <session> <message>: the SDK turn's prompt lands in $T/sdk-stdin
     rm -f "$T"/sdk-* "$T"/claude-argv
-    env -u BRIEFING_BACKEND HOME="$T/home" FAKE_DIR="$T" FAKE_SDK=text:DONE BRIEFING_NOW="$NOW" \
+    env -u BRIEFING_BACKEND HOME="$T/home" SALA_CONFIG="$T/no-config" FAKE_DIR="$T" FAKE_SDK=text:DONE BRIEFING_NOW="$NOW" \
         BRIEFING_API_KEY_FILE="$T/key" BRIEFING_API_WORKSPACE_FILE="$T/ws" BRIEFING_SDK_CMD="$T/bin/sdk" \
         RELEASE_WATCH_STATE="$T/state" RELEASE_WATCH_RELAY_CWD="$T/home" RELEASE_WATCH_CLAUDE_BIN="$T/bin/claude" \
         sh "$D/release-watch.sh" relay "$1" "$2" 2>/dev/null
@@ -221,6 +222,34 @@ assert 'named "ops-main"' in t
 PY
 relay_to some-session "line one" >/dev/null
 grep -q 'Message: "line one"' "$T/sdk-stdin" && ! grep -q 'for Alex' "$T/sdk-stdin" && ok "relay to any other session: the message is unchanged, no [for Alex] line" || bad "relay non-main prompt: $(cat "$T/sdk-stdin")"
+# the role decides, else SALA_CHAT_SESSION: a registry of its own (made-up rows) and a fake tmux on which every session runs
+mkdir -p "$T/reg" "$T/tmuxpath"
+printf '#!/bin/sh\nexit 0\n' > "$T/tmuxpath/tmux"; chmod +x "$T/tmuxpath/tmux"
+python3 -I - "$T/reg/sessions.json" <<'PY'
+import json, sys
+rows = {n: {"id": n, "name": n, "state": "live", "role": r, "created": n}
+        for n, r in (("demo-eng-main", "back"), ("demo-lead", "front"), ("demo-new-main", None))}
+json.dump({"schema": 1, "sessions": rows}, open(sys.argv[1], "w"))
+PY
+relay_role() { # relay_role <session> [VAR=value ...]: the same turn, the role read from that registry
+    local s=$1; shift
+    rm -f "$T"/sdk-* "$T"/claude-argv
+    env -u BRIEFING_BACKEND PATH="$T/tmuxpath:$PATH" HOME="$T/home" SALA_CONFIG="$T/no-config" SALA_SIDECAR="$T/reg/pane-map.tsv" \
+        FAKE_DIR="$T" FAKE_SDK=text:DONE BRIEFING_NOW="$NOW" \
+        BRIEFING_API_KEY_FILE="$T/key" BRIEFING_API_WORKSPACE_FILE="$T/ws" BRIEFING_SDK_CMD="$T/bin/sdk" \
+        RELEASE_WATCH_STATE="$T/state" RELEASE_WATCH_RELAY_CWD="$T/home" RELEASE_WATCH_CLAUDE_BIN="$T/bin/claude" "$@" \
+        sh "$D/release-watch.sh" relay "$s" "line one" >/dev/null 2>&1
+}
+marked() { grep -qF 'Message: "[for Alex]' "$T/sdk-stdin" 2>/dev/null; }
+unmarked() { grep -qF 'Message: "line one"' "$T/sdk-stdin" 2>/dev/null && ! grep -q 'for Alex' "$T/sdk-stdin"; }
+relay_role demo-eng-main; unmarked && ok "relay to a back agent named *-main: no [for Alex] line" || bad "relay back -main: $(cat "$T/sdk-stdin" 2>/dev/null)"
+relay_role demo-lead; marked && ok "relay to an agent with role front, whatever its name: [for Alex] first" || bad "relay front role: $(cat "$T/sdk-stdin" 2>/dev/null)"
+relay_role demo-new-main; marked && ok "relay, no role and SALA_CHAT_SESSION unset: a *-main session gets [for Alex], as before" || bad "relay no role -main: $(cat "$T/sdk-stdin" 2>/dev/null)"
+relay_role demo-chat SALA_CHAT_SESSION=demo-chat; marked && ok "relay to the session SALA_CHAT_SESSION names: [for Alex] first" || bad "relay chat session: $(cat "$T/sdk-stdin" 2>/dev/null)"
+relay_role demo-new-main SALA_CHAT_SESSION=demo-chat; unmarked && ok "relay, SALA_CHAT_SESSION set: a *-main session with no role is no front agent" || bad "relay set, no role -main: $(cat "$T/sdk-stdin" 2>/dev/null)"
+relay_role demo-lead SALA_CHAT_SESSION=demo-chat; marked && ok "relay, SALA_CHAT_SESSION set: another session with role front still gets [for Alex]" || bad "relay set, front role: $(cat "$T/sdk-stdin" 2>/dev/null)"
+printf 'SALA_CHAT_SESSION=demo-chat   # from the config\n' > "$T/chat.config"
+relay_role demo-chat SALA_CONFIG="$T/chat.config"; marked && ok "relay: SALA_CHAT_SESSION from the sala config's line" || bad "relay chat session from the config: $(cat "$T/sdk-stdin" 2>/dev/null)"
 # the main loop: an announced Ubuntu LTS goes to the session RELEASE_WATCH_UBUNTU_SESSION names (a made-up one here), with
 # [for Alex] first and the plan's page (RELEASE_WATCH_UBUNTU_PAGE) named; with neither set, the notice is posted and nobody is pinged
 mkdir -p "$T/fakepath"

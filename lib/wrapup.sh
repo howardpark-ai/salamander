@@ -261,10 +261,11 @@ sys.exit(0 if sys.argv[2] in d else 1)' "$SALA_LIMIT_STATE" "$c" 2>/dev/null
     local o; o=$(printf '%s|%s|%s\n' "$1" "$2" "$3" | lw_scan 2>/dev/null) || return 1
     [[ $o == "stop "* || $o == *$'\n'"stop "* ]]
 }
-# sleep_is_front <session> → 0 for a front agent, which the owner talks to and which never sleeps: a registry row with role front (or no role and a front entry
-# of the project record or the roles file: back_lane_names front), or the name of a project's -main agent
+# sleep_is_front <session> → 0 for a front agent, which the owner talks to and which never sleeps: the one front session SALA_CHAT_SESSION names, when it is set,
+# or a session whose role is front (a registry row with role front, or no role and a front entry of the project record or the roles file: back_lane_names front).
+# A name alone says nothing: one ending in -main with no role is not a front agent.
 sleep_is_front() {
-    case "${1:-}" in *-main) return 0;; esac
+    [ -n "${SALA_CHAT_SESSION:-}" ] && [ "${1:-}" = "$SALA_CHAT_SESSION" ] && return 0
     back_lane_names front 2>/dev/null | grep -qxF -- "$1"
 }
 # inbox_line_waiting <session> <conversation uuid> → 0 when a message line of stackshot's inbox (hub/ and msg/ under SALA_STACKSHOT_INBOX) is routed to the session or its

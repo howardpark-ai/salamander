@@ -28,7 +28,7 @@ unset TMUX TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECY
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CONFIG SALA_BARE_REVIVE SALA_IDLE_WRAPUP SALA_SESSION_ID SALA_STACKSHOT_INBOX \
       SALA_STACKSHOT_DIR SALA_STACKSHOT_CLIENT SALA_AGENT_CHECK_SCRIPT SALA_PROJECT_RECORD SALA_ROLES_FILE SALA_OP_ID SALA_OP_FROM SALA_OP_PLAN SALA_OP_REASON_FROM \
       SALA_IDLE_SLEEP SALA_SLEEP_AFTER SALA_SLEEP_PER_TICK SALA_WAKE_PER_RUN SALA_SLEEP_RETRY SALA_WAKE_RETRY SALA_SLEEP_QUIET SALA_ACTIVITY_CMD SALA_ACTIVITY_TIMEOUT SALA_SLEEP_PIN_DIR \
-      SALA_SLEEP_ASKER_WAIT
+      SALA_SLEEP_ASKER_WAIT SALA_CHAT_SESSION
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 SANDBOX=""; SOCK="sala-sleepasked-$$"; T="tmux -L $SOCK -f /dev/null"
@@ -244,6 +244,19 @@ OUT=$(SALA_OP_ID=1760000000-9 SALA_OP_FROM=sala-test-sol-main "$SALA" sleep sala
 [ "$RC" = 1 ] && has "$OUT" "a front agent" && ! asleep 74 && hasclaude sol-main && ok "and the runner refuses it too: nothing touched" || bad "front alone real: rc=$RC $OUT"
 OUT=$(SALA_OP_ID=1760000000-9 SALA_OP_FROM=sala-test-ctl "$SALA" sleep sala-test-sol-main 2>&1); RC=$?
 [ "$RC" = 1 ] && has "$OUT" "a front agent" && ok "a front agent by name for another asker: refused as before" || bad "front by name: rc=$RC $OUT"
+
+echo "== the role decides, never the name: a background agent named *-main may ask to sleep alone; the same one named by SALA_CHAT_SESSION may not"
+mk x-main 78 -e FAKE_IDLE_AGE=$IDLE
+fake_up sala-test-x-main || exit 1
+"$SALA" adopt sala-test-x-main >/dev/null 2>&1 || bad "adopt sala-test-x-main failed"
+"$SALA" sessions tag sala-test-x-main --role back >/dev/null 2>&1 || bad "tag x-main failed"
+stoprec 78
+OUT=$(SALA_CHAT_SESSION=sala-test-x-main SALA_OP_ID=1760000000-9 SALA_OP_FROM=sala-test-x-main "$SALA" sleep sala-test-x-main 2>&1); RC=$?
+[ "$RC" = 1 ] && has "$OUT" "a front agent" && ! asleep 78 && hasclaude x-main && ok "named by SALA_CHAT_SESSION: the front agent, refused, nothing touched" || bad "x-main as chat session: rc=$RC $OUT"
+OUT=$(SALA_OP_PLAN=1 SALA_OP_FROM=sala-test-x-main "$SALA" sleep sala-test-x-main --dry-run 2>&1); RC=$?
+[ "$RC" = 0 ] && has "$OUT" "the asking session sleeps once idle" && ! has "$OUT" "a front agent" && ok "plan: a background agent named *-main may ask to sleep itself" || bad "x-main plan: rc=$RC $OUT"
+OUT=$(SALA_OP_ID=1760000000-9 SALA_OP_FROM=sala-test-x-main "$SALA" sleep sala-test-x-main 2>&1); RC=$?
+[ "$RC" = 0 ] && has "$OUT" "sala-test-x-main: asleep" && asleep 78 && ! hasclaude x-main && ok "and the runner puts it to sleep: its name does not make it a front agent" || bad "x-main real: rc=$RC $OUT"
 
 echo "== the queue: what op sleep --project refuses, queues nothing"
 q0=$(ls "$OPS"/*.op 2>/dev/null | wc -l)

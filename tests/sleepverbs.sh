@@ -25,7 +25,7 @@
 set -u
 unset TMUX TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND SALA_SLEEP_DIR \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CONFIG SALA_BARE_REVIVE SALA_IDLE_WRAPUP SALA_SESSION_ID SALA_STACKSHOT_INBOX \
-      SALA_STACKSHOT_DIR SALA_STACKSHOT_CLIENT SALA_AGENT_CHECK_SCRIPT SALA_PROJECT_RECORD SALA_OP_ID SALA_OP_FROM SALA_OP_REASON_FROM
+      SALA_STACKSHOT_DIR SALA_STACKSHOT_CLIENT SALA_AGENT_CHECK_SCRIPT SALA_PROJECT_RECORD SALA_OP_ID SALA_OP_FROM SALA_OP_REASON_FROM SALA_CHAT_SESSION
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 SANDBOX=""; SOCK="sala-sleepverbs-$$"; T="tmux -L $SOCK -f /dev/null"
@@ -109,6 +109,7 @@ mk s 6 -e FAKE_IDLE_AGE=4000; mk s2 12 -e FAKE_IDLE_AGE=4000; mk q 16 -e FAKE_ID
 mk n 13 -e FAKE_IDLE_AGE=60; mk x-main 14 -e FAKE_IDLE_AGE=4000; mk d 4 -e FAKE_IDLE_AGE=4000
 fake_up sala-test-s sala-test-s2 sala-test-q sala-test-g sala-test-n sala-test-x-main sala-test-d || exit 1
 for n in s s2 q g n x-main d; do "$SALA" adopt "sala-test-$n" >/dev/null 2>&1 || bad "adopt sala-test-$n failed"; done
+"$SALA" sessions tag sala-test-x-main --role front >/dev/null 2>&1 || bad "tag sala-test-x-main failed"   # a front agent by its role, never by its name
 for u in 6 12 16 15 14 4; do stoprec "$u"; done
 [ "$($T display -p '#{socket_path}')" = "$SALA_TMUX_SOCKET" ] && ok "the tmux server is the suite's private socket ($SOCK)" || bad "socket: $($T display -p '#{socket_path}')"
 callin bash -c 'echo up'; [ "$RC" = 0 ] && [ "$OUT" = up ] && ok "a call runs inside the asker's driver window" || { bad "driver: rc=$RC $OUT"; exit 1; }
@@ -432,6 +433,26 @@ if [ -n "$OPID" ]; then
     [ "$(n_starts 17)" = "$((f0 + 1))" ] && [ "$(fcwd)" = "$NEW2" ] && rowis "$NEW2" && [ "$(mval "$DONE/$OPID.op" state)" = done ] && ok "the runner relaunches it in the folder and writes the row: done" || bad "runner revive --cwd: cwd='$(fcwd)' row='$(row sala-test-f)' $(cat "$DONE/$OPID.op" 2>/dev/null | tr '\n' ' ')"
 fi
 gone_f; rm -rf "$OPS"; mkdir -p "$OPS"
+
+echo "== the role decides, never the name: a back agent or one with no role named *-main sleeps; a front agent and the session SALA_CHAT_SESSION names do not"
+mk b-main 18 -e FAKE_IDLE_AGE=4000; mk u-main 19 -e FAKE_IDLE_AGE=4000; mk chat 20 -e FAKE_IDLE_AGE=4000
+fake_up sala-test-b-main sala-test-u-main sala-test-chat || exit 1
+for n in b-main u-main chat; do "$SALA" adopt "sala-test-$n" >/dev/null 2>&1 || bad "adopt sala-test-$n failed"; done
+"$SALA" sessions tag sala-test-b-main --role back >/dev/null 2>&1 || bad "tag sala-test-b-main failed"
+for u in 18 19 20; do stoprec "$u"; done
+marked() { [ -e "$SALA_SLEEP_DIR/$(uuid "$1")" ]; }   # <uuid n>
+OUT=$(SALA_CHAT_SESSION=sala-test-chat "$SALA" sleep sala-test-chat 2>&1); RC=$?
+[ "$RC" = 1 ] && has "$OUT" "a front agent" && hasclaude chat && ! marked 20 && ok "the session SALA_CHAT_SESSION names is the front agent, with no role: refused, claude still runs" || bad "chat sleep: rc=$RC — $OUT"
+OUT=$(SALA_CHAT_SESSION=sala-test-chat "$SALA" sleep sala-test-u-main --dry-run 2>&1); RC=$?
+[ "$RC" = 0 ] && has "$OUT" "would hold its stackshot inbox" && ok "no role, SALA_CHAT_SESSION naming another session: a name ending in -main does not make it a front agent" || bad "u-main, chat set: rc=$RC — $OUT"
+run sleep sala-test-u-main --dry-run
+[ "$RC" = 0 ] && has "$OUT" "would hold its stackshot inbox" && ok "no role, SALA_CHAT_SESSION unset: a name ending in -main may sleep too" || bad "u-main, unset: rc=$RC — $OUT"
+run op --plan sleep --only sala-test-b-main
+[ "$RC" = 0 ] && has "$OUT" "[dry-run] sala-test-b-main: would hold its stackshot inbox" && ! has "$OUT" "would refuse" && ok "a back agent named *-main: op sleep --only plans it" || bad "op --plan b-main: rc=$RC — $OUT"
+run sleep sala-test-b-main
+[ "$RC" = 0 ] && has "$OUT" "asleep" && ! hasclaude b-main && marked 18 && ok "a back agent named *-main is put to sleep" || bad "sleep b-main: rc=$RC — $OUT"
+run sleep sala-test-x-main
+[ "$RC" = 1 ] && has "$OUT" "a front agent" && hasclaude x-main && ! marked 14 && ok "a front agent named *-main is still refused" || bad "sleep x-main again: rc=$RC — $OUT"
 
 echo "== the teaching text names the verbs"
 run op --help --full
