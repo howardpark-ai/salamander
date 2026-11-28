@@ -15,7 +15,7 @@
 #      the brain mirror ($SALA_BRAIN_DIR; the coordinator commits every put to it at once, so a put shows there). Where the
 #      mirror is not on this box (or SALA_BRAIN_DIR is not set), the page's last-change time from stackshot's client (`get page-ts`) after the start counts, said as the
 #      weaker proof it is. No project on the record (a fork of an agent with none): skipped, and said so.
-#   3. THE SUMMARY reached the origin agent (a fork) or the project's -main (a start about an item): the full write-up stays on the item and
+#   3. THE SUMMARY reached the origin agent (a fork) or the project's contact (a start about an item; its front -main, else its lead): the full write-up stays on the item and
 #      the page (checks 1 and 2 proved it); sala sends only a POINTER to the receiver, once all the other checks hold, through stackshot's
 #      client message, and records that it did, so a repeat of `side done` never sends it again. To an agent (a *-main, another front agent, a
 #      background agent) the pointer is ONE line sent with --fyi and NO `[for <owner>]` mark, at most 200 characters before the sender label the

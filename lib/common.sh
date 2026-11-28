@@ -1561,7 +1561,7 @@ except Exception: pass' 2>/dev/null
 # RL_LINE (the mandate line, one line cut at 200 characters: the first line of the owner's own instructions for the session when its mandate file has them,
 # else where the session came from) · rc 1: RL_WHY says why sala cannot list it
 rename_side_plan() {
-    local old=$1 new=$2 origin item mf main pre
+    local old=$1 new=$2 origin item mf contact
     RL_HUB=$(side_val "$old" project); RL_ROLE="" RL_LINE="" RL_WHY=""
     origin=$(side_val "$old" origin); item=$(side_val "$old" item); mf=$(side_val "$old" mandate)
     [ -n "$RL_HUB" ] || { [ -z "$origin" ] || RL_HUB=$(side_origin_project "$origin"); }
@@ -1569,8 +1569,8 @@ rename_side_plan() {
         RL_WHY="'$old' is a side session with no project on its record${origin:+ (nor has its origin '$origin' one)}, so sala cannot tell which project would list '$new': ask that project's -main agent to list '$new' first, or tag the project (sala sessions tag)"; return 1
     fi
     page_key_ok "$RL_HUB" || { RL_WHY="'$old' is a side session whose project '$RL_HUB' is not a hub page key (<dir>/<slug>, the dir one of ${SALA_PAGE_DIRS// /, }), so sala cannot list '$new' there"; return 1; }
-    main=$(project_record_agent "$RL_HUB" "side-probe-nobody" 2>/dev/null | sed -n 2p); pre=${main%-main}
-    if [ -n "$main" ] && [[ $new == "$pre"-?* ]]; then RL_ROLE=${new#"$pre"-}; else RL_ROLE=${new##*-}; fi
+    contact=$(project_record_agent "$RL_HUB" "side-probe-nobody" 2>/dev/null | sed -n 2p)
+    RL_ROLE=$(agent_role_word "$new" "$contact")
     [[ $RL_ROLE =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]] || { RL_WHY="no role for '$new' on $RL_HUB (its part after the project's name is not letters, digits, . _ - of at most 32 characters)"; return 1; }
     if [ -n "$mf" ] && [ -r "$mf" ]; then RL_LINE=$(awk '/^## (.*[ ])?[Ii]nstructions for this conversation/ {f=1; next} f && NF {print; exit}' "$mf" 2>/dev/null); fi
     [ -n "$RL_LINE" ] || RL_LINE="was the side session $old${origin:+, a fork of $origin}${item:+, about $item}"
@@ -1701,15 +1701,30 @@ except OSError as e:
     case "$rc" in 0|10) return "$rc" ;; 11) printf '%s\n' "$out"; return 11 ;; esac
     if [ -e "$1" ]; then return 0; else return 10; fi
 }
-project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] [unique] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's -main agent or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the -main agent, empty for no key) · 4 (only with `unique` as the fourth argument, no page key) the name is on the agents maps of two or more projects: line 1 names their keys · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
+# THE LEAD AND THE CONTACT (docs/subcommands.md, spawn). A project's LEAD is the one entry of its agents map that is not marked front; the registry role
+# never decides it. No such entry, several, or a sole one that gives no front or back: no lead. Its CONTACT is the front -main agent, and with none the
+# lead; with neither, each caller does what it does for a project that has no -main. A -main or -engineer ending is cut off a contact's name to get the
+# project's name (contact_stem, stem_of); a lead named otherwise is still the contact but names no project. _PY_LEAD is the python the record's readers exec.
+_PY_LEAD='
+def lead_of(agents):
+    rest = [n for n, a in agents.items() if isinstance(a, dict) and a.get("front") is not True]
+    return rest[0] if len(rest) == 1 and agents[rest[0]].get("front") is False else ""
+def stem_of(name):
+    return next((name[:-len(s)] for s in ("-main", "-engineer") if name.endswith(s)), "")
+'
+contact_stem() {  # <contact name, or empty> → the name without its -main or -engineer ending; nothing for any other name
+    case "$1" in ?*-main) printf '%s\n' "${1%-main}" ;; ?*-engineer) printf '%s\n' "${1%-engineer}" ;; esac
+}
+project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] [unique] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's contact, its front -main agent else its lead, or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the contact, empty for no key; line 3 `lead`, only when the contact is the lead) · 4 (only with `unique` as the fourth argument, no page key) the name is on the agents maps of two or more projects: line 1 names their keys · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
     local rf note out rc
     record_file_r rf projects; rc=$?; note=$REC_NOTE
     if [ "$rc" != 0 ]; then   # stackshot did not answer and the file copy is missing: absent only when stat says so (a parent that denies traversal makes `-e` false for a file that is there)
         _record_stat "$rf" >/dev/null; case $? in 10) echo "no project record at $rf${REC_WHY:+ ($note)}" ;; *) echo "the project record at $rf is not readable${REC_WHY:+ ($note)}" ;; esac; return 1
     fi
-    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" "${4:-}" 2>&1 <<'PY'
+    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" "${4:-}" "$_PY_LEAD" 2>&1 <<'PY'
 import datetime, json, sys
 path, max_age, key, name, role, uniq = sys.argv[1:7]
+exec(sys.argv[7])   # lead_of, stem_of (_PY_LEAD)
 def no(why): print(why); sys.exit(1)
 try:
     d = json.load(open(path, encoding="utf-8"))
@@ -1719,8 +1734,10 @@ try:
     projects = d["projects"]
     if not isinstance(projects, dict): no("the project record has no projects")
     def agents_of(p): return p["agents"] if isinstance(p, dict) and isinstance(p.get("agents"), dict) else {}
-    def main_of(p):  # the front entry ending in -main
-        return next(iter(sorted(n for n, a in agents_of(p).items() if isinstance(a, dict) and a.get("front") is True and n.endswith("-main"))), "")
+    def contact_of(p):  # -> (the contact, whether it is the lead): the first front entry ending in -main by name, else the lead
+        mains = sorted(n for n, a in agents_of(p).items() if isinstance(a, dict) and a.get("front") is True and n.endswith("-main"))
+        if mains: return mains[0], False
+        lead = lead_of(agents_of(p)); return lead, bool(lead)
     if not key:  # any project: is the name listed anywhere
         hits = [projects[k].get("key", k) for k in sorted(projects) if isinstance(agents_of(projects[k]).get(name), dict)]
         if len(hits) > 1 and uniq == "unique": hits.sort(); print("listed on %s and %s" % (", ".join(hits[:-1]), hits[-1])); print(""); sys.exit(4)   # the first of them is no answer for a caller that must pick one
@@ -1732,12 +1749,15 @@ try:
     if p is None: no("the project record has no project %s" % key)
     a = agents_of(p).get(name)
     if not isinstance(a, dict):
-        print("not on the agents map of %s in stackshot's project record (%s)" % (key, p.get("id", pid))); print(main_of(p)); sys.exit(3)
+        contact, led = contact_of(p)
+        print("not on the agents map of %s in stackshot's project record (%s)" % (key, p.get("id", pid))); print(contact)
+        if led: print("lead")
+        sys.exit(3)
     front = a.get("front")
     if not isinstance(front, bool): no("the project record gives no front/back for %s" % name)
     if role and (role == "front") != front:
         print("the project record lists '%s' on %s as a %s agent (front: %s), not a %s agent" % (name, key, "front" if front else "back", str(front).lower(), role)); sys.exit(5)
-    print(str(a.get("mandate_line") or "") + (" (the page's line is still owed: registered through client.py post project-agent)" if a.get("page_owed") else "")); print(main_of(p)); sys.exit(0)
+    print(str(a.get("mandate_line") or "") + (" (the page's line is still owed: registered through client.py post project-agent)" if a.get("page_owed") else "")); print(contact_of(p)[0]); sys.exit(0)
 except SystemExit: raise
 except Exception as e: no("the project record is unreadable (%s)" % e)
 PY
@@ -1761,16 +1781,17 @@ agent_gate_exempt() {  # <name> <side 0|1> <generated 0|1> → rc 0 exempt (stdo
     return 1
 }
 stackshot_present() { [ -r "$SALA_PROJECT_RECORD" ] || stackshot_client >/dev/null 2>&1; }   # → 0 when this box has stackshot (a record file or a client); a box without it has nothing to ask (docs/running-without-stackshot.md)
-agent_role_word() {  # <name> <the project's -main agent, or empty> → the role word stackshot's register call takes: the part of NAME after the project's name, else its last dash-part
-    local pre=${2%-main}
-    if [ -n "$2" ] && [ "$pre" != "$2" ] && [[ $1 == "$pre"-?* ]]; then printf '%s\n' "${1#"$pre"-}"; else printf '%s\n' "${1##*-}"; fi
+agent_role_word() {  # <name> <the project's contact, or empty> → the role word stackshot's register call takes: the part of NAME after the project's name, else its last dash-part
+    local pre; pre=$(contact_stem "$2")
+    if [ -n "$pre" ] && [[ $1 == "$pre"-?* ]]; then printf '%s\n' "${1#"$pre"-}"; else printf '%s\n' "${1##*-}"; fi
 }
-project_for_name() {  # <name> → rc 0: the page key of the one project whose name (its -main agent's without -main) is the longest prefix of NAME (stdout) · rc 1: none or ambiguous, or the record cannot say (stdout: why)
+project_for_name() {  # <name> → rc 0: the page key of the one project whose name (a front -main agent's without -main; with none, its lead's, contact_stem) is the longest prefix of NAME (stdout) · rc 1: none or ambiguous, or the record cannot say (stdout: why)
     local rf out rc
     record_file_r rf projects || { echo "no readable project record at $rf${REC_WHY:+ ($REC_NOTE)}"; return 1; }
-    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>&1 <<'PY'
+    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$_PY_LEAD" 2>&1 <<'PY'
 import datetime, json, sys
 path, max_age, name = sys.argv[1:4]
+exec(sys.argv[4])   # lead_of, stem_of (_PY_LEAD)
 def no(why): print(why); sys.exit(1)
 try:
     d = json.load(open(path, encoding="utf-8"))
@@ -1780,9 +1801,11 @@ try:
     best, hits = -1, []
     for p in d["projects"].values():
         ag = p.get("agents") if isinstance(p, dict) and isinstance(p.get("agents"), dict) else {}
-        for m, a in ag.items():
-            if isinstance(a, dict) and a.get("front") is True and m.endswith("-main") and name.startswith(m[:-5] + "-"):
-                n = len(m) - 5
+        stems = [m[:-5] for m, a in ag.items() if isinstance(a, dict) and a.get("front") is True and m.endswith("-main")]
+        if not stems: stems = [s for s in [stem_of(lead_of(ag))] if s]   # no front -main: the lead's name gives the project's
+        for stem in stems:
+            if name.startswith(stem + "-"):
+                n = len(stem)
                 if n > best: best, hits = n, [p.get("key") or ""]
                 elif n == best and (p.get("key") or "") not in hits: hits.append(p.get("key") or "")
     hits = [h for h in hits if h]
