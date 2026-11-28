@@ -12,6 +12,7 @@
 #   salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (as for revive): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
 #   salamander op sleep --project KEY --from YOU --words "<the owner's words>"   a whole project asleep NOW, front agents with it, with no quiet rule; YOU may be one of its sessions (it sleeps once its turn has ended)
 #   salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (as for revive): resume sleeping sessions by their conversation id
+#   salamander op revive|wake --only NAME --cwd DIR [--force] --from YOU --words "<the owner's words>"   ONE session moved: relaunched in DIR, which is written into its pane-map row once the claude is up (common.sh, THE FOLDER OF A RELAUNCH); the owner's words only, never --item or --why (--force: revive only)
 #   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
 #   salamander op --list                                                  the queue (and what it is doing)
 #   salamander op --status <id>                                           one operation's record, queued or archived
@@ -23,10 +24,12 @@
 #   recycle [--update] [--force]              "recycle claude" = recycle --update --force
 #   update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
 #   revive [--only NAME]… [--force] [--item board#N | --why TEXT]    bring a session back (--only), or every pane on an older CLI; with --only NAME… and a reason (--item or --why) it needs no words (THE WORDS POLICY)
+#   revive --only NAME --cwd DIR [--force]   that one session relaunched in DIR and DIR written into its pane-map row (lib/revive.sh --cwd); DIR is absolute, existing and readable, checked when queued and again by the runner; the owner's words only
 #   restore --only NAME…                  recreate a session whose tmux session is gone from its pane-map row (lib/restore.sh: its tmux session in the row's directory, then revive --only resumes its conversation); with a reason (--item or --why) it needs no words (THE WORDS POLICY)
 #   sleep --only NAME…                    end the claude of an idle session that has nothing in flight, keeping its tmux session and pane-map row (lib/sleep.sh; never a front agent); with a reason (--item or --why) it needs no words (THE WORDS POLICY)
 #   sleep --project KEY                   every session of one project, front agents too, asleep together NOW: the owner's words only (no reason door), no quiet rule and no settle time, every other check kept (lib/sleep.sh, THE ASKED SLEEP)
 #   wake --only NAME…                     resume a sleeping session by its conversation id (lib/wake.sh: the marker off, then revive --only); with a reason (--item or --why) it needs no words (THE WORDS POLICY)
+#   wake --only NAME --cwd DIR            one sleeper resumed in DIR, which is written into its pane-map row (lib/wake.sh --cwd); the owner's words only, as for revive --cwd
 #   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
 #   close-shell NAME [--busy]
 #   forget-row NAME
@@ -696,6 +699,8 @@ op_shapes() {
                                             The runner checks it all again before it relaunches, recreates or ends anything
   revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT the reason path above: every NAME is a live Claude session of the registry;
                                             never a sweep (no --only), --rescue, --lane-default or any other flag; --force is allowed
+  revive --only NAME --cwd DIR [--force]    that one session relaunched in DIR (absolute, existing, readable; a missing tmux session is created there), and DIR written into its pane-map row once the claude is up, so a later restore
+                                            starts there. The owner's words only, never the reason path. A live claude on the current version needs --force; a pane that is busy is not retried: nothing is written and the operation says so
   restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
                                             every NAME is a pane-map row with no tmux session whose conversation is live nowhere else; never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere
   sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT the reason path above:
@@ -705,6 +710,7 @@ op_shapes() {
                                             the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the post carries the result
   wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
                                             every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
+  wake --only NAME --cwd DIR                one sleeper resumed in DIR (as for revive --cwd), and DIR written into its pane-map row. The owner's words only, never the reason path
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
                                             ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
                                             a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
@@ -732,6 +738,20 @@ EOF
     printf '%s' "$_t"
 }
 op_bad() { OP_BAD="$*"; echo "✗ $*" >&2; }
+op_has_cwd() {  # <verb> <args…> → 0 for a revive or wake that carries --cwd
+    local v=$1 a; shift; case "$v" in revive|wake) ;; *) return 1 ;; esac
+    for a in "$@"; do [ "$a" = --cwd ] && return 0; done
+    return 1
+}
+op_cwd_of() {  # <args…> → the folder --cwd names, as it stands
+    while [ $# -gt 1 ]; do [ "$1" = --cwd ] && { printf '%s\n' "$2"; return 0; }; shift; done
+    return 0
+}
+op_cwd_ok() {  # <how many --cwd> <how many --only> <dir> → 0 when the queue takes this --cwd (common.sh, THE FOLDER OF A RELAUNCH); 1 with OP_BAD said
+    [ "$1" = 1 ] || { op_bad "--cwd is given once"; return 1; }
+    [ "$2" = 1 ] || { op_bad "--cwd moves one session: it needs exactly one --only NAME"; return 1; }
+    relaunch_dir_ok "$3" || { op_bad "$RD_WHY"; return 1; }
+}
 op_host_ok() {  # <host> → 0 when it is this box or a SALA_FLEET_HOSTS name
     case "$1" in ''|-*|*[!A-Za-z0-9._-]*) op_bad "'$1' is not a host name"; return 1;; esac
     [ "$1" = "$_SALA_HN" ] && return 0
@@ -746,7 +766,7 @@ op_session_ok() { case "$1" in ''|-*|*[[:space:]:]*) op_bad "'${1:-}' is not a s
 # touches (OP_TARGETS when it names none of its own). The default is solo, and the end of this function turns a par verb back
 # into solo when it touches no name, and gives a par verb OP_LOCK=share.
 op_shape() {
-    local verb="${1:-}"; shift || true; local a s flags=() hosts=() only=() sess=() lane="" name="" steps="" me
+    local verb="${1:-}"; shift || true; local a s flags=() hosts=() only=() sess=() lane="" name="" steps="" me cwd="" ncwd=0
     OP_RUN=(); OP_PLAN=(); OP_PLAN_NOTE=""; OP_LOCK=hold; OP_SET=""; OP_KIND=""; OP_TARGETS=""; OP_BAD=""; OP_PAR=solo; OP_KEYS=""; me=$_SALA_HN
     case "$verb" in
     recycle)
@@ -766,10 +786,14 @@ op_shape() {
         while [ $# -gt 0 ]; do case "$1" in
             --only) op_session_ok "${2:-}" || return 1; only+=("$2"); shift ;;
             --force) flags=(--force) ;;
-            *) op_bad "revive takes --only NAME and --force only, not '$1'"; return 1 ;;
+            --cwd) [ $# -ge 2 ] || { op_bad "--cwd needs a folder"; return 1; }; cwd=$2; ncwd=$((ncwd + 1)); shift ;;
+            *) op_bad "revive takes --only NAME and --force only (and --cwd DIR with one name), not '$1'"; return 1 ;;
         esac; shift; done
+        OP_TARGETS="${only[*]-}"   # before the folder check: a marker whose folder is gone still names its session (op_targets)
         for s in ${only[@]+"${only[@]}"}; do OP_RUN+=(--only "$s"); done
-        OP_RUN=(revive ${OP_RUN[@]+"${OP_RUN[@]}"} ${flags[@]+"${flags[@]}"}); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_LOCK=own; OP_SET=1; OP_TARGETS="${only[*]-}" ;;
+        OP_RUN=(revive ${OP_RUN[@]+"${OP_RUN[@]}"} ${flags[@]+"${flags[@]}"})
+        if [ "$ncwd" -gt 0 ]; then op_cwd_ok "$ncwd" "${#only[@]}" "$cwd" || return 1; OP_RUN+=(--cwd "$cwd"); OP_PLAN_NOTE="would relaunch ${only[0]} in $cwd and write that folder into its pane-map row once the claude is up; the plan below is revive --dry-run"; fi
+        OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_LOCK=own; OP_SET=1 ;;
     restore)
         # a session whose tmux session is gone, from its pane-map row (lib/restore.sh): `restore NAME…` is the verb's own form, the queue's marker keeps `--only NAME` like revive's.
         # No sweep (--missing) and no flag: the plan is the verb's --dry-run; the runner's unit passes ops_guard like every queued verb (common.sh op_unit_caller).
@@ -791,12 +815,14 @@ op_shape() {
             --only) op_session_ok "${2:-}" || return 1
                     case " ${only[*]-} " in *" $2 "*) op_bad "$verb names '$2' twice"; return 1;; esac
                     only+=("$2"); shift ;;
-            --project) [ "$verb" = sleep ] || { op_bad "$verb takes --only NAME only, not '$1'"; return 1; }
+            --cwd) [ "$verb" = wake ] || { op_bad "sleep takes --only NAME only, or --project KEY, not '$1'"; return 1; }
+                    [ $# -ge 2 ] || { op_bad "--cwd needs a folder"; return 1; }; cwd=$2; ncwd=$((ncwd + 1)); shift ;;
+            --project) [ "$verb" = sleep ] || { op_bad "$verb takes --only NAME only (and --cwd DIR with one name), not '$1'"; return 1; }
                     [ -z "$proj" ] || { op_bad "sleep names its project once"; return 1; }
                     declare -F sleep_project_id_r >/dev/null || . "$SALA_ROOT/lib/wrapup.sh"
                     sleep_project_id_r proj "${2:-}" || { op_bad "'${2:-}' is not a project key (the page key without projects/: words of letters, digits, . _ - joined by single slashes, like team/alpha)"; return 1; }
                     shift ;;
-            *) op_bad "$verb takes --only NAME only$([ "$verb" = sleep ] && echo ", or --project KEY"), not '$1'"; return 1 ;;
+            *) op_bad "$verb takes --only NAME only$([ "$verb" = sleep ] && echo ", or --project KEY" || echo " (and --cwd DIR with one name)"), not '$1'"; return 1 ;;
         esac; shift; done
         if [ -n "$proj" ]; then   # THE ASKED SLEEP (the header): a whole project on the owner's words; the sessions are known only when it runs, so it names none and runs alone
             [ ${#only[@]} -eq 0 ] || { op_bad "sleep --project and --only each stand alone: a project, or named sessions"; return 1; }
@@ -804,14 +830,18 @@ op_shape() {
             OP_PLAN_NOTE="would put every session of project $proj to sleep together, its front agents too (never one session alone), with no quiet rule and no settle time: the activity reading, the pin and every in-flight check still hold. When the asking session is one of them, the asking session sleeps once idle (the runner waits for its turn to end, then puts it to sleep last); the plan below is sleep --project $proj --asked --dry-run"
             return 0
         fi
+        OP_TARGETS="${only[*]-}"
+        [ "$ncwd" = 0 ] || op_cwd_ok "$ncwd" "${#only[@]}" "$cwd" || return 1
         [ ${#only[@]} -ge 1 ] || { op_bad "$verb needs at least one --only NAME$([ "$verb" = sleep ] && echo " (or --project KEY)")"; return 1; }
-        OP_RUN=("$verb" "${only[@]}"); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_TARGETS="${only[*]}"
+        OP_RUN=("$verb" "${only[@]}"); [ "$ncwd" = 0 ] || OP_RUN=(wake --only "${only[0]}" --cwd "$cwd")
+        OP_PLAN=("${OP_RUN[@]}" --dry-run)
         if [ "$verb" = sleep ]; then
             OP_PAR=par; for s in "${only[@]}"; do tmux has-session -t "=$s" 2>/dev/null || OP_PAR=solo; done
             OP_PLAN_NOTE="would end the claude of each named session that is idle with nothing in flight (never a front agent), keeping its tmux session and pane-map row, and mark it sleeping; the plan below is sleep --dry-run"
         else
             OP_LOCK=own; OP_SET=1
             OP_PLAN_NOTE="would take each sleeping session's marker off and resume its conversation by its id in its pane (revive --only: lane, model and effort rows, inbox hold and duplicate-conversation guard are revive's own); the plan below is wake --dry-run"
+            [ "$ncwd" = 0 ] || OP_PLAN_NOTE="would take the sleeping marker off ${only[0]} and resume its conversation in $cwd, then write that folder into its pane-map row once the claude is up; the plan below is wake --dry-run"
         fi ;;
     retire)
         local byid=""
@@ -1100,7 +1130,7 @@ op_mandate_to_file() {  # <id> <name> — THE MANDATE'S TRANSPORT (the header): 
     return 0
 }
 op_main() {
-    local verb="" args=() from="" words="" nowords="" ownrow="" item="" why="" stdin=0 auto=0 mode=add id f ep out rc c _na _i _r _sl=() _ot=() a
+    local verb="" args=() from="" words="" nowords="" ownrow="" item="" why="" stdin=0 auto=0 mode=add id f ep out rc c _na _i _r _sl=() _ot=() a _cwd
     OP_REASON_WHY=""; OP_OWN_WHY=""
     [ $# -gt 0 ] || { op_bare >&2; return 2; }
     case "$1" in
@@ -1147,12 +1177,16 @@ op_main() {
     # A SLEEPING session (common.sh, THE SLEEPING SESSIONS) is neither revived nor restored: its claude ended on purpose and `sala op wake` resumes it. Said before any door
     # (the reason door wants a live registry row, the plan a running claude: a sleeper has neither), and nothing is queued. A mix of sleepers and others queues nothing either:
     # the others are named in their own call, so no name is dropped quietly.
+    _cwd=""; op_has_cwd "$verb" ${args[@]+"${args[@]}"} && _cwd=$(op_cwd_of "${args[@]}")
     if [ "$verb" = revive ] || [ "$verb" = restore ]; then
         _sl=(); _ot=()
         for a in $OP_TARGETS; do if is_sleeping "$a"; then _sl+=("$a"); else _ot+=("$a"); fi; done
         if [ ${#_sl[@]} -gt 0 ]; then
-            for a in "${_sl[@]}"; do echo "$a: sleeping: its claude ended on purpose, so nothing is queued for it (sala op wake --only $a --item board#N --from YOU resumes it)"; done
-            [ ${#_ot[@]} -eq 0 ] && return 0
+            for a in "${_sl[@]}"; do
+                if [ -n "$_cwd" ]; then echo "$a: sleeping: its claude ended on purpose, so nothing is queued for it and its pane-map folder is unchanged (sala op wake --only $a --cwd $(cwd_quote "$_cwd") --from YOU --words \"…\" resumes it there)"
+                else echo "$a: sleeping: its claude ended on purpose, so nothing is queued for it (sala op wake --only $a --item board#N --from YOU resumes it)"; fi
+            done
+            [ ${#_ot[@]} -eq 0 ] && { [ -z "$_cwd" ]; return; }   # --cwd that moves nothing fails
             echo "✗ nothing queued: ${_ot[*]} is not asleep; queue it in its own call (sala op $verb --only ${_ot[0]} …)" >&2; return 1
         fi
     fi
@@ -1161,8 +1195,8 @@ op_main() {
         _sl=(); _ot=()
         for a in $OP_TARGETS; do if is_sleeping "$a"; then _sl+=("$a"); else _ot+=("$a"); fi; done
         if [ ${#_ot[@]} -gt 0 ]; then
-            for a in "${_ot[@]}"; do echo "$a: not sleeping, nothing to wake (nothing is queued for it)"; done
-            [ ${#_sl[@]} -eq 0 ] && return 0
+            for a in "${_ot[@]}"; do echo "$a: not sleeping, nothing to wake (nothing is queued for it)${_cwd:+; its pane-map folder is unchanged (a running session is moved with sala op revive --force --only $a --cwd $(cwd_quote "$_cwd") --from YOU --words \"…\")}"; done
+            [ ${#_sl[@]} -eq 0 ] && { [ -z "$_cwd" ]; return; }
             echo "✗ nothing queued: ${_sl[*]} is asleep; queue it in its own call (sala op wake --only ${_sl[0]} …)" >&2; return 1
         fi
     fi
@@ -1179,6 +1213,9 @@ op_main() {
         [ "$stdin" = 1 ] && words=$(cat)
         words=$(op_one_line "$words")
         [ -n "$from" ] || from=$(op_hearer); from=$(op_one_line "$from")
+        if [ -z "$words" ] && [ -n "$_cwd" ]; then
+            die "--cwd moves a session to another folder: the queue takes it only with ${SALA_OWNER_NAME}'s words on the operation (--words \"…\", or --stdin), never on a reason (--item or --why) in their place; nothing queued"
+        fi
         if [ -z "$words" ]; then
             if [ "$auto" = 1 ]; then
                 op_from_claude && die "--auto is for markers sala writes itself; a Claude session passes ${SALA_OWNER_NAME}'s words: --words \"…\""
@@ -1459,6 +1496,9 @@ op_run() {  # <id> — the unit's main process
     verb=$(op_val "$id" verb); mapfile -t OP_ARGS < <(op_vals "$id" arg); w=$(op_val "$id" words)
     op_put "$id" pid "$$"
     op_say "$id" "$(op_line "$id") — asked by $(op_val "$id" from) (queued at $(local_human "$(op_val "$id" time)"))${w:+: \"$w\"}$(op_val "$id" nowords | sed 's/^./: &/') (unit sala-op-$id)"
+    if [ -z "$(op_one_line "$w")" ] && op_has_cwd "$verb" ${OP_ARGS[@]+"${OP_ARGS[@]}"}; then   # asked again here: a marker, not only the call that wrote it, must carry the words
+        op_say "$id" "stuck — --cwd without ${SALA_OWNER_NAME}'s words"; op_finish "$id" stuck "--cwd takes ${SALA_OWNER_NAME}'s words and the marker carries none; nothing was relaunched"; return 0
+    fi
     op_shape "$verb" ${OP_ARGS[@]+"${OP_ARGS[@]}"} 2>/dev/null || { op_stuck "$id" "its marker does not fit the verb's shape: $OP_BAD"; return 0; }
     if c=$(op_conflict "$id"); then
         op_stuck "$id" "it conflicts with queued op $c ($(op_line "$c"), from $(op_val "$c" from)): both name the same session, and the queue runs neither on a guess"; return 0
@@ -1539,8 +1579,10 @@ op_stuck() {  # <id> <failure> — the one claude -p, then the result
     op_finish "$id" stuck "$why"
 }
 op_brief() {  # <id> <failure> → the helper's prompt
-    local id="$1" why="$2" set asked
+    local id="$1" why="$2" set asked a=() mv="" nl=$'\n'
     set=$(op_val "$id" set)
+    mapfile -t a < <(op_vals "$id" arg)
+    op_has_cwd "$(op_val "$id" verb)" ${a[@]+"${a[@]}"} && mv="This operation moves a session to another folder. Every revive or wake you run for it keeps that one --only NAME and carries --cwd $(cwd_quote "$(op_cwd_of "${a[@]}")") exactly, quoted as here; never relaunch the session without it, and end with a SALA-OP: stuck line when that folder cannot be used."
     if [ -n "$(op_val "$id" nowords)" ]; then asked="queued by $(op_val "$id" from) at $(local_human "$(op_val "$id" time)") with no words ($(op_val "$id" nowords)): $(case "$(op_val "$id" verb)" in revive) echo "that session revives the sessions named, for the reason in the note";; restore) echo "that session restores the sessions named, for the reason in the note";; sleep) echo "that session put the sessions named to sleep, for the reason in the note";; wake) echo "that session woke the sessions named, for the reason in the note";; *) echo "that session ends a throwaway (the rule is in the note)";; esac)."
     else asked="with ${SALA_OWNER_NAME}'s words (quoted by $(op_val "$id" from); queued at $(local_human "$(op_val "$id" time)")): \"$(op_val "$id" words)\"."; fi
     cat <<EOF
@@ -1557,8 +1599,17 @@ The relaunch log's last 20 lines ($SALA_LOG_DIR/salamander-revive.log):
 $(tail -n 20 "$SALA_LOG_DIR/salamander-revive.log" 2>/dev/null)
 
 Rules. NEVER run \`salamander retire\` (or any verb that ends a session) for an operation queued with no words ("with no words" above): its throwaway checks failed or it already ran, and a retire here would have none of them; end with a SALA-OP: stuck line instead. For a no-words revive (a reason in the note, not a retire), only \`salamander revive [--force] --only <those NAMEs>\`, the sessions its arguments name and nothing else (no sweep, no other session, no --rescue); for a no-words restore, only \`salamander restore <those NAMEs>\`. Finish the operation with sala's own verbs only (salamander recycle, revive, restore, retire, close-shell, forget-row, rename, lane, model, update, provision, spawn; \`salamander revive --only <session> --force --rescue\` when a stale background-task row holds a pane and no child process runs under its claude), with read-only looks (tmux list-panes, tmux capture-pane, tail, cat, ls, ps, grep, Read). Never stop a process, never tmux kill-*, never reboot, never a wider path than the words asked for (no --force the words did not imply). If it needs a decision only ${SALA_OWNER_NAME} can make, or a pane is held by work that must not be interrupted, stop and say so. A permission prompt you cannot answer means stop. Unsent feedback drafts hold no relaunch (they stay queued on disk): never type /feedback and never ask anyone to send or review them. Do not post to Slack or message a session: the queue does that from your last line.
-End with exactly one line: \`SALA-OP: done <what you did, one line>\` or \`SALA-OP: stuck <why>\`; the stuck line becomes the Slack post's one sentence for ${SALA_OWNER_NAME}, so write it as one plain sentence that says what blocks it and who has to act, with no exit codes, commands or paths.
+${mv:+$mv$nl}End with exactly one line: \`SALA-OP: done <what you did, one line>\` or \`SALA-OP: stuck <why>\`; the stuck line becomes the Slack post's one sentence for ${SALA_OWNER_NAME}, so write it as one plain sentence that says what blocks it and who has to act, with no exit codes, commands or paths.
 EOF
+}
+op_verify_cwd() {  # <the verb's args…> → 0 when they carry no --cwd, or the pane map (or the follow a freeze holds) has that folder for the session; 1 with OP_VERIFY_WHY
+    local n="" d="" held
+    while [ $# -gt 0 ]; do case "$1" in --only) n=${2:-} ;; --cwd) d=${2:-} ;; esac; shift; done
+    [ -n "$d" ] || return 0
+    [ "$(ledger_row "$n" | cut -f4)" = "$d" ] && return 0
+    held=$(S="$n" awk -F'\t' '$1==ENVIRON["S"] {c=$3} END {print c}' "$SALA_LEDGER_DEFERRED" 2>/dev/null)
+    [ "$held" = "$d" ] && return 0
+    OP_VERIFY_WHY="the pane map does not carry the folder $d for '$n'"; return 1
 }
 op_verify() {  # <id> → 0 when the operation's effect can be seen (or cannot be checked); 1 with OP_VERIFY_WHY
     local verb a; verb=$(op_val "$1" verb); mapfile -t a < <(op_vals "$1" arg); OP_VERIFY_WHY=""
@@ -1587,7 +1638,9 @@ op_verify() {  # <id> → 0 when the operation's effect can be seen (or cannot b
                    sleep_projects_load || { OP_VERIFY_WHY="the sessions of project ${a[1]:-} could not be listed ($SP_WHY_LOAD)"; return 1; }
                    for _sm in ${SP_MEM[${a[1]:-}]:-}; do _sn=${_sm%:*}; is_sleeping "$_sn" || { OP_VERIFY_WHY="'$_sn' of project ${a[1]:-} has no sleeping marker"; return 1; }; done
                else for _sn in "${a[@]}"; do [ "$_sn" = --only ] && continue; is_sleeping "$_sn" || { OP_VERIFY_WHY="'$_sn' has no sleeping marker"; return 1; }; done; fi ;;
-        wake) local _wn; for _wn in "${a[@]}"; do [ "$_wn" = --only ] && continue; ! is_sleeping "$_wn" || { OP_VERIFY_WHY="'$_wn' is still marked sleeping"; return 1; }; tmux has-session -t "=$_wn" 2>/dev/null || { OP_VERIFY_WHY="no tmux session '$_wn'"; return 1; }; done ;;
+        revive) op_verify_cwd ${a[@]+"${a[@]}"} || return 1 ;;
+        wake) local _wn _wd=""; for _wn in "${a[@]}"; do [ -z "$_wd" ] || { _wd=""; continue; }; case "$_wn" in --only) continue ;; --cwd) _wd=1; continue ;; esac; ! is_sleeping "$_wn" || { OP_VERIFY_WHY="'$_wn' is still marked sleeping"; return 1; }; tmux has-session -t "=$_wn" 2>/dev/null || { OP_VERIFY_WHY="no tmux session '$_wn'"; return 1; }; done
+              op_verify_cwd "${a[@]}" || return 1 ;;
     esac
     return 0
 }

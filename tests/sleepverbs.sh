@@ -9,8 +9,9 @@
 #  - wake --dry-run changes nothing; wake takes the marker off and the fake starts again on the SAME conversation uuid (one more start line, no other uuid);
 #    a name that is not asleep is a message and no action (no start); a sleeper whose claude already runs only loses its marker; a sleeper whose tmux session
 #    is gone is recreated and resumed;
-#  - a wake into a pane moved to another folder records that folder in the pane-map row; a deleted or unreadable one leaves the row's own; restore (and a
-#    wake with the tmux session gone) uses the row's folder and leaves it as it is, the $HOME fallback included;
+#  - a wake without --cwd writes no folder, whatever folder a recreated pane stands in; `wake --only NAME --cwd DIR` resumes the sleeper in DIR and writes it
+#    into the row, a target that is not relaunched writes nothing; each refusal; a raw --cwd from a Claude session is refused; the queue takes --cwd with the
+#    owner's words only, its marker, runner, helper brief and done-check carry the folder (spaces and shell characters in its name);
 #  - the queue: `op sleep|wake --only NAME…` takes only --only, plans with the verb's --dry-run, and with no words needs a reason (--item or --why) and a caller
 #    placed by process ancestry (a plain shell is refused), never the asker itself; a wake of a session that is not asleep queues nothing; the queued marker
 #    carries the reason, one ownrow= per name and no words; the runner (op --run) puts the session to sleep although its own marker names it, and wakes it;
@@ -305,34 +306,132 @@ if [ "$RC" = 0 ] && [ -n "$M" ]; then
 else bad "op wake q: rc=$RC — $OUT"; fi
 sleeping_clear "$UQ"
 
-echo "== wake into a pane moved to another folder: the pane-map row's folder follows the relaunch; restore keeps the row's"
-mkdir -p "$HOME/work-new" "$HOME/work-gone" "$HOME/work-shut"
-mk f 17 -e FAKE_IDLE_AGE=4000; fake_up sala-test-f; "$SALA" adopt sala-test-f >/dev/null 2>&1
+echo "== a relaunch writes a folder only when --cwd names it: wake, the guard and the queue (lib/wake.sh, lib/op.sh; revive itself: ledger-recycle.sh)"
+rm -rf "$OPS"; mkdir -p "$OPS" "$HOME/saved" "$HOME/wt" "$HOME/short-lived"
+NEW="$HOME/new role's \$HOME; (a) & \"b\" c\\d"; NEW2="$HOME/second role"; mkdir -p "$NEW" "$NEW2"
+mk f 17 -c "$HOME/saved"; fake_up sala-test-f; "$SALA" adopt sala-test-f >/dev/null 2>&1
 UF=$(uuid 17)
 frow() { printf 'sala-test-f\t%s\tsala-test-f\t%s' "$UF" "$1"; }                      # <folder> → the row f should have
-follows() { grep -c "	follow	sala-test-f	" "$SALA_LEDGER_LOG" 2>/dev/null || true; }
-paneat() { [ "$($T display -p -t sala-test-f '#{pane_current_path}')" = "$1" ]; }   # <folder>
-sleep_f() { stoprec 17; run sleep sala-test-f; [ "$RC" = 0 ] || bad "sleep f: rc=$RC — $OUT"; }
-cd_f() { $T send-keys -t sala-test-f "cd '$1'" Enter; waitfor "paneat '$1'" 20 || bad "the pane of f did not move to $1"; }
-wake_f() { f0=$(n_starts 17); run wake sala-test-f; waitfor 'hasclaude f' 40; [ "$RC" = 0 ] && hasclaude f && [ "$(n_starts 17)" = "$((f0 + 1))" ]; }   # → 0 woken, the conversation started once more
-sleep_f; wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME")" ] && [ "$(follows)" = 0 ] && ok "the same folder: the row as before, no ledger line" || bad "wake, same folder: rc=$RC row='$(row sala-test-f)' follows=$(follows) — $OUT"
-sleep_f; cd_f "$HOME/work-new"
-[ "$(row sala-test-f)" = "$(frow "$HOME")" ] || bad "the row moved before the wake: '$(row sala-test-f)'"
-wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && ok "another folder: the row records it, same conversation and name" || bad "wake, new folder: rc=$RC row='$(row sala-test-f)' — $OUT"
-[ "$(follows)" = 1 ] && grep -qF "	follow	sala-test-f	$UF → $UF (cwd $HOME → $HOME/work-new)	" "$SALA_LEDGER_LOG" && ok "one ledger line: follow, old folder → new" || bad "ledger log: $(grep sala-test-f "$SALA_LEDGER_LOG")"
-sleep_f; cd_f "$HOME/work-gone"; rmdir "$HOME/work-gone"
-wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && [ "$(follows)" = 1 ] && ok "the pane's folder deleted: the row keeps its own" || bad "wake, deleted folder: rc=$RC row='$(row sala-test-f)' — $OUT"
-sleep_f; cd_f "$HOME/work-shut"; chmod 000 "$HOME/work-shut"
-if [ -r "$HOME/work-shut" ]; then echo "  (the unreadable folder case is skipped: this user reads a mode-000 folder)"; else
-    wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && [ "$(follows)" = 1 ] && ok "the pane's folder unreadable: the row keeps its own" || bad "wake, unreadable folder: rc=$RC row='$(row sala-test-f)' — $OUT"
+rowis() { [ "$(row sala-test-f)" = "$(frow "$1")" ]; }                                # <folder>
+fpane() { $T display -p -t sala-test-f '#{pane_current_path}'; }
+fcwd() { readlink "/proc/$(cpid f)/cwd" 2>/dev/null; }                                # the folder the claude of f runs in
+end_f() { local c; c=$(cpid f 2>/dev/null); [ -z "$c" ] || { $T send-keys -t sala-test-f '/exit' Enter; waitfor "! kill -0 $c 2>/dev/null" 20; }; }
+down_f() { end_f; sleeping_mark "$UF" sala-test-f; }                                  # a sleeper: its claude ended, its marker on
+gone_f() { local c; c=$(cpid f 2>/dev/null); $T kill-session -t "=sala-test-f" 2>/dev/null; [ -z "$c" ] || waitfor "! kill -0 $c 2>/dev/null" 20; return 0; }
+recreate_f() {  # <folder> [tmux -e options…] → f as tmux-resurrect leaves it after a reboot: a bare shell in <folder>
+    local d=$1; shift; gone_f
+    $T new-session -d -s sala-test-f -x 200 -y 50 -c "$d" -e FAKE_SESSION_ID="$UF" -e FAKE_NAME=sala-test-f -e FAKE_LOG="$FAKE_LOG" -e FAKE_STARTED_AT="$START" "$@"
+    waitfor '[ -n "$(fpane)" ]' 20; }
+wakef() { f0=$(n_starts 17); run wake "$@"; }
+woken() { waitfor 'hasclaude f' 40; [ "$RC" = 0 ] && hasclaude f && [ "$(n_starts 17)" = "$((f0 + 1))" ] && ! is_sleeping sala-test-f; }   # → the last wake started the conversation once
+untouched() { rowis "$1" && [ "$(n_starts 17)" = "$f0" ]; }                           # <folder> → the row as it was and no start
+rowis "$HOME/saved" || bad "setup: row '$(row sala-test-f)'"
+
+down_f; rmdir "$HOME/saved"; recreate_f "$HOME"
+wakef sala-test-f; woken && rowis "$HOME/saved" && ok "(A) saved folder gone, the pane recreated in \$HOME: a wake without --cwd leaves the row" || bad "wake (A): rc=$RC row='$(row sala-test-f)' — $OUT"
+mkdir -p "$HOME/saved"; down_f; recreate_f "$HOME/wt"
+wakef sala-test-f; woken && rowis "$HOME/saved" && ok "(B) the pane recreated in a worktree: a wake without --cwd leaves the row" || bad "wake (B): rc=$RC row='$(row sala-test-f)' — $OUT"
+rmdir "$HOME/wt"
+
+down_f; wakef --only sala-test-f --cwd "$NEW" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "pane-map folder $HOME/saved → $NEW" && is_sleeping sala-test-f && untouched "$HOME/saved" && ok "wake --cwd --dry-run: the plan shows old → new, nothing changed" || bad "wake --cwd dry: rc=$RC row='$(row sala-test-f)' — $OUT"
+wakef --only sala-test-f --cwd "$NEW"
+woken && [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" && has "$OUT" "resumed conversation $UF in $NEW" && ok "wake --cwd: resumed in that folder (spaces, quotes, a backslash, \$ ; & in its name) and the row carries it" || bad "wake --cwd: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"
+wakef --only sala-test-f --cwd "$NEW2"
+[ "$RC" = 1 ] && has "$OUT" "not sleeping" && has "$OUT" "unchanged" && untouched "$NEW" && ok "wake --cwd of a session that is not asleep: said, exit 1, nothing written" || bad "wake --cwd awake: rc=$RC row='$(row sala-test-f)' — $OUT"
+wakef --only sala-test-f --cwd "$NEW2" --dry-run
+[ "$RC" = 1 ] && has "$OUT" "would refuse" && untouched "$NEW" && ok "its dry run says it would refuse" || bad "wake --cwd awake dry: rc=$RC — $OUT"
+sleeping_mark "$UF" sala-test-f; wakef --only sala-test-f --cwd "$NEW2" --dry-run
+[ "$RC" = 1 ] && has "$OUT" "would refuse" && is_sleeping sala-test-f && ok "a marked sleeper whose claude runs: the dry run refuses and keeps the marker" || bad "wake --cwd running dry: rc=$RC — $OUT"
+wakef --only sala-test-f --cwd "$NEW2"
+[ "$RC" = 1 ] && has "$OUT" "not relaunched" && has "$OUT" "unchanged" && ! is_sleeping sala-test-f && untouched "$NEW" && ok "the real run takes the marker off, relaunches nothing and writes nothing" || bad "wake --cwd running: rc=$RC row='$(row sala-test-f)' — $OUT"
+down_f; gone_f; wakef --only sala-test-f --cwd "$NEW2" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "recreate the session in the new folder" && has "$OUT" "pane-map folder $NEW → $NEW2" && ! $T has-session -t =sala-test-f 2>/dev/null && untouched "$NEW" && ok "tmux session gone, dry run: old → new, nothing created" || bad "wake --cwd gone dry: rc=$RC — $OUT"
+wakef --only sala-test-f --cwd "$NEW2"
+woken && [ "$(fpane)" = "$NEW2" ] && [ "$(fcwd)" = "$NEW2" ] && rowis "$NEW2" && ok "tmux session gone: created in the folder, resumed, the row carries it" || bad "wake --cwd gone: rc=$RC pane='$(fpane)' row='$(row sala-test-f)' — $OUT"
+down_f; recreate_f "$HOME" -e FAKE_RESUME_FAIL=1; wakef --only sala-test-f --cwd "$NEW"
+[ "$RC" = 1 ] && has "$OUT" "pane-map folder is unchanged" && has "$OUT" "salamander revive --only sala-test-f --cwd" && rowis "$NEW2" && ok "a resume that fails writes nothing and says how to finish the move" || bad "wake --cwd failed resume: rc=$RC row='$(row sala-test-f)' — $OUT"
+
+recreate_f "$HOME"; sleeping_mark "$UF" sala-test-f; f0=$(n_starts 17)
+refused() {  # <what the refusal says> <wake or revive arguments…> → refused, f still asleep, nothing started or written
+    local want=$1; shift; run "$@"
+    [ "$RC" != 0 ] && has "$OUT" "$want" && is_sleeping sala-test-f && untouched "$NEW2" && ok "refused: $* → $want" || bad "$*: rc=$RC row='$(row sala-test-f)' — $OUT"; }
+refused "exactly one --only" wake sala-test-f --cwd "$NEW"
+refused "exactly one --only" wake --cwd "$NEW"
+refused "exactly one --only" wake --only sala-test-f --only sala-test-s --cwd "$NEW"
+refused "exactly one --only" wake --only sala-test-f sala-test-s --cwd "$NEW"
+refused "needs an absolute path" wake --only sala-test-f --cwd saved
+refused "not an existing directory" wake --only sala-test-f --cwd "$HOME/no-such-folder"
+refused "unknown option: --only" wake --only sala-test-f
+refused "salamander wake --only sala-test-f --cwd" revive --only sala-test-f --cwd "$NEW"
+# a name outside sala-test-*: the guard lets test sessions through (common.sh, ops_guard)
+callin $RAW "$SALA" wake --only plain-nosuch --cwd "$NEW"
+[ "$RC" != 0 ] && has "$OUT" "sala op wake" && ok "a raw wake --cwd from a Claude session: refused with the queue's line" || bad "raw wake --cwd: rc=$RC — $OUT"
+callin $RAW "$SALA" revive --only plain-nosuch --cwd "$NEW"
+[ "$RC" != 0 ] && has "$OUT" "sala op revive" && ok "a raw revive --cwd from a Claude session: refused" || bad "raw revive --cwd: rc=$RC — $OUT"
+callin $RAW SALA_RECYCLE=1 SALA_RETRY_WORKER=1 "$SALA" revive --only plain-nosuch --cwd "$NEW"
+[ "$RC" != 0 ] && has "$OUT" "sala op revive" && ok "also with the environment of a recycle or a retry worker" || bad "raw revive --cwd, worker env: rc=$RC — $OUT"
+callin $RAW "$SALA" revive --only plain-nosuch --cwd "$NEW" --dry-run
+[ "$RC" != 0 ] && has "$OUT" "not in the pane map" && ! $T has-session -t =plain-nosuch 2>/dev/null && ok "its --dry-run passes the guard (and finds no row)" || bad "raw revive --cwd dry: rc=$RC — $OUT"
+
+noop() { [ -z "$(opfiles)" ] && untouched "$NEW2"; }                                  # → nothing queued, nothing done
+down_f; f0=$(n_starts 17)
+run op --plan wake --only sala-test-f --cwd "$NEW"
+[ "$RC" = 0 ] && has "$OUT" "plan: salamander wake --only sala-test-f --cwd" && has "$OUT" "pane-map folder $NEW2 → $NEW" && noop && ok "op --plan wake --cwd: old → new, nothing queued" || bad "op --plan wake --cwd: rc=$RC — $OUT"
+for door in "--item $ITEM" "--why=move" --auto; do
+    case "$door" in --why=move) callin "$SALA" op wake --only sala-test-f --cwd "$NEW" --why "move it to the new role" --from sala-test-asker ;;
+        --auto) run op wake --only sala-test-f --cwd "$NEW" --auto ;;
+        *) callin "$SALA" op wake --only sala-test-f --cwd "$NEW" --item "$ITEM" --from sala-test-asker ;; esac
+    [ "$RC" != 0 ] && has "$OUT" "--cwd moves a session to another folder" && is_sleeping sala-test-f && noop && ok "op wake --cwd ${door%%[ =]*} with no words: refused, nothing queued" || bad "op wake --cwd $door: rc=$RC — $OUT"
+done
+oprefused() {  # <what the refusal says> <op arguments…> → refused although the words are there
+    local want=$1; shift; callin "$SALA" op "$@" --words "move it to the new role" --from sala-test-asker
+    [ "$RC" != 0 ] && has "$OUT" "$want" && noop && ok "op refused: $* → $want" || bad "op $*: rc=$RC — $OUT"; }
+oprefused "exactly one --only" wake --only sala-test-f --only sala-test-s --cwd "$NEW"
+oprefused "exactly one --only" wake --cwd "$NEW"
+oprefused "exactly one --only" revive --cwd "$NEW"
+oprefused "exactly one --only" revive --only sala-test-f --only sala-test-s --cwd "$NEW"
+oprefused "needs an absolute path" wake --only sala-test-f --cwd saved
+oprefused "not an existing directory" revive --only sala-test-f --cwd "$HOME/no-such-folder"
+oprefused "--cwd is given once" revive --only sala-test-f --cwd "$NEW" --cwd "$NEW2"
+oprefused "takes --only NAME only" sleep --only sala-test-s --cwd "$NEW"
+oprefused "sala op wake --only sala-test-f --cwd" revive --only sala-test-f --cwd "$NEW"
+
+queue() { rm -rf "$OPS"; mkdir -p "$OPS"; callin "$SALA" op "$@" --words "move it to the new role" --from sala-test-asker; M=$(opfiles | head -1); OPID=""; [ -z "$M" ] || OPID=$(basename "$M" .op); }
+runop() { f0=$(n_starts 17); SALA_OP_STUCK=off "$SALA" op --run "$OPID" >/dev/null 2>&1; }
+queue wake --only sala-test-f --cwd "$NEW"
+[ "$RC" = 0 ] && [ -n "$M" ] && [ "$(mvals "$M" arg)" = "$(printf '%s\n' --only sala-test-f --cwd "$NEW")" ] && [ -n "$(mval "$M" words)" ] && ok "op wake --cwd with words: queued, the marker holds the folder as given, one argument a line" || bad "op wake --cwd queue: rc=$RC marker='$(cat "$M" 2>/dev/null)' — $OUT"
+if [ -n "$OPID" ]; then
+    sed -i 's/^words=.*/words=/' "$M"; runop
+    is_sleeping sala-test-f && untouched "$NEW2" && grep -q "the marker carries none" "$DONE/$OPID.op" 2>/dev/null && ok "the runner refuses a --cwd marker that carries no words: stuck, nothing woken" || bad "runner without words: row='$(row sala-test-f)' $(cat "$DONE/$OPID.op" 2>/dev/null | tr '\n' ' ')"
 fi
-chmod 755 "$HOME/work-shut"; is_sleeping sala-test-f || sleep_f
-$T kill-session -t "=sala-test-f"
-run wake sala-test-f; waitfor 'hasclaude f' 40
-[ "$RC" = 0 ] && hasclaude f && paneat "$HOME/work-new" && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && ok "tmux session gone: wake recreates it in the row's folder" || bad "wake, session gone: rc=$RC pane=$($T display -p -t sala-test-f '#{pane_current_path}') row='$(row sala-test-f)' — $OUT"
-fpid=$(cpid f); $T kill-session -t "=sala-test-f"; waitfor "! kill -0 $fpid 2>/dev/null" 20; rmdir "$HOME/work-new"
-run restore sala-test-f; waitfor 'hasclaude f' 40
-[ "$RC" = 0 ] && hasclaude f && paneat "$HOME" && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && [ "$(follows)" = 1 ] && ok "restore with the row's folder gone: in \$HOME, the row left as it was" || bad "restore, folder gone: rc=$RC row='$(row sala-test-f)' follows=$(follows) — $OUT"
+queue wake --only sala-test-f --cwd "$HOME/short-lived"; rmdir "$HOME/short-lived"
+if [ -n "$OPID" ]; then
+    runop; is_sleeping sala-test-f && untouched "$NEW2" && grep -q "not an existing directory" "$DONE/$OPID.op" 2>/dev/null && ok "a folder removed after the queueing: the runner goes stuck, nothing woken" || bad "runner, folder gone: row='$(row sala-test-f)' $(cat "$DONE/$OPID.op" 2>/dev/null | tr '\n' ' ')"
+else bad "op wake --cwd short-lived: rc=$RC — $OUT"; fi
+queue wake --only sala-test-f --cwd "$NEW"
+if [ -n "$OPID" ]; then
+    runop; waitfor 'hasclaude f' 40
+    ! is_sleeping sala-test-f && [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" && [ "$(mval "$DONE/$OPID.op" state)" = done ] && ok "the runner wakes it in the folder and writes the row: done" || bad "runner wake --cwd: cwd='$(fcwd)' row='$(row sala-test-f)' $(cat "$DONE/$OPID.op" 2>/dev/null | tr '\n' ' ')"
+    cp "$DONE/$OPID.op" "$OPS/$OPID.op"; v=$(. "$ROOT/lib/op.sh"; op_verify "$OPID" && echo verified || echo "$OP_VERIFY_WHY"); rm -f "$OPS/$OPID.op"
+    [ "$v" = verified ] && ok "the check of a helper's done reads the wake's name and folder apart" || bad "op_verify wake --cwd: $v"
+else bad "op wake --cwd: rc=$RC — $OUT"; fi
+f0=$(n_starts 17); callin "$SALA" op wake --only sala-test-f --cwd "$NEW2" --words "move it to the new role" --from sala-test-asker
+rm -rf "$OPS"; mkdir -p "$OPS"
+[ "$RC" != 0 ] && has "$OUT" "not sleeping" && has "$OUT" "pane-map folder is unchanged" && untouched "$NEW" && ok "op wake --cwd of a session that is awake: said, exit 1, nothing queued" || bad "op wake --cwd awake: rc=$RC — $OUT"
+f0=$(n_starts 17); run revive --only sala-test-f --cwd "$NEW2"
+[ "$RC" = 1 ] && has "$OUT" "pane-map folder is unchanged" && untouched "$NEW" && ok "revive --cwd of a live current claude without --force: not relaunched, said, nothing written" || bad "revive --cwd no force: rc=$RC row=$(row sala-test-f) — $OUT"
+queue revive --only sala-test-f --cwd "$NEW2"
+[ "$RC" != 0 ] && [ -z "$OPID" ] && has "$OUT" "would refuse" && untouched "$NEW" && ok "op revive --cwd of a live current claude without --force: the plan refuses, nothing queued" || bad "op revive --cwd no force: rc=$RC — $OUT"
+queue revive --force --only sala-test-f --cwd "$NEW2"
+[ "$RC" = 0 ] && has "$OUT" "pane-map folder $NEW → $NEW2" && [ -n "$OPID" ] && ok "op revive --force --cwd with words: queued, the plan shows old → new" || bad "op revive --cwd queue: rc=$RC — $OUT"
+if [ -n "$OPID" ]; then
+    v=$(. "$ROOT/lib/op.sh"; op_verify "$OPID" && echo verified || echo "$OP_VERIFY_WHY"; op_brief "$OPID" "a failure of the test")
+    has "$v" "does not carry the folder" && has "$v" "$(cwd_quote "$NEW2")" && ok "before the run the check of a done fails, and the helper's brief carries the folder quoted for a shell" || bad "op_verify/op_brief: $(printf '%s' "$v" | head -c 600)"
+    runop; waitfor 'hasclaude f' 40
+    [ "$(n_starts 17)" = "$((f0 + 1))" ] && [ "$(fcwd)" = "$NEW2" ] && rowis "$NEW2" && [ "$(mval "$DONE/$OPID.op" state)" = done ] && ok "the runner relaunches it in the folder and writes the row: done" || bad "runner revive --cwd: cwd='$(fcwd)' row='$(row sala-test-f)' $(cat "$DONE/$OPID.op" 2>/dev/null | tr '\n' ' ')"
+fi
+gone_f; rm -rf "$OPS"; mkdir -p "$OPS"
 
 echo "== the teaching text names the verbs"
 run op --help --full
@@ -343,6 +442,11 @@ run wake --help
 [ "$RC" = 0 ] && has "$OUT" "usage: salamander wake" && ok "wake --help" || bad "wake --help: rc=$RC — $OUT"
 run --help
 has "$OUT" "salamander sleep NAME" && has "$OUT" "salamander wake NAME" && ok "the top-level help lists both verbs" || bad "--help lacks the verbs"
+run op --help --full
+has "$OUT" "op revive|wake --only NAME --cwd DIR" && has "$OUT" "wake --only NAME --cwd DIR" && ok "sala op --help --full teaches --cwd" || bad "op --help lacks --cwd: $OUT"
+run wake --help; has "$OUT" "wake --only NAME --cwd DIR" && ok "wake --help names --cwd" || bad "wake --help: $OUT"
+run revive --help; has "$OUT" "revive --only NAME --cwd DIR" && ok "revive --help names --cwd" || bad "revive --help: $OUT"
+run --help; has "$OUT" "wake --only NAME --cwd DIR" && has "$OUT" "revive --only NAME --cwd DIR" && ok "the top-level help names --cwd" || bad "--help lacks --cwd"
 
 [ "$fail" = 0 ] && echo "sleepverbs: pass" || echo "sleepverbs: FAIL"
 exit $fail
