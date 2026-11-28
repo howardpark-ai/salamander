@@ -47,7 +47,7 @@ deliver`), once. A notice is text any process of this user can write into every 
 relaunch-waiting line `post-tool` tells a session once (*Recycle*, `docs/recycle.md`, "Drain mode"). While the flag under `waiting/<session id>` stands, the
 session's own turn may not start work that outlives the turn: a background subagent (Agent or Task, `run_in_background` true), a Monitor, a Bash call with
 `run_in_background` true. The hook answers `permissionDecision: deny` with a reason naming the way out (finish the turn, leave `sala note "<next step>"`, `sala ready` as
-the last call; the refusal ends with the relaunch, or when the wait ends without one and sala says so: `docs/recycle.md`, "The end of a hold"), logs one line to `salamander-drain.log` (time, tool, session; never the command), and lets everything else
+the last call; the refusal ends with the relaunch, or when the wait ends without one, the hold itself 30 min after the wait began at the latest (`SALA_HOLD_MAX`), and sala says so: `docs/recycle.md`, "The end of a hold" and "The cap"), logs one line to `salamander-drain.log` (time, tool, session; never the command), and lets everything else
 through. A call that carries `agent_id` belongs to a subagent and is never denied. It reads the tool name from the first bytes of its input and stats the flag before anything
 else: with nothing waiting, a call of another tool costs the glob test and nothing more, and any failure or doubt allows. `SALA_DRAIN=off` in the config turns it
 off (default on); `SALA_DRAIN_DENY_TEXT` words the reason. `tests/drain.sh` covers it.

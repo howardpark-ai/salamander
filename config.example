@@ -160,7 +160,8 @@
 #SALA_PAUSE_GAP=1800             # the busy clock restarts when the pane was last seen held longer ago than this (busy continuously, not on and off)
 #SALA_PAUSE_TTL=900              # seconds a paused pane's background work stops holding the relaunch (the relaunch must follow within it)
 #SALA_PAUSE_RETRY=120            # seconds before a pause that did not take (the Escape did not bring the pane out of its turn, or it was not idle once interrupted) is tried again; the clock keeps running meanwhile
-#SALA_PAUSE_TRIES=5              # how many failed tries are retried at SALA_PAUSE_RETRY; later ones are SALA_PAUSE_AFTER apart (never given up)
+#SALA_PAUSE_TRIES=5              # how many failed tries are retried at SALA_PAUSE_RETRY; later ones are SALA_PAUSE_AFTER apart; the tries stop once the relaunch has waited past SALA_HOLD_MAX
+#SALA_HOLD_MAX=1800              # the longest a session a relaunch waits for is held (refused new background work), in whole seconds (anything else, such as 30m or 1h, reads as the default) from the first time its waiting flag went up; past it the refusal is lifted, the session is told, no pause is tried for that relaunch and the pane is relaunched once free. 0 or off = no limit; a reboot's drain is never limited, and nothing is lifted while a reboot or shutdown is under way (docs/recycle.md, "The cap")
 #SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the invoking pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
 #SALA_INBOX_MODE=auto            # where sala holds a session's stackshot inbox and asks whether a line waits for it: auto (the default) = what the stackshot client's own setting says,
                                  #   `[client] push_mode` of its config ($ANCHOR_PUSH_MODE overrides it): local = files (the hold files of this box, the stackshot server's own), server = stackshot's client
@@ -201,13 +202,15 @@
 #SALA_READY_WAIT=90              # after `salamander ready` wakes a pending recycle, how long to wait for that turn to end
 #SALA_READY_TTL=3600             # a ready marker older than this is ignored
 #SALA_RELAUNCH_WAITING_TEXT=      # the line `salamander hook post-tool` gives a session a relaunch waits for, once per relaunch; <what> becomes
-                                 #   the relaunch's kind: recycle · reboot of <host> · CLI update relaunch · provision relaunch · automatic relaunch.
+                                 #   the relaunch's kind: recycle · reboot of <host> · CLI update relaunch · provision relaunch · automatic relaunch;
+                                 #   <cap> the words naming the hold's limit (SALA_HOLD_MAX; empty with no limit or for a reboot). Once a hold is
+                                 #   lifted for that limit, a fixed line is given instead of this one, a custom one too.
                                  #   Default: the owner's wording, in lib/common.sh
 #SALA_DRAIN=on                   # drain mode (`salamander hook pre-tool`; docs/recycle.md): while a relaunch waits for a session, the session's OWN turn may not start a
                                  #   background subagent (Agent/Task with run_in_background), a Monitor or a background Bash call: each is refused (never asked) with the way out in
                                  #   the reason. A call inside a subagent is never refused. Needs the hook in settings.json (PreToolUse, matcher "Bash|Agent|Task|Monitor"). Each refusal is
                                  #   one line in ~/.claude/salamander-drain.log (time, tool, session; never the call). off or 0 = nothing is refused, and the waiting line asks instead
-#SALA_DRAIN_DENY_TEXT=          # the reason a refused call gets; <call> becomes a background subagent / a monitor / a background shell command (the article included: write "Refused: <call> would ...", not "Refused: a <call>"), <what> the relaunch's kind (as above)
+#SALA_DRAIN_DENY_TEXT=          # the reason a refused call gets; <call> becomes a background subagent / a monitor / a background shell command (the article included: write "Refused: <call> would ...", not "Refused: a <call>"), <what> the relaunch's kind and <cap> the hold's limit (as above)
 #SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
 #SALA_BOOT_DEADLINE=1800         # … and this long for a clean reboot's boot half
 #SALA_MISSING_CHECK=on           # watch: a pane-map row whose tmux session is gone is posted once (naming `sala restore --missing`); off: never

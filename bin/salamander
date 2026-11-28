@@ -25,7 +25,7 @@
 #                                      (a Claude session's pane queues it with `sala op recycle`)
 #                                      (--update: `claude update` first — the two halves of "recycle")
 #                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
-#                                      (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before; a pause that does not take is tried again every SALA_PAUSE_RETRY s, default 120)
+#                                      (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before; a pause that does not take is tried again every SALA_PAUSE_RETRY s, default 120; no pause once the relaunch has waited past SALA_HOLD_MAX)
 #                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
 #   salamander recycle --when-idle [--from NAME] [--change REF] "<reason>" | --list | --cancel [ID]   any session: ask for a recycle; it
 #                                      only records the request — `watch` runs the recycle at its next run, each busy pane once idle (lib/recycle-request.sh); --change REF (a commit sha or pr<N>) holds it until that change is in the checkout
@@ -148,8 +148,9 @@
 #   salamander hook prompt             UserPromptSubmit hook (no matcher): the `sala notice` lines this session has not been shown yet, as
 #                                      additionalContext at its next prompt; post-tool delivers them after a tool call too (lib/hook.sh, lib/notice.py)
 #   salamander hook pre-tool           PreToolUse hook (matcher "Bash|Agent|Task|Monitor"): while a relaunch waits for this session, deny its own new
-#                                      background subagent, monitor or background Bash call (drain mode; SALA_DRAIN=off disables it); deny a reboot,
-#                                      CLI update, tmux kill-* on the fleet's server or kill of a claude process typed outside sala (lib/guard.py)
+#                                      background subagent, monitor or background Bash call (drain mode; for SALA_HOLD_MAX at most, 30 min;
+#                                      SALA_DRAIN=off disables it); deny a reboot, CLI update, tmux kill-* on the fleet's server or kill of a claude
+#                                      process typed outside sala (lib/guard.py)
 #   salamander hook session-start     SessionStart hook (matcher "*"): records the pane's fresh conversation in the session registry (clear · resume ·
 #                                      startup; not compact), by SALA_SESSION_ID or the tmux session name; always exit 0, prints nothing (lib/hook.sh)
 #   salamander hook subagent-stop     SubagentStop hook (matcher "*"): after a subagent handed back, SIGTERM the background shells it

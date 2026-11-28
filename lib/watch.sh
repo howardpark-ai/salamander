@@ -1830,16 +1830,17 @@ auto_recycle() {
     fi
 }
 [ "$CHECK_ONLY" = 1 ] || auto_recycle
+[ "$CHECK_ONLY" = 1 ] || hold_cap_tick   # a session held past SALA_HOLD_MAX is let go and told (common.sh, THE CAP); before the notes below, so it hears at this tick
 [ "$CHECK_ONLY" = 1 ] || { nd=$("$SALA_BIN" note --deliver 2>&1) && [ -n "$nd" ] && wlog "notes:$(echo "$nd" | tr '\n' ' ')"; }   # a session's next step, back after any relaunch (lib/note.sh)
 # THE LATER LIST'S LIMIT: a pane on the deferred list that stays held (background shells that
 # never end: an endless until-loop, never relaunched, unseen) is no longer
 # silent. The row carries three more fields after the set id: when it was last told, how many times, and when the limit post
 # went out. Held for SALA_LATER_RETELL (1 h) since the deferral or the last tell, it is told again the way the recycle first
 # told it (the waiting flag, plus the same line pushed into an idle session, since a session held by shells runs no tool call
-# for the hook to speak through), at most SALA_LATER_RETELL_MAX (3) times; held for SALA_LATER_LIMIT (3 h), one post names it,
+# for the hook to speak through; past the cap, common.sh THE CAP, the line refuses nothing), at most SALA_LATER_RETELL_MAX (3) times; held for SALA_LATER_LIMIT (3 h), one post names it,
 # its versions, how long, and the commands holding it. Nothing here relaunches or gives up a pane: the relaunch and the
 # 8-day drop are above and below, as they were. The state lives in the row, so a pane that leaves the list clears it.
-later_clear() { hold_ended "$uuid" dropped "$1"; refusal_clear "$uuid"; return 0; }   # <why> — the row is dropped: its hold ends (common.sh, hold_ended: silent after a relaunch) and the refusal memory goes
+later_clear() { hold_ended "$uuid" dropped "$1"; refusal_clear "$uuid"; return 0; }   # <why> — the row is dropped: its hold ends (common.sh, hold_ended: silent after a relaunch; the cap's clock goes with it) and the refusal memory goes
 # held_say: what holds a pane on the list, in the log ONCE per change (the digits left out of the comparison: an age that ticks up is no change)
 # and never again at every tick; the same words are in the retell and the limit post
 held_say() {
@@ -1854,14 +1855,15 @@ later_words() { local h=$(($1 / 3600)) m=$(( ($1 % 3600) / 60 )); if [ "$h" -gt 
 later_held() {  # in deferred_revive: the pane is held now; told again when due, one post at the limit
     local held_for=$((now - ${since:-0})) base=$told_at what sock st cmds b=() rev line hnote
     [ "$base" -gt "${since:-0}" ] || base=${since:-0}
-    if [ "$told_n" -lt "$SALA_LATER_RETELL_MAX" ] && [ $((now - base)) -ge "$SALA_LATER_RETELL" ] && [ -n "$uuid" ]; then
+    if [ "$told_n" -lt "$SALA_LATER_RETELL_MAX" ] && [ $((now - base)) -ge "$SALA_LATER_RETELL" ] && [ -n "$uuid" ] && ! hold_reboot_up "$uuid"; then   # a reboot's hold is never replaced
         rm -f "$SALA_WAITING_DIR/$uuid.told"
         waiting_raise "$uuid" "$(relaunch_kind "$(set_val "$dset" why 2>/dev/null)")" "$dset" "$c"   # owner: the claude itself, so the flag lives until that process ends
         what=$(waiting_what "$uuid"); sock=$(session_socket "$c"); st=$(registry_field "$c" status)
         hnote=""; [ -z "$held" ] || hnote=$'\n'"What holds it, as sala reads it: ${held:0:300}"
         # a session held by shells is idle: no tool call, so the hook never speaks. The line goes in as a message; a turn running
         # now is left to the hook, which says it at the next call
-        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c")$hnote" 2>/dev/null; then waiting_told "$uuid"; hold_told "$uuid" "$c" "$sess"; fi
+        local over=""; ! hold_lift "$uuid" || over=over   # THE CAP (common.sh): a relaunch past it is told again, and holds nothing again; one still refused (the pane is being relaunched) gets the ordinary line
+        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c" $over)$hnote" 2>/dev/null; then waiting_told "$uuid"; [ -n "$over" ] || hold_told "$uuid" "$c" "$sess"; fi
         told_n=$((told_n + 1)); told_at=$now
         wlog "deferred: $sess held $(later_words "$held_for") — told again ($told_n of $SALA_LATER_RETELL_MAX): $held"
     fi
@@ -1883,13 +1885,14 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
     fi
     later_row
 }
-# pause_watch_due <session> <uuid> <claude pid> <held words> → 0 when the deferred pane's pause is due and revive --only should be tried for it now (THE PAUSE,
+# pause_watch_due <session> <uuid> <claude pid> <held words> [set id] → 0 when the deferred pane's pause is due and revive --only should be tried for it now (THE PAUSE,
 # common.sh). Every call starts or refreshes the pane's clock and holds its inbox while it runs (the refusals of pause_refusal_r come first: a pane that
-# must not be paused is neither clocked nor held); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick; a pause that did not take (pause_failed) is let through again after SALA_PAUSE_RETRY s.
+# must not be paused is neither clocked nor held, nor is a relaunch past SALA_HOLD_MAX); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick; a pause that did not take (pause_failed) is let through again after SALA_PAUSE_RETRY s.
 pause_watch_due() {
-    local sess="$1" u="$2" c="$3" why="$4" a t r ref pane f m
+    local sess="$1" u="$2" c="$3" why="$4" s="${5:-}" a t r ref pane f m
     [ -n "$u" ] || return 1
     pause_after_r a; [ "$a" -gt 0 ] || return 1
+    ! hold_over "$u" "$s" || { pause_stand_down "$u" "$(registry_field "$c" name)"; return 1; }   # THE CAP (common.sh): no pause for this relaunch any more
     pause_scope_ok "$sess" && pause_reason_ok "$why" || return 1
     pane=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1); [ -n "$pane" ] || return 1
     pause_refusal_r ref "$pane" "$sess" "$c"; [ -z "$ref" ] || return 1
@@ -1939,7 +1942,7 @@ deferred_revive() {
         # the in-session mod's own answer (common.sh, mod_hold): a turn it names, or the background work it lists, holds the pane, said once with what holds it, and no exit is tried against it (the sweep runs again when the probe says free: the turn ended, the work is done)
         [ -n "$held" ] || held=$(mod_hold "$c" || true)
         # THE PAUSE (common.sh): a deferred pane held this long by a turn or its background work is tried by `revive --only`, which pauses its turn (revive.sh pause_try)
-        pausing=0; if [ -n "$held" ] && pause_watch_due "$sess" "$uuid" "$c" "$held" </dev/null; then pausing=1; wlog "deferred: $sess held ($held) for the pause's deadline — revive --only pauses its turn"; held=""; fi
+        pausing=0; if [ -n "$held" ] && pause_watch_due "$sess" "$uuid" "$c" "$held" "$dset" </dev/null; then pausing=1; wlog "deferred: $sess held ($held) for the pause's deadline — revive --only pauses its turn"; held=""; fi
         if [ -z "$held" ] && [ "$pausing" = 0 ] && [ -n "$uuid" ]; then pause_clock_clear "$uuid"; fi   # free: the pause's clock stops
         if [ -n "$held" ]; then held_say; later_held; keep+=("$row"); continue; fi
         # a pane the retry window deferred for an unsubmitted draft is idle to is_idle_reason: not relaunched while
