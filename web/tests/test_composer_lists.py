@@ -578,6 +578,45 @@ def test_the_first_number_of_a_run_is_kept_and_a_blank_line_ends_a_run(served, b
     assert sel(browser)["text"] == "1.  a\n2. b\n3. "
 
 
+def test_a_number_of_ten_digits_is_plain_text_to_the_counting_and_a_leading_zero_is_kept(served, browser):
+    open_composer(browser, served)
+    long = "1234567890. a"
+    # a long number is never rewritten by Tab, Shift+Tab or Enter, whatever the caret line is
+    put(browser, long, len(long))
+    tab(browser)
+    assert sel(browser)["text"] == "  " + long
+    tab(browser, shift=True)
+    assert sel(browser)["text"] == long
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == long + "\n1234567891. ", sel(browser)
+    # below a `9.` first line it is not shifted, and it ends the run: the line after it is counted as a run of its own
+    text = "9. a\n1234567890. b\n3. c"
+    put(browser, text, 4)
+    tab(browser)
+    assert sel(browser)["text"] == "  9. a\n1234567890. b\n3. c"
+    tab(browser, shift=True)
+    assert sel(browser)["text"] == text
+    put(browser, text, len(text))
+    tab(browser)
+    assert sel(browser)["text"] == "9. a\n1234567890. b\n  3. c"
+    put(browser, "9. a\n1234567890. b", 4)
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == "9. a\n10. \n1234567890. b"
+    # a number of 16 or more digits keeps every digit
+    huge = "12345678901234567890123. a\n9. b"
+    put(browser, huge, len(huge))
+    tab(browser)
+    assert sel(browser)["text"] == "12345678901234567890123. a\n  9. b"
+    # a first number with a leading zero is kept as typed
+    put(browser, "05. a", 5)
+    tab(browser)
+    assert sel(browser)["text"] == "  05. a"
+    tab(browser, shift=True)
+    assert sel(browser)["text"] == "05. a"
+    enter(browser, shift=True)
+    assert sel(browser)["text"] == "05. a\n6. "
+
+
 def test_a_draft_with_numbers_as_they_were_typed_is_not_renumbered_by_a_reload(served, browser):
     open_composer(browser, served)
     draft = "1. a\n  5. b\n7. c"

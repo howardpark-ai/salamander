@@ -5772,7 +5772,7 @@ Kept (`test_chat_link_cards.py`, node, no browser; `linkTarget` and `linkCard` r
 Kept (`test_chat_link_cards_ui.py`, `test_back_button.py`, headless Chromium, GitHub CI only; not run on a box whose Chromium does not start): the real cards (a Canvas card without a target, an artifact card with the new tab); `md()` over a relative and a full mockup address (no `target`, no `rel`) and over another path of the site and another site's `/mockup/115` (`_blank`, `noopener noreferrer`), at 390 and 1280 px.
 Not checked: the installed app on an Android phone (Back from the page to the chat, and whether Chrome restores the old chat page from its back/forward cache or loads it again), and the mockup page's own "Back to sala" bar, which is unchanged.
 
-### A numbered list in the composer follows its nesting: `web/tests/test_composer_lists.py` +6, 4 lines changed; `web/tests/test_composer_cm6.py` extended (Sat Nov 28th 2026)
+### A numbered list in the composer follows its nesting: `web/tests/test_composer_lists.py` +7, 4 lines changed; `web/tests/test_composer_cm6.py` extended (Sat Nov 28th 2026)
 
 Tab on a numbered item nests it and the number restarts at 1 for the deeper level; Shift+Tab takes the next number of the outer list; the new-line key continues at the current level. The counting is `renumberLists` of `overtype` 2.8.0 (vendored, MIT), applied by the glue in `entry.js` to the run of consecutive list lines around the caret, digits only, in the key's own transaction. The loss guarded is a message the owner did not write: a wrong number in a sent list, or a key that edits text under an IME composition. Browser tests, so CI only.
 
@@ -5783,7 +5783,8 @@ Tab on a numbered item nests it and the number restarts at 1 for the deeper leve
 - `test_one_undo_takes_back_a_key_and_its_renumbering_together`: one Ctrl+Z undoes Tab, Shift+Tab and an Enter in the middle of a list with the renumbering, the caret where it was.
 - `test_a_composition_in_a_numbered_item_is_not_renumbered`: a DevTools composition with keyCode 229 Tab, Shift+Tab and Shift+Enter, then the commit, and synthetic `isComposing` / 229 keydowns: the text is as typed, nothing prevented.
 - `test_an_image_pasted_into_a_numbered_item_leaves_the_numbers_alone`: the paste becomes a chip and the document is as it was.
+- `test_a_number_of_ten_digits_is_plain_text_to_the_counting_and_a_leading_zero_is_kept`: the library counts only numbers of one to nine digits, so a line with ten or more digits is plain text to the counting: Tab, Shift+Tab and Enter leave `1234567890.` as typed (Enter on it still continues with `1234567891.`), it ends the run so a `9.` above it is not shifted nor is the line below it counted into the run, and a 23-digit number keeps every digit; a first number with a leading zero (`05.`) stays `05.` through Tab and Shift+Tab. Tab and Enter still treat such a line as a list item.
 - Changed: the touch-mode chain in `test_touch_mode_enter_continues_a_list_and_the_button_sends_the_text` (Tab on `3.` now gives `  1.`, in three places).
 - `test_composer_cm6.py::test_the_bundle_is_vendored_pinned_and_loaded_before_the_app`: the banner names overtype 2.8.0 and its author, `LICENSE-overtype` and `renumber-lists.js` are beside the recipe.
 
-Not checked: a phone keyboard (a phone has no Tab key; there is no indent button), a real Korean IME, the counting of lists of 10 digits or more (the library's pattern stops at nine).
+Not checked: a phone keyboard (a phone has no Tab key; there is no indent button), a real Korean IME.

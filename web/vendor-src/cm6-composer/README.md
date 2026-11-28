@@ -71,8 +71,8 @@ change it in `package.json`, `npm install --save-exact` (with `--before=<date>` 
 in), commit the lockfile with the new bundle, and update `banner.txt`, the `versions` export in `entry.js`, the table above
 and `VERSIONS` in `web/tests/test_composer_cm6.py`. A change to `entry.js` is a rebuild and a commit of the bundle with it.
 
-The bundle committed with this recipe: 269,462 bytes, 88,251 gzipped (`gzip -9`), sha256
-`c144d7042bf9385b19d4e8100bb15b0a9baefb4a9eaac694a4787a962bace98e`. It was rebuilt from the committed lockfile in a fresh directory
+The bundle committed with this recipe: 269,550 bytes, 88,286 gzipped (`gzip -9`), sha256
+`cbf7c421e7741d30200aa1d14e100b20ccbd399159eccbbc9e1ea5e6edf137a5`. It was rebuilt from the committed lockfile in a fresh directory
 with the commands above and came out byte for byte the same.
 
 ## License

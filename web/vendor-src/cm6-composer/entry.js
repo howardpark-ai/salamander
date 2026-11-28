@@ -172,21 +172,25 @@ const endEmptyItem = (view) => {
 // only this glue: the run of consecutive list lines around a line (a blank or other line ends it), the run's first number kept
 // as typed (the library counts from 1: that offset is added back on the lines at the first line's indent), and the result
 // taken as digit-only edits, so the text, the spaces and the caret stay put and the key and its renumbering are one change.
+// A number of ten digits or more is no list number to the library (its pattern stops at nine), so here it is plain text: it ends
+// the run and is never edited.
+const RUN_RE = /^( *)(?:([-*]) |(\d{1,9})\. )/;
 function renumberEdits(doc, lineNo) {
+  if (!RUN_RE.test(doc.line(lineNo).text)) return [];
   let a = lineNo, b = lineNo;
-  while (a > 1 && LIST_RE.test(doc.line(a - 1).text)) a--;
-  while (b < doc.lines && LIST_RE.test(doc.line(b + 1).text)) b++;
+  while (a > 1 && RUN_RE.test(doc.line(a - 1).text)) a--;
+  while (b < doc.lines && RUN_RE.test(doc.line(b + 1).text)) b++;
   const lines = [];
   for (let n = a; n <= b; n++) lines.push(doc.line(n));
   const out = renumberLists(lines.map((l) => l.text).join("\n")).split("\n");
-  const top = LIST_RE.exec(lines[0].text);
+  const top = RUN_RE.exec(lines[0].text);
   const start = top && top[3] !== undefined ? Number(top[3]) - 1 : 0;
   const edits = [];
   lines.forEach((line, i) => {
-    const m = LIST_RE.exec(line.text), got = /^ *(\d+)\./.exec(out[i]);
+    const m = RUN_RE.exec(line.text), got = /^ *(\d+)\./.exec(out[i]);
     if (!m || m[3] === undefined || !got) return;
     const next = String(Number(got[1]) + (m[1].length === top[1].length ? start : 0));
-    if (next !== m[3]) edits.push({ from: line.from + m[1].length, to: line.from + m[1].length + m[3].length, insert: next });
+    if (Number(next) !== Number(m[3])) edits.push({ from: line.from + m[1].length, to: line.from + m[1].length + m[3].length, insert: next });
   });
   return edits;
 }
