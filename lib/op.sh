@@ -240,10 +240,10 @@
 # nothing brings back. The queue goes on meanwhile: a later operation waits only for
 # the lock. Every result is one short post (✅ done: ONE line · 🚨 stuck: the headline, one plain sentence of why, who asked and
 # the log; THE OP POST, above op_finish) and one line into the hearing
-# session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to a front agent with
-# `[for <owner>]` first: with SALA_CHAT_SESSION set, a live <name>-main whose role is front, else the session it names; unset,
-# <name>-main unless its role is back; the op log says `reply: … sent to …`, or `reply FAILED` when none is live and the post
-# stands; sala-watch, sala-web and a plain shell are no session and reach no front agent), then the archive. The same end is reported once to stackshot (`client.py event --kind fleet_op`, op_event,
+# session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to <name>-main with
+# `[for <owner>]` first: with SALA_CHAT_SESSION set, only while that one is live with role front (the session the setting names is
+# no fallback); unset, unless its role is back. The op log says `reply: … sent to …`, or `reply FAILED` when nobody was told and
+# the post stands; sala-watch, sala-web and a plain shell are no session and tell nobody), then the archive. The same end is reported once to stackshot (`client.py event --kind fleet_op`, op_event,
 # THE OP-END EVENT above op_finish): a failure of that report is a line in the op log and nothing else.
 #
 # A runner that ended without a result (its unit gone, no pid alive, the marker still `running`) is found by the next tick
@@ -1679,31 +1679,24 @@ op_push() {  # <tmux session> <text> → 0 pushed into that session's inbox · 1
     fi
     return 1
 }
-op_tell() {  # <tmux session> <text> → into that session's inbox when it is live here. A session that is no longer live (a
-    # retired project-name pane) has its reply sent to a front agent instead, with the line [for <owner>] first (a front agent takes
-    # a message only then). SALA_CHAT_SESSION set: a live <session>-main whose role is front, else the session the setting names.
-    # Unset: <session>-main, unless its role is back. None live → one failure line in the op log (the post stands). A from that is
-    # no session (sala-watch, sala-web, "<host> shell") reaches no front agent. Always returns 0.
-    local s="$1" t="$2" rc m chat="${SALA_CHAT_SESSION:-}" to=() tried=""
+op_tell() {  # <tmux session> <text> → into that session's inbox when it is live here. A project-name pane that retired
+    # is no longer live, so the reply goes to <session>-main, with the line [for <owner>] first (a front agent takes a message only
+    # then): with SALA_CHAT_SESSION set, only while that one is live with role front; unset, unless its role is back. Nobody told →
+    # one failure line in the op log (the post stands). A from that is no session (sala-watch, sala-web, "<host> shell") tells
+    # nobody. Always returns 0.
+    local s="$1" t="$2" rc m=""
     op_push "$s" "$t"; rc=$?
     [ "$rc" = 0 ] && return 0
     if [ "$rc" = 1 ]; then
-        case "$s" in   # not a session: the watch, the web page, a plain shell (op_hearer). No pane waits, so no front agent is told
+        case "$s" in
             sala-watch|sala-web|*" shell") op_log "no reply sent: $s is not a session; the Slack post stands"; return 0 ;;
+            *-main) ;;   # already a front agent's name: no -main-main
+            *) if [ -n "${SALA_CHAT_SESSION:-}" ]; then back_lane_names front 2>/dev/null | grep -qxF -- "$s-main" && m="$s-main"
+               else back_lane_names back 2>/dev/null | grep -qxF -- "$s-main" || m="$s-main"; fi ;;
         esac
-        if [ -n "$chat" ]; then
-            # <s>-main goes first only while such front sessions exist (until they are retired or retagged): the owner still talks to them
-            [[ $s != *-main ]] && back_lane_names front 2>/dev/null | grep -qxF -- "$s-main" && to+=("$s-main")
-            [ "$s" = "$chat" ] || [ "${to[0]:-}" = "$chat" ] || to+=("$chat")
-        else
-            [[ $s == *-main ]] || back_lane_names back 2>/dev/null | grep -qxF -- "$s-main" || to+=("$s-main")   # no <s>-main-main
-        fi
-        for m in ${to[@]+"${to[@]}"}; do
-            op_push "$m" "[for ${SALA_OWNER_NAME}]
+        [ -n "$m" ] && op_push "$m" "[for ${SALA_OWNER_NAME}]
 $t" && { op_log "reply: $s has no live pane; sent to $m"; return 0; }
-            if [ -z "$tried" ]; then tried="$m has none either"; else tried+=", nor has $m"; fi
-        done
-        op_log "reply FAILED: $s has no live pane${tried:+ and $tried}; nobody was told, the Slack post stands — ${t:0:120}"; return 0
+        op_log "reply FAILED: $s has no live pane${m:+ and $m has none either}; nobody was told, the Slack post stands — ${t:0:120}"; return 0
     fi
     op_log "reply FAILED: $s is live but the push to its messaging socket failed; nobody was told, the Slack post stands — ${t:0:120}"; return 0
 }

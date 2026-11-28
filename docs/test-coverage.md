@@ -2019,7 +2019,7 @@ nothing is delivered and the op log has `reply FAILED: <from> has no live pane a
 call still returning 0 (the Slack post stands). A dead asker that is itself a `-main` gets no `-main-main` try and the
 failure line. Not checked: a live pane whose messaging socket refuses the push (logged as `reply FAILED … push …`, no
 fallback; the code path is a one-line branch). Since Sat Nov 28th 2026, with `SALA_CHAT_SESSION` set the reply goes to a live
-`<from>-main` whose role is front, else to that session; with it unset, to `<from>-main` unless its role is back (the entry of
+`<from>-main` whose role is front, else to nobody; with it unset, to `<from>-main` unless its role is back (the entry of
 that date, below).
 
 Added on Sun Oct 25th 2026 (the `model` verb; 42 checks): a session changes its own or another's model and effort
@@ -5718,11 +5718,12 @@ Also covered, the edges: under a reboot (its flag, its pane map freeze, its mark
 
 Not covered, and why: the lift's lock against a relaunch starting in the same instant is not raced; a real reboot or a systemd shutdown is not run; a server-mode inbox release detached from the hook is not run (the suite uses hold files); a box without `flock` (macOS) is not run.
 
-### A front agent is one by its role or by SALA_CHAT_SESSION, never by its name alone: `tests/sleepverbs.sh` +6, `tests/sleepasked.sh` +3, `tests/op.sh` +13, `tests/briefing/sdk.sh` +7 (Sat Nov 28th 2026)
+### A front agent is one by its role or by SALA_CHAT_SESSION, never by its name alone: `tests/sleepverbs.sh` +6, `tests/sleepasked.sh` +3, `tests/op.sh` +12, `tests/briefing/sdk.sh` +7 (Sat Nov 28th 2026)
 
 Sleep by name: a back agent and a session with no role named `*-main` may sleep; one with role front and the session `SALA_CHAT_SESSION` names may not. The reply for a gone
 pane, with `[for <owner>]` first: with the setting set it goes to a live `<name>-main` whose role is front, else (no such session, not live,
-role back or unknown) to the setting's session; unset, to `<name>-main` unless that session's role is back. A from that is no session
-(`sala-watch`, `sala-web`, a plain shell) reaches neither. The release
+role back or unknown) to nobody, a live setting's session included; unset, to `<name>-main` unless that session's role is back. A from that
+is no session (`sala-watch`, `sala-web`, a plain shell) tells nobody, and sala's own Shell session, a tmux session with no claude, ends in
+the failure line. The release
 watcher's relay: the `[for <owner>]` line by role, else the setting, and with it unset and no role, by the `*-main` name. A `*-main` front agent in `tests/sleepverbs.sh`
 is now tagged with its role.
