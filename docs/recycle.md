@@ -79,7 +79,7 @@ recycles was counted back in only one and the other set stayed open. Now:
   `killed`, `failed` or `stopped` (a killed one never gets `finished`), or its own transcript's last line is an assistant answer that ended its turn.
   The quiet time is the backstop for a subagent with neither sign. Where this reads a live
   subagent as stopped, the in-session mod, which reads the CLI's own task list, still refuses the exit for it: the cost is one refused try, never a cut subagent. A live subagent holds the pane,
-  also one that said `sala ready` (a ready word covers shells and tasks; a running subagent is never cut), and the skip line, the
+  also one that said `sala ready` (a ready word covers shells and tasks; the ready path itself cuts no subagent, the pause below stops it once `SALA_PAUSE_AFTER` has passed), and the skip line, the
   relaunch notice and `sala ready` name it and say it ends with its work. The mod's `busy` probe (the gates of an exit with nothing run)
   is asked before an exit is tried, so a turn it names, or the background work it lists, is said once with its holder, and the pane's inbox is not held and released for an
   exit that would be refused. `watch` does the same for the deferred list: one log line when the holder changes, never one per tick, and
@@ -205,7 +205,7 @@ recycles was counted back in only one and the other set stayed open. Now:
     `SALA_PAUSE_AFTER` apart; each one is one Escape under the same rule and one log line that says which try it was and when the next
     comes. The tries stop at the cap (*The cap*, above; with the default timings a relaunch has one pause at 1 min and its retries to
     30 min); within it nothing is given up: the pane is tried until it is free, paused or relaunched. **A try whose Escape went in and did not take** (the turn
-    still running, the pane not idle, or the turn ended with background work still holding the pane: the note says which) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
+    still running, or the pane not idle once interrupted: the note says which; a turn the Escape ended with background work still holding the pane is a successful pause, not a failed try) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
     relaunch, not behind the inbox hold) and archived when delivered, so it is one-time: it says sala sent the Escape, that a tool call
     rejected or shown "interrupted by user" from that moment was sala's and nobody refused it, and that the call may be run again. A later
     try replaces an undelivered one; a pause that takes with an Escape of its own drops it (its `[paused]` note covers the same). **With no

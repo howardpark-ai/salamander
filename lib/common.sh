@@ -2709,7 +2709,7 @@ relaunch_text() {  # <what words> [claude-pid] [over] → the line the hook give
     return 0
 }
 # subagents_block <claude-pid> → what a running subagent means for the relaunch, one line each; nothing when none run. A subagent is
-# never cut by a relaunch that waits for it, and a shell or a task it started is no excuse to cut it: the exit is refused until it ends.
+# not cut by a relaunch that waits for it (the pause after SALA_PAUSE_AFTER stops it), and a shell or a task it started is no excuse to cut it: the exit is refused until it ends.
 subagents_block() {
     local l n=0 out=""
     while IFS= read -r l; do [ -n "$l" ] && { out+="  $l"$'\n'; n=$((n + 1)); }; done < <(subagent_holders "$1")
@@ -2743,8 +2743,8 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 # ── THE PAUSE ───────────────────────────────────────────────────────
 # A relaunch used to wait for a Claude pane to go idle for as long as it took: a builder whose turn ran for 28 minutes with a subagent
 # waiting on a release held a recycle for three hours, and drain mode (above) cannot help a turn that is already running. Now a pane
-# that has held a relaunch for SALA_PAUSE_AFTER seconds (default 15 min; 0 or `off` = wait, as before) is PAUSED: one Escape takes it
-# out of its turn, the relaunch goes on through the ordinary path (drafts drained, /exit, resume by its id), and a note written FOR the
+# that has been sent a stop notice and has held a relaunch for SALA_PAUSE_AFTER seconds (default 60; 0 or `off` = wait, as before) is PAUSED: one Escape takes it
+# out of its turn (none when it has no turn of its own), the relaunch goes on through the ordinary path (drafts drained, /exit, resume by its id), and a note written FOR the
 # session (lib/note.sh, the carrier of "pick this up again") says what it was doing, so it carries on after the relaunch.
 #   · THE CLOCK. pause/<uuid>.wait ("<since> <last check>"): started by the first relaunch pass that finds the pane held for a reason a
 #     turn or its background work explains (pause_reason_ok), refreshed by every pass, cleared by a pass that finds the pane free and by
@@ -2760,10 +2760,12 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #     registry within SALA_PAUSE_IDLE_WAIT seconds; otherwise nothing more is sent, no /exit is typed into a pane that is still busy, and
 #     the pane is waited for as before (the clock keeps running and the next try is SALA_PAUSE_RETRY s later: pause_failed). A pane the
 #     registry reads idle or 'shell' needs no Escape. A BACKGROUND SUBAGENT keeps the row 'busy' after the turn that started it ended, and
-#     an Escape does not stop it (measured on 2.1.332, private socket): such a pane gets no Escape and is waited for while the row stays
-#     busy, so the subagent is not cut.
-#   · WHO MAY BE PAUSED (SALA_PAUSE_SCOPE, default `background`): only the back agents (the registry's role, back_lane_names); a front
-#     agent is never paused and waits for its turn to end as before; `all`: every session, front agents included; `off`: nobody
+#     an Escape does not stop it (measured on 2.1.332, private socket): such a pane gets no Escape, and once the deadline has passed it is
+#     paused all the same (PAUSE_TASKS=1, marker tasks=1): the exit that follows stops the subagent. A turn the Escape ended while
+#     background work still holds the row is paused the same way. pane_interrupt fails only for a turn that stays running or a pane that
+#     is not idle within the wait.
+#   · WHO MAY BE PAUSED (SALA_PAUSE_SCOPE, default `all`): every session, front agents included; `background`: only the back agents (the
+#     registry's role, back_lane_names), a front agent is never paused and waits for its turn to end as before; `off`: nobody
 #     (SALA_PAUSE_AFTER=0 is the same switch).
 #   · WHILE IT WAITS (pause_hold): a pane whose clock is running and that may be paused has its stackshot inbox HELD (inbox_hold, the hold
 #     a sweep takes right before its /exit), so a new message queues instead of starting a turn; each pass refreshes it (inbox_touch), the
@@ -3006,7 +3008,7 @@ pause_after_r() {  # <var> → SALA_PAUSE_AFTER in seconds; 0 = off (0, off, no,
     case "${SALA_PAUSE_SCOPE:-all},," in off,,|no,,|false,,|0,,) _v=0;; esac   # the scope's `off` is the same switch
     printf -v "$1" '%s' "$_v"
 }
-pause_scope_ok() {  # <tmux session> → 0 when SALA_PAUSE_SCOPE lets this session's turn be paused: background (default; back agents only: the registry's role, back_lane_names) · all (every session) · off
+pause_scope_ok() {  # <tmux session> → 0 when SALA_PAUSE_SCOPE lets this session's turn be paused: all (default; every session) · background (back agents only: the registry's role, back_lane_names) · off
     case "${SALA_PAUSE_SCOPE:-all}" in
         all) return 0;;
         off|no|false|0) return 1;;
@@ -3263,16 +3265,18 @@ pause_escape_drop() {
 # pause_stop_notice <session> <uuid> <claude-pid> → the stop notice of a busy pane that is to be taken down (step one of the decided way: notice, wait
 # SALA_PAUSE_AFTER s, stop the pane and its subagents, hold its messages, restart it). ONE one-time note (text starts "[stop] ", lib/note.sh hands it
 # to the live pid at once and archives it), written the first time a pass finds the pane held and pausable; `pause/<uuid>.notified` remembers it until the
-# clock stops or restarts. Returns 0 when a notice was written now, 1 when there was one already (or the pane has no clock to count from).
+# clock stops or restarts (written after the note is stored, so a failed note is tried again). Returns 0 when a notice was written now, 1 when there was one
+# already, when the pause is off, or when SALA_PAUSE_AFTER is not below SALA_HOLD_MAX (the pause never comes).
 pause_stop_notice() {
     local mark="$SALA_PAUSE_DIR/$2.notified" a txt kind
     [ ! -e "$mark" ] || return 1
     case "${SALA_STOP_NOTICE:-on}" in off|no|false|0) return 1;; esac   # SALA_STOP_NOTICE=off: the wait and the stop, with no notice
     pause_after_r a; [ "$a" -gt 0 ] || return 1
+    pause_within_cap "$a" || return 1   # SALA_PAUSE_AFTER at or above SALA_HOLD_MAX: the pause never comes, so no notice says sala will stop the turn
     kind=$(relaunch_what "$(relaunch_kind)")
     txt="[stop] sala is about to restart this session for a $kind, and it is busy. Stop what you are doing now: start no new work and no new subagent, leave a note with \`sala note \"<next step>\"\` for anything that must go on after the restart, and end your turn with \`sala ready\` as your last call. If the turn has not ended in about $(hold_age_words "$a"), sala stops it and its running subagents and restarts the session; whatever you leave in a note comes back after the restart. Messages for you are held until then."
+    note_add_for "$1" "$2" "$3" "$txt" "a busy pane is taken down: stop notice; one-time" >/dev/null || return 1   # the marker only after the note is stored: a failed note is tried again
     mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null; : > "$mark"
-    note_add_for "$1" "$2" "$3" "$txt" "a busy pane is taken down: stop notice; one-time" >/dev/null || return 1
     ( "$SALA_BIN" note --deliver >/dev/null 2>&1 & ) 2>/dev/null   # at once, not at watch's next tick
     return 0
 }
@@ -3489,12 +3493,12 @@ holders_summary_r() {
 # background task / work / agent → "background tasks" when processes hold the pane now (the oldest one's run time is the age), else
 # "busy"; a turn or a dialog (registry busy, "a turn is running") → "busy", its age how long the pane has HELD the relaunch: the longer of the
 # time since the registry's last status change and the pause's clock (pause_clock_age_r), which a turn that ends and starts again does not
-# reset. A pane that may be paused says when ("(sala pauses it at 15 min held)", and once that time has passed "(past the 15 min pause point,
+# reset. A pane that may be paused says when ("(sala pauses it at 1 min held)", and once that time has passed "(past the 1 min pause point,
 # sala is retrying the pause)"): pause_bullet_r. A pane that is idle in the registry and held by work no process shows, with no clock,
 # has no age worth stating: "busy; sala relaunches it once it is free".
 # The age is read when the bullet is made, so a post that repeats an old bullet makes it again (hold_bullet_fresh).
 pause_within_cap() { local _m; hold_max_r _m; [ "$_m" -eq 0 ] || [ "$1" -lt "$_m" ]; }   # <SALA_PAUSE_AFTER in s> → 0 when the pause point comes before SALA_HOLD_MAX (THE CAP stops the pause there)
-pause_bullet_r() {  # <var> <session> <uuid> → " (sala pauses it at 15 min held)" for a pane the pause may end, else nothing
+pause_bullet_r() {  # <var> <session> <uuid> → " (sala pauses it at 1 min held)" for a pane the pause may end, else nothing
     local _a _t; printf -v "$1" '%s' ""
     pause_after_r _a; [ "$_a" -gt 0 ] && pause_within_cap "$_a" || return 0
     pause_scope_ok "${2%%:*}" || return 0

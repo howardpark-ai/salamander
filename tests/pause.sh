@@ -45,7 +45,7 @@ printf '#!/bin/sh\necho "$*" >> "%s/systemd-run.txt"\n' "$HOME" > "$HOME/.local/
 export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log" FAKE_SOCK_LOG="$HOME/sock.log" FAKE_TYPED_LOG="$HOME/typed.log"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="{ cat; echo '%%'; } >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off SALA_AGENT_CHECK=off SALA_MOD_WAIT=1
-export SALA_STOP_NOTICE=off SALA_PAUSE_SCOPE=all SALA_PAUSE_AFTER=6 SALA_PAUSE_IDLE_WAIT=4 SALA_IDLE_SETTLE=2 SALA_PAUSE_QUIET=0 SALA_PAUSE_RETRY=10 SALA_PAUSE_TRIES=2   # the production values are 900, 20, 10, 120, 120 and 5
+export SALA_STOP_NOTICE=off SALA_PAUSE_SCOPE=all SALA_PAUSE_AFTER=6 SALA_PAUSE_IDLE_WAIT=4 SALA_IDLE_SETTLE=2 SALA_PAUSE_QUIET=0 SALA_PAUSE_RETRY=10 SALA_PAUSE_TRIES=2   # the production values are 60, 20, 10, 120, 120 and 5
 export SALA_DEFERRED_TRY=1   # a direct `revive --only` that skips a busy pane starts no retry worker of its own: the passes are the test's, and the retry worker is started by hand where it is checked
 SALA="$ROOT/bin/salamander"; SOCK="sala-pause-$$"; T="tmux -L $SOCK -f /dev/null"; WLOG="$HOME/.claude/salamander-watch.log"
 unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
@@ -173,7 +173,7 @@ grep -qF "$UA" "$HM" 2>/dev/null && ok "its stackshot inbox is held while the re
 wait_lock; revive_only sala-test-a
 [ "$(escs "$UA")" = 0 ] && [ "$(starts "$UA")" = 1 ] && ok "a second pass before the deadline: still nothing sent" || bad "pass 2: escs $(escs "$UA")"
 age_clock "$UA" 100; wait_lock; revive_only sala-test-a
-has "$OUT" "sala-test-a:0: paused after" && has "$OUT" 'its turn was interrupted with one Escape' && ok "at the deadline: paused, said in the output" || bad "pass 3: $OUT"
+has "$OUT" "sala-test-a:0: paused after" && has "$OUT" 'its turn was interrupted with one Escape' && ! has "$OUT" 'no Escape was sent' && ok "at the deadline: paused, said in the output" || bad "pass 3: $OUT"
 [ "$(escs "$UA")" = 1 ] && ok "exactly one Escape reached the pane" || bad "escs: $(escs "$UA")"
 has "$OUT" 'pause — the exit dialog listed background work (subagent · worker), stopped by the pause' && ok "the exit dialog's background work is stopped by the pause, said" || bad "dialog: $OUT"
 waitfor '[ "$(starts "$UA")" = 2 ]' 40 && fake_up sala-test-a && has "$OUT" 'sala-test-a:0: 9.9.9 → 9.9.9' && ok "relaunched on the same conversation" || bad "relaunch: starts $(starts "$UA") $OUT"
@@ -316,6 +316,7 @@ wait_lock; revive_only sala-test-j; n1=$(nsock "$UJ")
 [ "$(nsock "$UJ")" = "$n1" ] && [ "$(escs "$UJ")" = 0 ] && ok "a second pass inside the wait sends no second notice" || bad "j second notice: $(nsock "$UJ")"
 age_clock "$UJ" 100; wait_lock; revive_only sala-test-j
 waitfor '[ "$(starts "$UJ")" = 2 ]' 60 && fake_up sala-test-j && [ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 1 ] && ok "at the deadline: no Escape (no turn), /exit typed, the subagent stopped by the exit, relaunched" || bad "j: starts $(starts "$UJ") escs $(escs "$UJ") /exit $(typed "$UJ" /exit) $OUT"
+has "$OUT" 'no Escape was sent' && ! has "$OUT" 'interrupted with one Escape' && ok "the paused line says no Escape was sent (a pane with no turn of its own)" || bad "j wording: $OUT"
 has "$OUT" 'stopped by the pause' && [ "$(grep "$UJ" "$NOTES" | grep -cF '[paused] ')" = 1 ] && ok "the exit dialog's work is said stopped, and the [paused] note is left" || bad "j after: $OUT $(cat "$NOTES")"
 [ ! -e "$PD/$UJ.notified" ] && [ ! -e "$PD/$UJ.wait" ] && ok "the clock and the notice marker are gone with the relaunch" || bad "j markers: $(ls "$PD")"
 wait_lock
@@ -335,6 +336,27 @@ pause_tasks_only "$LP" && ok "the marker says only background work held the row"
 tm=$(pane_exit "$(tmux display -p -t sala-test-l '#{pane_id}')" "$LP"); rc=$?
 [ "$rc" = 4 ] && [ ! -e "$PD/$UL.paused" ] && [ "$(typed "$UL" /exit)" = 0 ] && ok "a running turn: exit refused (4), nothing typed, the pause marker removed" || bad "l: rc $rc typed $(typed "$UL" /exit) $(ls "$PD")"
 rm -f "$PD/$UL".*
+
+echo "== m: the stop notice marker is written only after the note is stored; no notice when the pause comes at or after SALA_HOLD_MAX"
+UM=$(uuid 46); mk m "$UM" -e FAKE_ESC_IDLE=stay; fake_up sala-test-m; busy m; MP=$(cpid m)
+export SALA_STOP_NOTICE=on
+rm -f "$PD/$UM".*
+( note_add_for() { return 1; }; pause_stop_notice sala-test-m "$UM" "$MP" ); rc=$?
+[ "$rc" = 1 ] && [ ! -e "$PD/$UM.notified" ] && [ "$(grep -cF '[stop] ' "$NOTES" 2>/dev/null)" = 0 ] && ok "a note that failed leaves no marker" || bad "m failed note: rc $rc $(ls "$PD")"
+pause_stop_notice sala-test-m "$UM" "$MP"; rc=$?
+[ "$rc" = 0 ] && [ -e "$PD/$UM.notified" ] && ok "tried again, the notice is written and the marker follows" || bad "m retry: rc $rc $(ls "$PD")"
+pause_stop_notice sala-test-m "$UM" "$MP"; rc=$?
+[ "$rc" = 1 ] && ok "and then it is once" || bad "m once: rc $rc"
+waitfor '[ "$(grep -cF "$(printf "\t[stop] ")" "$NOTES")" = 0 ]' 40
+rm -f "$PD/$UM".*
+( SALA_HOLD_MAX=5; pause_stop_notice sala-test-m "$UM" "$MP" ); rc=$?
+[ "$rc" = 1 ] && [ ! -e "$PD/$UM.notified" ] && [ "$(grep -cF '[stop] ' "$NOTES" 2>/dev/null)" = 0 ] && ok "SALA_PAUSE_AFTER at or above SALA_HOLD_MAX: no notice and no marker" || bad "m cap: rc $rc $(ls "$PD")"
+n1=$(nsock "$UM")
+SALA_HOLD_MAX=5 revive_only sala-test-m
+[ ! -e "$PD/$UM.notified" ] && ! has "$OUT" 'stop notice' && [ "$(grep -cF '[stop] ' "$NOTES" 2>/dev/null)" = 0 ] && [ "$(nsock "$UM")" = "$n1" ] && ok "the real path sends no notice that says sala will stop the turn" || bad "m real path: $OUT $(ls "$PD")"
+export SALA_STOP_NOTICE=off
+rm -f "$PD/$UM".*
+wait_lock
 
 echo "== i again: watch's deferred list tries a pause that did not take again after SALA_PAUSE_RETRY s, not after 10 min"
 now=$(date +%s)

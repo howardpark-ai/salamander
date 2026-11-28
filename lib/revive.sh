@@ -908,7 +908,7 @@ pause_try() {
     pause_retry_in_r ref "$uuid"; [ "$ref" -le 0 ] || return 1   # a try that did not take is tried again SALA_PAUSE_RETRY s later (common.sh, pause_failed), not at every pass
     hold_pause_gate "$uuid" "${SALA_SET:-}" || return 1   # the cap again, right before the Escape; passed, the hold is not lifted under this relaunch
     if pause_pane "$pane" "$sess" "$cpid" "$uuid"; then
-        emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — its turn was interrupted with one Escape; it is relaunched next and a note leaves it what it was doing"
+        emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — $([ "${PAUSE_ESC:-0}" = 1 ] && echo "its turn was interrupted with one Escape" || echo "it had no turn of its own, so no Escape was sent, and its subagents are stopped by the exit"); it is relaunched next and a note leaves it what it was doing"
         set_paused "${SALA_SET:-}" "$sess: paused at $(local_clock "$PAUSE_AT") after $(hold_age_words "$PAUSE_HELD") of holding the relaunch"
         return 0
     fi
