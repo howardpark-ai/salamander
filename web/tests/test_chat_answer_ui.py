@@ -1001,6 +1001,7 @@ def test_no_sideways_scroll_with_frames_open(served, browser, monkeypatch, frame
     wait(browser, f"{CARDS}.length === 2 && {card_frame(-1)}.style.height === '400px'")
     open_row(browser, frames, 1, 400)
     say(browser, card_frame(-1), state="answered", height=400)
+    browser.touch(True)     # the typing word is a soft keyboard on a touch screen only; the desktop width is measured with one too
     wait(browser, f"{row(1)}.classList.contains('ans-done')")
     for where in ("open", "keyboard"):
         browser.settle("document.querySelector('#chat')")
