@@ -66,16 +66,19 @@ RECORDER = """(() => {
 })();"""
 
 SLOW = """(() => {
-  const READS = %s, FAIL = %s, real = window.fetch.bind(window);
+  const READS = %s, FAIL = %s, NAMED = %s, real = window.fetch.bind(window);
+  // with NAMED (the session's bare name): resolves once the recorder has a frame that `is` accepts; without it, at once
+  const recorded = (is) => new Promise((r) => { const look = () => (NAMED === null || window.__frames.some(is) ? r() : setTimeout(look, 20)); look(); });
   window.fetch = (url, opts) => { const u = String(url), hit = READS.find(([p]) => u.startsWith(p));
-    return new Promise((r) => setTimeout(r, hit ? hit[1] : 0)).then(() => {
+    return new Promise((r) => setTimeout(r, hit ? hit[1] : 0)).then(() => u === "api/chat" && recorded((f) => f.raw === NAMED)).then(() => {
       if (FAIL.some((p) => u.startsWith(p))) throw new TypeError("staged: the read failed");
       return real(url, opts); }); };
   const Real = window.EventSource;
   window.EventSource = class {
     static CLOSED = 2;
     constructor(url) { this.on = []; this.es = null; this.shut = false;
-      setTimeout(() => { if (this.shut) return; this.es = new Real(url); for (const [t, f] of this.on) this.es.addEventListener(t, f); }, %d); }
+      setTimeout(() => recorded((f) => f.loading).then(() => {
+        if (this.shut) return; this.es = new Real(url); for (const [t, f] of this.on) this.es.addEventListener(t, f); }), %d); }
     addEventListener(t, f) { if (this.es) this.es.addEventListener(t, f); else this.on.push([t, f]); }
     close() { this.shut = true; if (this.es) this.es.close(); }
     get readyState() { return this.es ? this.es.readyState : this.shut ? 2 : 0; }
@@ -85,9 +88,10 @@ SLOW = """(() => {
 LAST_VIEW = "try { if (location.protocol === 'http:') localStorage.setItem('salaweb.lastView', %s); } catch (e) {}"
 
 
-def prepare(browser, served, monkeypatch, lang="en", fail=(), extra=(), broken=None, reads=READS, stream_ms=STREAM_MS) -> None:
+def prepare(browser, served, monkeypatch, lang="en", fail=(), extra=(), broken=None, reads=READS, stream_ms=STREAM_MS, in_turn=False) -> None:
     """The recorder and the delays, ahead of every document the page loads from here on. `broken`: a static file served as a script that throws; `reads` and
-    `stream_ms`: how late the reads and the transcript's stream answer."""
+    `stream_ms`: how late the reads and the transcript's stream answer. `in_turn`, for check_chat_load: also, api/chat is not asked for before a frame has shown
+    the header's bare name, nor the stream before one has shown the loading line. The delays alone do not order these: a slow server or a late frame undoes them."""
     req = urllib.request.Request(served["url"] + "/api/prefs", data=json.dumps({"lang": lang}).encode(), method="PUT",
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=10) as r:
@@ -104,7 +108,7 @@ def prepare(browser, served, monkeypatch, lang="en", fail=(), extra=(), broken=N
 
     monkeypatch.setattr(APP.RevalidatedStatic, "get_response", get_response)
     browser.send("Page.enable")
-    for source in (RECORDER, SLOW % (json.dumps(reads), json.dumps(list(fail)), stream_ms), *extra):
+    for source in (RECORDER, SLOW % (json.dumps(reads), json.dumps(list(fail)), json.dumps(NAME if in_turn else None), stream_ms), *extra):
         browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": source})
 
 
@@ -167,7 +171,7 @@ def check_chat_load(seen: list[dict], lang: str) -> None:
 @pytest.mark.parametrize("size", SIZES)
 @pytest.mark.parametrize("lang", LANGS)
 def test_a_load_of_the_chat_address_shows_nothing_of_another_view(served, browser, monkeypatch, lang, size, path):
-    prepare(browser, served, monkeypatch, lang)
+    prepare(browser, served, monkeypatch, lang, in_turn=True)
     load(browser, served, monkeypatch, size, path)
     until(browser, CHAT_DRAWN)
     assert browser.evaluate("SalaAddress.here()") == "#s=" + NAME
@@ -176,7 +180,7 @@ def test_a_load_of_the_chat_address_shows_nothing_of_another_view(served, browse
 
 @pytest.mark.parametrize("width", [360, 320])
 def test_the_narrowest_phones_neither_flash_nor_scroll_sideways(served, browser, monkeypatch, width):
-    prepare(browser, served, monkeypatch, "ko")
+    prepare(browser, served, monkeypatch, "ko", in_turn=True)
     load(browser, served, monkeypatch, (width, 844), "#s=" + NAME)
     until(browser, CHAT_DRAWN)
     assert browser.evaluate("document.documentElement.clientWidth") == width
@@ -186,7 +190,11 @@ def test_the_narrowest_phones_neither_flash_nor_scroll_sideways(served, browser,
 @pytest.mark.parametrize("size", SIZES)
 @pytest.mark.parametrize("lang", LANGS)
 def test_a_reload_of_the_chat_address_shows_nothing_of_another_view(served, browser, monkeypatch, lang, size):
-    prepare(browser, served, monkeypatch, lang)
+    prepare(browser, served, monkeypatch, lang, in_turn=True)
+    reload_and_check(browser, served, monkeypatch, size, lang)
+
+
+def reload_and_check(browser, served, monkeypatch, size, lang) -> None:
     load(browser, served, monkeypatch, size, "#s=" + NAME)
     until(browser, CHAT_DRAWN)
     browser.evaluate("window.__stale = true; ''")
@@ -195,12 +203,39 @@ def test_a_reload_of_the_chat_address_shows_nothing_of_another_view(served, brow
     check_chat_load(frames(browser), lang)
 
 
+# no animation frame for a while (the second value, in ms) from the moment the header says a name (the first), as when a loaded machine draws none
+LATE_FRAMES = """(() => { const real = window.requestAnimationFrame.bind(window); let end = 0;
+  new MutationObserver((_, watch) => { const name = document.querySelector("#title .name");
+    if (name && name.textContent === %s) { watch.disconnect(); end = performance.now() + %d; } }).observe(document, { subtree: true, childList: true, characterData: true });
+  window.requestAnimationFrame = (f) => real(function wait(t) { if (performance.now() < end) real(wait); else f(t); });
+})();"""
+
+
+@pytest.mark.parametrize("late", ["the-sessions-read", "the-frames"])
+def test_a_late_read_or_late_frames_leave_the_load_in_its_steps(served, browser, monkeypatch, late):
+    """Each is longer than the delays leave between the steps: the sessions answered after api/chat's own delay, or no frame from the bare name until after
+    api/chat's and the stream's delays."""
+    extra = []
+    if late == "the-frames":
+        extra = [LATE_FRAMES % (json.dumps(NAME), 2500)]
+    else:
+        real = S.attach_agent_ids
+
+        def slow(*args):
+            time.sleep(2.0)             # on a worker thread of the server: api/chat is answered meanwhile
+            real(*args)
+
+        monkeypatch.setattr(S, "attach_agent_ids", slow)
+    prepare(browser, served, monkeypatch, extra=extra, in_turn=True)
+    reload_and_check(browser, served, monkeypatch, DESKTOP, "en")
+
+
 @pytest.mark.parametrize("size", SIZES)
 @pytest.mark.parametrize("lang", LANGS)
 def test_a_launch_with_no_address_that_reopens_the_chat_shows_nothing_of_another_view(served, browser, monkeypatch, lang, size):
     """A phone's width in any browser, and the installed app at a desktop's: app.js opens the last view again, after its reads."""
     extra = [LAST_VIEW % json.dumps("#s=" + NAME)] + ([STANDALONE] if size == DESKTOP else [])
-    prepare(browser, served, monkeypatch, lang, extra=extra)
+    prepare(browser, served, monkeypatch, lang, extra=extra, in_turn=True)
     load(browser, served, monkeypatch, size, "")
     until(browser, CHAT_DRAWN)
     assert browser.evaluate("SalaAddress.here()") == "#s=" + NAME
