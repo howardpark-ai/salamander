@@ -46,6 +46,9 @@ Detection uses Python's standard HTML parser, so text inside `<script>`, `<style
 these pages: the check above only catches the markup, so a script that calls `window.open` is not refused, and it does not open a window either.
 Put `<meta name="viewport" content="width=device-width, initial-scale=1">` in the page's `<head>` so a phone lays it out at its own width instead of a zoomed-out
 desktop page; `add` prints a note on stderr when the meta is missing, and changes nothing in the file.
+A page should also name its board item and link it in its first line, for example `<a href="https://board.example/items/<n>">item <n></a>`. `add` and `update` print a note on
+stderr when the stored page holds no `<scheme>://<host>/items/<digits>` link (any host counts, so a changed board host still passes). It is a note only: the page is stored, the
+exit status is 0 and the address on stdout is the same.
 
 **Back to sala.** When sala-web serves a page it adds one link at the top of the body, "Back to sala" (at least 44 px high, in the page's flow, no sideways scroll at phone width), because the installed phone app opens a link
 to a page of its own site inside its own window, with no address bar and no way back. The stored file is not changed, so a page needs nothing for it, and need not draw a way back to the chat of its own

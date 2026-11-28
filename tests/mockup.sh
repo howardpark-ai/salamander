@@ -34,7 +34,8 @@ unset SALA_SESSION_URL SALA_MOCKUP_DIR SALA_MOCKUP_NOW SALA_MOCKUP_REFERENCES SA
 mkdir -p "$HOME" "$T/in"
 S="bash $ROOT/bin/salamander mockup"
 D=$SALA_STATE_DIR/mockups
-PAGE='<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>t</title><p>hi'
+IT=items   # the board path segment, spelled in two parts so no literal board link sits in the file
+PAGE='<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>t</title><p><a href="https://board.example/'"$IT"'/7">item 7</a> hi'
 printf '%s' "$PAGE" > "$T/in/a.html"
 
 # -- add -----------------------------------------------------------------------------------------------------------------------------------
@@ -318,7 +319,7 @@ for n in $(cat "$REFS_FILE" 2>/dev/null); do echo "  https://sala.example.com/mo
 SH
 chmod +x "$T/rd"; export REFS_FILE=$T/linked
 unset SALA_SESSION_URL
-M='<meta name="viewport" content="width=device-width, initial-scale=1">'
+M='<meta name="viewport" content="width=device-width, initial-scale=1"><a href="https://board.example/'"$IT"'/7">item 7</a>'
 V="$D/versions/1"
 reset 0
 printf '%s' "$M<title>t</title><p>first</p>" > "$T/in/v1.html"; printf '%s' "$M<title>t</title><p>second</p>" > "$T/in/v2.html"
@@ -391,6 +392,24 @@ SALA_MOCKUP_REFERENCES="$T/nonexistent-reader" $S remove 1 >"$T/out" 2>"$T/err";
 [ "$rc" = 1 ] && [ -e "$D/1.html" ] && grep -q 'not removed' "$T/err" && ok "remove: a reader that cannot run refuses the removal (exit 1), page stays" || bad "remove failing reader: rc=$rc [$(cat "$T/err")]"
 SALA_MOCKUP_REFERENCES=false $S remove --force 1 >/dev/null 2>&1 && [ ! -e "$D/1.html" ] && ok "remove --force: skips a failing reader and removes the page" || bad "remove --force skips reader"
 reset 0; $S remove 1 >/dev/null 2>&1; [ "$?" = 1 ] && ok "remove of a page that is not there still exits 1" || bad "remove missing"
+
+# board-link note: a page with an /items/<n> link (any host) gets none, one without gets it; never a refusal, stdout and exit unchanged
+reset 0
+export SALA_SESSION_URL='https://sala.example.com/s/{name}'
+VM='<meta name="viewport" content="width=device-width, initial-scale=1">'
+printf '%s<p>no link' "$VM" > "$T/in/nl.html"
+printf '%s<a href="https://other-host.test:8443/'"$IT"'/12345">x</a>' "$VM" > "$T/in/ol.html"
+printf '%s<p>https://board.example/items/ and /items/9 and https://board.example/items/x' "$VM" > "$T/in/bad.html"
+out=$($S add "$T/in/nl.html" 2>"$T/err"); rc=$?; n=${out##*/}
+[ "$rc" = 0 ] && [ "$out" = "https://sala.example.com/mockup/$n" ] && [ "$(grep -c . "$T/err")" = 1 ] && grep -q 'board item' "$T/err" && grep -q 'first line' "$T/err" && ok "add: a page with no board link gets one note (exit 0, address unchanged)" || bad "no-link add: rc=$rc out=[$out] err=[$(cat "$T/err")]"
+$S add "$T/in/a.html" >/dev/null 2>"$T/err"; grep -q 'board item' "$T/err" && bad "add: a page with a link got the note" || ok "add: a page with a board link gets no note"
+out=$($S add "$T/in/ol.html" 2>"$T/err"); [ ! -s "$T/err" ] && ok "add: the link counts on any host" || bad "other host: err=[$(cat "$T/err")]"
+$S add "$T/in/bad.html" >/dev/null 2>"$T/err"; grep -q 'board item' "$T/err" && ok "add: /items/ without digits, a bare path and a non-number do not count" || bad "bad link counted"
+$S update "$n" "$T/in/nl.html" >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$T/out")" = "https://sala.example.com/mockup/$n" ] && grep -q 'board item' "$T/err" && ok "update: a page with no board link gets the note (exit 0, address unchanged)" || bad "no-link update: rc=$rc err=[$(cat "$T/err")]"
+$S update "$n" "$T/in/a.html" >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$T/out")" = "https://sala.example.com/mockup/$n" ] && [ ! -s "$T/err" ] && ok "update: a page with a board link gets no note" || bad "link update: rc=$rc err=[$(cat "$T/err")]"
+unset SALA_SESSION_URL
 
 echo "mockup: $([ $fail = 0 ] && echo pass || echo FAIL)"
 exit $fail
