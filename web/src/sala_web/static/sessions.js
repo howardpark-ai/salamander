@@ -528,9 +528,10 @@ function quotaCardBody(q, known, opts = {}) {
     card.append(pendingFoot());
     return card;
   }
+  if (q.stale) card.classList.add("q-stale");   // the figures are old or the last check was refused (quota.py is_stale): "stale" in place of each figure
   for (const l of q.limits || []) {
-    const pct = typeof l.percent === "number" ? Math.max(0, Math.min(100, l.percent)) : null;
-    const sev = !l.severity || l.severity === "normal" ? "" : l.severity === "warning" ? " warning" : " bad";
+    const pct = typeof l.percent === "number" && !q.stale ? Math.max(0, Math.min(100, l.percent)) : null;
+    const sev = q.stale || !l.severity || l.severity === "normal" ? "" : l.severity === "warning" ? " warning" : " bad";
     const row = div("q-row" + sev);
     const name = div("");
     name.append(div("q-name", l.label), div("q-reset", resetsText(l.resetsAt)));
@@ -541,7 +542,7 @@ function quotaCardBody(q, known, opts = {}) {
     bar.setAttribute("role", "progressbar");
     bar.setAttribute("aria-label", l.label);
     if (pct != null) bar.setAttribute("aria-valuenow", String(Math.round(pct)));
-    row.append(name, bar, div("q-pct", pct == null ? tl("ov.common.unknown") : tl("ov.q.used", { pct: Math.round(pct) })));
+    row.append(name, bar, div("q-pct", q.stale ? tl("ov.q.stale") : pct == null ? tl("ov.common.unknown") : tl("ov.q.used", { pct: Math.round(pct) })));
     if (pct != null) row.lastChild.dataset.short = Math.round(pct) + "%";   // the phone's chip strip shows the figure alone
     card.append(row);
   }

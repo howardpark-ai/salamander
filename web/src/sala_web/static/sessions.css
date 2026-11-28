@@ -227,6 +227,7 @@
 
 /* a card with no answer yet (a first start): its rows drawn quietly, at the size the answer will take */
 #overview-pane .q-card.q-pending :is(.q-row, .c-figs, .c-foot) { opacity: 0.45; }
+#overview-pane .q-card.q-stale .q-pct { font-style: italic; color: var(--faint); }   /* old figures or a refused check: the word "stale" stands where the percent was */
 /* the card's last line: "updated 7 min ago", or "as of 3 hours ago" while its refreshes fail; the note above it is
    under the figures (the dormant reason gets the gap the head's margin gave it when it sat under the head) */
 #overview-pane .q-card { display: flex; flex-direction: column; }   /* the grid gives the cards of a row one height */

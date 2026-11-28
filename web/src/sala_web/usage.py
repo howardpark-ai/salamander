@@ -473,7 +473,8 @@ def compute(settings, live: list, lane_rows: list[dict], lane_names: list[dict],
         lane = LS.norm(a.get("lane"))
         lim = weekly_limit(a)
         r_at = reset_epoch(lim)
-        if lim and isinstance(lim.get("percent"), (int, float)) and r_at is not None and r_at > now:
+        # a stale answer (quota.is_stale: an old reading, or a refused check) gives no figure: the lane card then reads without a percent
+        if lim and isinstance(lim.get("percent"), (int, float)) and r_at is not None and r_at > now and not Q.is_stale(a, now):
             quotas[lane] = {"percent": lim["percent"], "resetsAt": int(r_at)}
     out_lanes = [{"code": c, "label": v["label"], "billing": v["billing"], "flat": c in flat, "known": v["known"], "quota": quotas.get(c)}
                  for c, v in sorted(lanes.items(), key=lambda kv: (kv[0] not in seen, kv[0]))]
