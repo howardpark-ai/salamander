@@ -122,6 +122,13 @@ eval "$ORIG_HR"; rm -f "$PARENT"
 mksub "$U1" s1 builder "Build the package move"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
     && has "$n" "sala never cuts a running subagent" && ok "the relaunch notice names it and says it is not cut" || bad "notice: $n"
+echo "-- a conversation resumed from another folder keeps writing where it started: its subagents are found there"
+UM=$(uuid 59); OLD="$HOME/.claude/projects/-started-elsewhere"; mkdir -p "$OLD/$UM/subagents"; : > "$OLD/$UM.jsonl"
+printf '{"type":"user"}\n' > "$OLD/$UM/subagents/agent-s9.jsonl"; printf '{"agentType":"builder","description":"Moved work","requestShape":"background"}\n' > "$OLD/$UM/subagents/agent-s9.meta.json"
+row "$K1" "$UM" idle
+[ "$(subagent_holders "$K1" "$UM")" = "subagent builder: Moved work (last wrote under 1 min ago)" ] && ok "a moved session's running subagent is seen" || bad "moved subagent: '$(subagent_holders "$K1" "$UM")'"
+d=$(session_scratch_dirs "$K1" "$UM" | tail -1); [ "$d" = "$OLD/$UM/subagents" ] && ok "its subagent folder counts as scratch" || bad "scratch dirs: $d"
+row "$K1" "$U1" idle; rm -rf "${OLD:?}"
 bash -c 'trap : USR1; while :; do sleep 1; done' & WK=$!; PIDS+=("$WK"); echo "$WK" > "$HOME/.claude/salamander-retry.$WK.pid"   # a pending recycle's retry worker, so ready_wake succeeds
 # wait for the `sala ready` process to exit (its .done marker), not for the file's first byte: it writes the holder block, then the ready: line
 : > "$HOME/go1"; waitfor '[ -e "$HOME/ready1.done" ]' 20

@@ -21,7 +21,7 @@ SALA_CONFIG="${SALA_CONFIG:-$HOME/.config/salamander/config}"
 : "${SALA_RC_CAPACITY:=32}"                       # served sessions (CLI default 32)
 : "${SALA_RC_RESTART_DELAY:=30}"                  # seconds between server relaunches
 : "${SALA_TZ:=}"                                  # timezone for names/logs and every time sala shows (an IANA name); empty = this machine's local time
-: "${SALA_BACK_CWD:=}"                            # where `spawn --role back` starts without --cwd (the directory of the background brief); empty = $HOME
+: "${SALA_BACK_CWD:=}"                            # the background brief's folder: `spawn --role back` starts there without --cwd (empty = $HOME), and every wake and relaunch of a project's back agent runs there (empty = it keeps its folder; back_cwd_r)
 : "${SALA_SLACK_CWD:=}"                           # where `spawn --role front --surface slack` starts without --cwd (the directory of the Slack brief); empty = the spawn is refused (no fallback)
 : "${SALA_SCOPES:=}"                              # the scopes sessions are named by (<scope>-<project>-…), space-separated; empty = none. The web UI takes them from this first, and from stackshot's own settings file only when this is empty or unset
 : "${SALA_DEFAULT_SCOPE:=}"                       # the scope a page outside every scope's directory is named in; empty = the first of SALA_SCOPES
@@ -2183,12 +2183,20 @@ rc_served_snapshot() { local out; out=$(rc_served 2>/dev/null) || return 0; [ -n
 slug_for_cwd() { local _s=$1; printf '%s\n' "${_s//[\/.]/-}"; }
 # transcript_for_uuid <uuid> → path of the transcript (newest if several slugs hold one)
 transcript_for_uuid() { local f best=""; for f in "$SALA_PROJECTS"/*/"$1.jsonl"; do [ -e "$f" ] || continue; { [ -z "$best" ] || [ "$f" -nt "$best" ]; } && best=$f; done; [ -z "$best" ] || printf '%s\n' "$best"; }   # the newest by mtime, as ls -t | head -1 (two processes fewer)
+# transcript_dir <uuid> <cwd> → the folder under SALA_PROJECTS that holds the conversation's transcript and its subagents': <cwd>'s own when
+# the transcript is there or nowhere, else the one it is in (a conversation resumed from another folder keeps writing where it started)
+transcript_dir() {
+    local d t
+    d="$SALA_PROJECTS/$(slug_for_cwd "$2")"
+    if [ ! -e "$d/$1.jsonl" ]; then t=$(transcript_for_uuid "$1"); [ -z "$t" ] || d=${t%/*}; fi
+    printf '%s\n' "$d"
+}
 # session_scratch_dirs <pid> <uuid> → dirs whose recent writes mean "background work in flight"
 session_scratch_dirs() {
     local cwd slug; cwd=$(proc_cwd "$1") || return 0; [ -n "$cwd" ] || return 0
     slug=$(slug_for_cwd "$cwd")
     echo "/tmp/claude-$EUID/$slug/$2/tasks"
-    echo "$SALA_PROJECTS/$slug/$2/subagents"
+    echo "$(transcript_dir "$2" "$cwd")/$2/subagents"
 }
 
 # effort_for_uuid <uuid> → the effort to pass on --resume, or empty.
@@ -3165,7 +3173,7 @@ pause_context() {
     local cwd t l n secs sm
     cwd=$(proc_cwd "$1" 2>/dev/null) || cwd=""
     if [ -n "$cwd" ]; then
-        t="$SALA_PROJECTS/$(slug_for_cwd "$cwd")/$2.jsonl"
+        t="$(transcript_dir "$2" "$cwd")/$2.jsonl"
         [ -r "$t" ] && SALA_SCRUB_PY="$SALA_SCRUB_PY" python3 -I -S "$SALA_ROOT/lib/pauseinfo.py" "$t" 2>/dev/null
     fi
     while IFS= read -r l; do [ -n "$l" ] && printf 'subagent\t%s\n' "${l#subagent }"; done < <(subagent_holders "$1" "$2" | sed 's/ (last wrote [^)]*)$//' | scrub_text)
@@ -3587,7 +3595,7 @@ subagent_holders() {
     local sid="${2:-}" cwd d f m body age lim et mt type desc now ws quiet id hl="" hlr=0 ended="" endr=0
     [ -n "$sid" ] || registry_field_r sid "$1" sessionId; [ -n "$sid" ] || return 0
     cwd=$(proc_cwd "$1") || return 0; [ -n "$cwd" ] || return 0
-    d="$SALA_PROJECTS/$(slug_for_cwd "$cwd")/$sid/subagents"; [ -d "$d" ] || return 0
+    d="$(transcript_dir "$sid" "$cwd")/$sid/subagents"; [ -d "$d" ] || return 0
     # how long this claude has run: the registry row's startedAt (ms), else the process's own age
     lim=$SALA_SUBAGENT_STALE; registry_field_r et "$1" startedAt; _now_r now
     if [[ $et =~ ^[0-9]+$ ]]; then et=$(( now - et / 1000 )); else et=$(proc_etime "$1" 2>/dev/null || echo 0); fi
@@ -3934,10 +3942,16 @@ _ledger_unfreeze_locked() {  # <why> — under the lock
     return 0
 }
 # THE FOLDER OF A RELAUNCH (`revive --only NAME --cwd DIR`, `wake --only NAME --cwd DIR`; lib/revive.sh, lib/wake.sh). A session moved into
-# another folder must be restored there. The folder is the caller's word and nothing else: sala never reads it from a pane or a process (a pane
-# tmux-resurrect recreated may stand anywhere: in $HOME because its saved folder is gone, or in a worktree that is removed later). The relaunch is
-# typed as `cd DIR && <the resume line>`, and once the claude is up the session's row is written with the conversation it resumed and DIR
-# (ledger_cwd). Without the flag no relaunch writes a folder.
+# another folder must be restored there. The folder is the caller's word, or the one a back agent's role gives (below), and nothing else: sala
+# never reads it from a pane or a process (a pane tmux-resurrect recreated may stand anywhere: in $HOME because its saved folder is gone, or in a
+# worktree that is removed later). The relaunch is typed as `cd DIR && <the resume line>`, and once the claude is up the session's row is
+# written with the conversation it resumed and DIR (ledger_cwd). With neither, no relaunch writes a folder.
+# THE FOLDER OF A BACK AGENT. A session reads the instructions of the folder it runs in, so a front agent tagged back (`sessions tag <name>
+# --role back`) must start in the background brief's folder to work by its rules. Every start of an existing conversation (revive and all that
+# goes through it: wake, recycle, lane and model moves, the boot hook, the retry worker, the self-worker; a recreated session: restore_check;
+# unpark) asks back_cwd_r, which answers from the role the session holds AT THAT MOMENT, so a later tag or setting change needs no rewrite of
+# the pane map. `--cwd` wins. The CLI resumes a conversation by its id from another folder and keeps writing its transcript where it started
+# (transcript_dir).
 relaunch_dir_ok() {  # <dir> → 0 when a relaunch can be put in it and a row can carry it; 1 with the reason in RD_WHY
     RD_WHY=""
     case "$1" in
@@ -3962,7 +3976,7 @@ cwd_quote() {  # <dir> → it as one word of a typed shell line, read the same b
     printf '%s' "$out'"
 }
 # ledger_cwd <session> <uuid> <dir> → 0 the row carries <dir> (written, or deferred under a freeze, the last follow of a session winning) · 1 not
-# written (no row; the follow refused or failed). Either way CWD_SAID is the line to show. Only a relaunch given --cwd calls it.
+# written (no row; the follow refused or failed). Either way CWD_SAID is the line to show. Called for --cwd, and by back_cwd_row.
 ledger_cwd() {
     local sess="$1" uuid="$2" dir="$3" row old
     row=$(ledger_row "$sess")
@@ -3972,9 +3986,32 @@ ledger_cwd() {
     CWD_SAID="pane-map folder ${old:-none} → $dir"
     ! ledger_frozen || CWD_SAID="$CWD_SAID (recorded when the freeze lifts)"
 }
+# back_cwd_r <var> <session> → 0, <var> = SALA_BACK_CWD's real path: <session> is a project's back agent (sessions.py back-agent) and the
+# setting names a folder a relaunch can be put in. 1, <var> empty, otherwise (unset, no such folder, a relative path, SALA_SESSIONS=off, any
+# other session): the session keeps its folder
+back_cwd_r() {
+    local _bd
+    printf -v "$1" '%s' ""
+    [ -n "${SALA_BACK_CWD:-}" ] && sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || return 1
+    _bd=${SALA_BACK_CWD/#\~/$HOME}
+    relaunch_dir_ok "$_bd" && _bd=$(cd "$_bd" 2>/dev/null && pwd -P) && relaunch_dir_ok "$_bd" || return 1
+    sessions_py back-agent "$2" >/dev/null 2>&1 || return 1
+    printf -v "$1" '%s' "$_bd"
+}
+# back_cwd_row <session> <uuid> <dir> → once a back agent's claude is up in <dir>, the row takes it, when the row holds this conversation and
+# another folder. CWD_SAID is the line to show, empty when there was nothing to write. A write that fails fails no relaunch: the next one asks
+# the role again
+back_cwd_row() {
+    local row
+    CWD_SAID=""
+    row=$(ledger_row "$1")
+    [ "$(cut -f2 <<< "$row")" = "$2" ] && [ "$(cut -f4 <<< "$row")" != "$3" ] || return 0
+    ledger_cwd "$1" "$2" "$3" || true
+}
 # COMPARE AND RESTORE (a missing session is recreated on its own, then reported). A row whose tmux session does not exist is
 # recreated: the session detached at a shell in the row's cwd, then `revive --only NAME` resumes the row's conversation
-# by uuid through revive's shell-pane branch (the dedupe guard, the effort re-pass, the inbox hold). A row whose session
+# by uuid through revive's shell-pane branch (the dedupe guard, the effort re-pass, the inbox hold). A back agent's session
+# is made in SALA_BACK_CWD instead (back_cwd_r). A row whose session
 # exists but whose claude is not back is revive's existing business. The dedupe guard holds here too: a conversation
 # live anywhere is never resumed again — such a row is left alone and said so. `sala restore` is the hand-run form; the
 # end of a recycle sweep and the reboot's boot half run ledger_compare_restore over the frozen roster on their own.
@@ -3988,7 +4025,7 @@ ledger_missing() {  # → the map's rows whose tmux session does not exist (the 
     done < "$SALA_SIDECAR"
 }
 restore_check() {  # <session> [row] → 0 it can be recreated · 3 left alone (its conversation is live elsewhere) · 1 refused; its line in RS_MSG. Sets RS_UUID RS_CWD RS_NOTE (the cwd it would use, and " (its directory … is gone, so in $HOME)" when it falls back). Changes nothing: restore_session and `restore --dry-run` both ask it
-    local sess="$1" row="${2:-}" name live
+    local sess="$1" row="${2:-}" name live bdir
     RS_MSG=""; RS_UUID=""; RS_CWD=""; RS_NOTE=""
     # a sleeping session is left alone, not refused: its row is meant to have no claude (and maybe no tmux session), and a wake, not a restore, resumes it
     is_sleeping "$sess" && { RS_MSG="$(sleeping_line "$sess")"; return 3; }
@@ -3999,6 +4036,10 @@ restore_check() {  # <session> [row] → 0 it can be recreated · 3 left alone (
     [ -n "$RS_UUID" ] || { RS_MSG="$sess: its pane-map row has no conversation id"; return 1; }
     tmux has-session -t "=$sess" 2>/dev/null && { RS_MSG="$sess: its tmux session exists — revive brings its claude back (salamander revive --only $sess)"; return 1; }
     if live=$(live_pane_for_uuid "$RS_UUID"); then RS_MSG="$sess: left alone — its conversation is live already (pid ${live%% *} in ${live#* }); a conversation is never resumed twice"; return 3; fi
+    if back_cwd_r bdir "$sess"; then
+        [ "$RS_CWD" = "$bdir" ] || RS_NOTE=" (a back agent starts in SALA_BACK_CWD; its row says '${RS_CWD:-?}')"
+        RS_CWD=$bdir; return 0
+    fi
     [ -n "$RS_CWD" ] && [ -d "$RS_CWD" ] || { RS_NOTE=" (its directory '${RS_CWD:-?}' is gone, so in $HOME)"; RS_CWD="$HOME"; }
     return 0
 }

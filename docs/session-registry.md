@@ -203,6 +203,23 @@ The registry shares the pane map's lock (`pane-map.tsv.lock`, fd 6). `ledger_wri
 `lane_write` and `model_write` take their own lock (fd 3) first, release it, and only then take fd 6 for the field copy (a 10 s
 wait, then a log line), so the two are never held together. `--migrate` and `--check` take it for their whole run.
 
+## The folder follows the role
+
+A Claude session reads the instructions of the folder it runs in, so a background agent has to run in the background brief's folder. With
+`SALA_BACK_CWD` naming a directory (an absolute path, `~` allowed), every start of an existing conversation of a **project's back agent** runs
+there: `wake`, `revive` and all that goes through it (recycle, lane and model moves, the boot hook, the retry worker, the self-worker),
+`restore` and `unpark`. The relaunch is typed as `cd <directory> && <resume line>` and the pane-map row records the directory once the claude is
+up. A session tagged back (`sala sessions tag <name> --role back`) therefore moves at its next wake or relaunch; the tag itself moves nothing.
+
+- A project's back agent is a live row with `role: back` and a `project`, and no `side`. Only the row is read (not stackshot's project record).
+- Every other session keeps its folder: a front agent, a side session, a row with no role or no project, and every session under
+  `SALA_SESSIONS=off`.
+- `--cwd` wins. With the setting unset, relative or naming no directory, a relaunch changes nothing (`spawn --role back` without `--cwd` is
+  refused for a missing directory, as before).
+- Tagging the row front again does not move it back: `sala wake --only <name> --cwd <dir>` (or `revive --only`) does.
+- The conversation is the same one. The CLI resumes it by id from another folder and keeps writing its transcript, and its subagents', under
+  the folder it started in; sala looks for them there.
+
 ## Tagging a row: `sala sessions tag`
 
 `project` and `role` used to be set only by `spawn --project --role`, at the session's birth. A row made any other way (adopted, restored,

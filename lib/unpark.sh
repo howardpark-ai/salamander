@@ -40,7 +40,8 @@ if [ -n "$fpid" ]; then
     why=$(is_idle_reason "$fpid"); [ -z "$why" ] || die "the fork is not idle ($why) — ${SALA_OWNER_NAME} may be mid-turn on claude.ai; wait and rerun"
 fi
 d=$(pane_draft "$pane" "$cpid"); [ -z "$d" ] || die "unsubmitted text in the pane's composer (\"$d\") — clear it first"
-if [ "$DRY" = 1 ]; then echo "[dry-run] would end fork pid ${fpid:-none}, quit the pane's stale claude (pid $cpid), resume $fork in $pane, rename to '${label:-$name}'"; exit 0; fi
+bdir=""; back_cwd_r bdir "$name" || true   # a back agent's folder (common.sh, THE FOLDER OF A BACK AGENT)
+if [ "$DRY" = 1 ]; then echo "[dry-run] would end fork pid ${fpid:-none}, quit the pane's stale claude (pid $cpid), resume $fork in $pane${bdir:+ in $bdir (a back agent: SALA_BACK_CWD)}, rename to '${label:-$name}'"; exit 0; fi
 
 if [ -n "$fpid" ]; then
     fppid=$(proc_ppid "$fpid")
@@ -56,7 +57,9 @@ for ((i=0; i<3; i++)); do
     wait_for "$pane" shell 10 && break
 done
 wait_for "$pane" shell 5 || die "the pane did not return to a shell — screen: $(tmux capture-pane -p -t "$pane" | grep -v '^ *$' | tail -2 | tr '\n' ' ')"
-cmd=$(resume_cmd "$fork" "$name"); echo "resuming: $cmd"   # on the session's lane (common.sh, lanes)
+cmd=$(resume_cmd "$fork" "$name")   # on the session's lane (common.sh, lanes)
+[ -z "$bdir" ] || cmd="cd $(cwd_quote "$bdir") && $cmd"
+echo "resuming: $cmd"
 why=$(resume_send "$pane" "$fork" "$cmd") || die "$why"
 resume_wait "$pane" "$fork" 30; rc=$?   # live, not merely started
 [ "$rc" = 2 ] && die "the resume started and died within 30 s — the pane is back at a shell, the error above its prompt; run by hand: $cmd"

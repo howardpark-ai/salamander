@@ -5675,7 +5675,7 @@ Covered: real processes named claude: one under another, in both orders (the out
 
 Not covered, and why: the retry worker's other verdicts (sleeping, listed in `SALA_NO_RELAUNCH`, closed one short) and the invoking pane's failed relaunch call the same function and are not staged one by one; a reboot's halt and dry run call the same function and are not run: the reboot drain reads the panes without their conversation ids, so it raises no flag today (not changed here); a sweep process killed between taking a flag down and its verdict leaves a told session without a note; macOS (no `/proc`) takes the `ps` branch, which no suite runs here.
 
-### A relaunch writes a folder only when `--cwd` names it: `tests/ledger-recycle.sh`, `tests/sleepverbs.sh` (Sat Nov 28th 2026)
+### A relaunch writes a folder only when `--cwd` names it, or a back agent's role does: `tests/ledger-recycle.sh`, `tests/sleepverbs.sh` (Sat Nov 28th 2026)
 
 The paths guarded: a session moved to another folder kept the old folder in its row, so a later restore brought it back there; and a relaunch that takes the folder from the pane would write over a good row after a reboot, where tmux restore creates the pane in `$HOME` (the saved folder is gone) or in a worktree that is removed later.
 
@@ -5696,3 +5696,16 @@ Also covered, the clock's own life: it goes with a worker's relaunch and with a 
 Also covered, the edges: under a reboot (its flag, its pane map freeze, its marker) nothing is lifted and watch raises no flag again, a freeze whose owner is gone holding nothing back; a reboot that ends without rebooting keeps the recycle's clock; a lift clears an earlier `sala ready` and keeps a later one; the cap is asked again under the lock (a newer set raised in between is simulated) and a raised flag starts its clock under it; a huge `SALA_HOLD_MAX` is bounded and 90 s is said as 90 s; past the cap with a relaunch running, the first line and watch's say refused; the self-worker's and the sweep's relaunch show the running mark while they run and leave no clock; `pause_try`, run alone, sends no Escape when the cap passes before its gate; `SALA_PAUSE_AFTER` at or past the cap predicts no pause.
 
 Not covered, and why: the lift's lock against a relaunch starting in the same instant is not raced; a real reboot or a systemd shutdown is not run; a server-mode inbox release detached from the hook is not run (the suite uses hold files); a box without `flock` (macOS) is not run.
+
+### A back agent starts in the background brief's folder on every wake and relaunch (Sat Nov 28th 2026)
+
+What broke: a session started as a front agent and tagged back woke in its old folder and so loaded the front rules; only `wake --cwd` moved it.
+
+Kept (`tests/sleepverbs.sh`, private tmux server, the compiled fake claude, which runs in whatever folder the typed line puts it in): with
+`SALA_BACK_CWD` set, a session with no role, a front agent, the role word back with no project and a side session wake in their own folder, as
+does a back agent with the setting unset or naming no directory; a session tagged back wakes on the same conversation in that directory (a
+leading `~` included) and its pane-map row records it; `--cwd` wins; the same for a forced relaunch of a running claude, the self-worker,
+`restore` and a wake whose tmux session is gone; the dry runs name the folder and change nothing. `tests/sessions-spawn.sh`: `unpark` of a
+back agent. `tests/holdmatch.sh`: a running subagent of a conversation resumed from another folder is still found where the transcript is.
+
+Not staged: the CLI's own trust question for a folder it has not seen (`SALA_BACK_CWD` is where back agents are spawned).
