@@ -93,7 +93,7 @@ def test_a_session_with_no_agent_role_is_a_word_never_main(sala, served, browser
     click(browser, "#ns-summary")                                      # open the folded box to type in it
     set_value(browser, "#ns-filter", "zeta-lab")
     click(browser, '#ns-projects .ns-opt[data-key="__new__"]')
-    assert wait_for(browser, "document.querySelector('#ns-name').value.startsWith('zeta-lab-')"), ns(browser)
+    assert wait_for(browser, "document.querySelector('#ns-name').value.startsWith('gamma-zeta-lab-')"), ns(browser)   # the scope and the project's name, then a word
     assert not ns(browser)["name"].endswith("-main"), ns(browser)
     assert "--new" in suggest_calls(sala)[-1], suggest_calls(sala)[-1]   # no page yet: no record can know it, so the page says it is new
 

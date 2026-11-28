@@ -291,7 +291,7 @@ def test_a_project_picked_under_all_is_made_ready_in_its_own_scope(sala, served,
     # a listed project of another scope with agents: sala suggests its name, no extra step
     reopen(browser, served, scope="all")
     pick(browser, "projects/gamma-harbor")
-    assert wait_for(browser, name_is("gamma-harbor-pink")), ns(browser)   # a project with agents: a random word, which the form adds to the project
+    as_back(browser, "gamma-harbor-pink")   # a project with agents: a random word, which the form adds to the project
     assert ns(browser)["picked"] == "Create will add gamma-harbor-pink to it, then start the session."
     set_value(browser, "#ns-name", "gamma-harbor-main")                 # the name it lists already: no extra step
     assert ns(browser)["picked"] == ""

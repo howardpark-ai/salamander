@@ -991,7 +991,8 @@ def test_the_form_holds_aa_contrast_in_both_themes_and_never_scrolls_sideways(sa
     set_value(browser, "#ns-filter", "kayak")
     assert wait_for(browser, "document.querySelector('#ns-projects .ns-divider') !== null", 10.0), ns(browser)
     pick(browser, "projects/gamma-old-kayak")
-    assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-old-kayak-main'"), ns(browser)
+    click(browser, 'input[name="ns-role"][value="back"]')   # the form opens on a session with no agent role, which asks stackshot for no agent: the refused step is a background agent's
+    assert wait_for(browser, "document.querySelector('#ns-name').value.startsWith('gamma-old-kayak-')"), ns(browser)
     set_value(browser, "#ns-mandate", "x")
     set_value(browser, "#ns-name", "Bad")   # the inline error shows
     g = ns(browser)

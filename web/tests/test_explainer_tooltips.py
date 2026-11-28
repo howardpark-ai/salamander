@@ -14,7 +14,7 @@ STYLE = (STATIC / "style.css").read_text(encoding="utf-8")
 MOVED = ["ui.ns.sessionHint", "ui.ns.backHint", "ui.ns.nameHint", "ui.ns.dragHint", "ui.ns.defaultHint", "ui.sd.itemHint", "ui.sd.projectHint",
          "ui.sd.agentsHint", "ui.sd.forkHint", "ui.sd.nameHint", "ui.sd.topicHint", "ui.se.thinkNote", "us.machines"]
 # left inline: what the form still needs from the person, and what the quick form asks them to do
-INLINE = ["ui.ns.mandateHint", "ui.sd.lead"]
+INLINE = ["ui.ns.mandateHintNone", "ui.sd.lead"]
 # the texts a script draws, each through the one helper in i18n.js
 MOVED_JS = {"usage.js": ["us.howTo", "us.machines", "us.prices", "us.asOf"], "usage-explorer.js": ["usx.howTo", "us.machines", "us.prices", "us.asOf"],
             "sessions.js": ["ov.unrated.note", "ov.s.counted"], "schedules.js": ["sch.count.hint"]}

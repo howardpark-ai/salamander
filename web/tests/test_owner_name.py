@@ -82,17 +82,17 @@ def test_the_words_a_form_queues_carry_it(monkeypatch):
 
 def test_the_page_says_the_owner_until_the_config_names_one(tmp_path, monkeypatch):
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert "a session {{owner}} talks to" in html   # the server fills it in
+    assert "a session {{owner}} works with" in html   # the server fills it in
     client = client_of(tmp_path)
-    assert "a session the owner talks to" in client.get("/").text
+    assert "a session the owner works with" in client.get("/").text
     sala_config(tmp_path, monkeypatch, 'SALA_OWNER_NAME="Sam Example"\n')
-    assert "a session Sam Example talks to" in client.get("/").text   # read on each load
+    assert "a session Sam Example works with" in client.get("/").text   # read on each load
 
 
 def test_the_name_is_escaped_in_the_page(tmp_path, monkeypatch):
     monkeypatch.setenv("SALA_OWNER_NAME", "<b>Sam</b> & co")
     text = client_of(tmp_path).get("/").text
-    assert "a session &lt;b&gt;Sam&lt;/b&gt; &amp; co talks to" in text and "<b>Sam</b>" not in text
+    assert "a session &lt;b&gt;Sam&lt;/b&gt; &amp; co works with" in text and "<b>Sam</b>" not in text
 
 
 def test_no_placeholder_is_left_in_the_page(tmp_path):
