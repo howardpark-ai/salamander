@@ -390,7 +390,8 @@ while [ $# -gt 0 ]; do
             # --dry-run` scheduled the real self-relaunch — an earlier version read --dry-run before the update, but this branch never looked)
             if [ "$DRY" = 1 ]; then
                 if [ -n "$scpid" ]; then
-                    echo "[dry-run] $ss: would schedule the self-relaunch of pane $TMUX_PANE — once this session is idle, /exit ($(proc_version "$scpid")) and resume $(registry_field "$scpid" sessionId) on $(claude_ver) · $LANE_LINE"
+                    sbd=""; back_cwd_r sbd "$ss" || true
+                    echo "[dry-run] $ss: would schedule the self-relaunch of pane $TMUX_PANE — once this session is idle, /exit ($(proc_version "$scpid")) and resume $(registry_field "$scpid" sessionId) on $(claude_ver) · $LANE_LINE${sbd:+ · in $sbd (a back agent: SALA_BACK_CWD)}"
                 else
                     echo "[dry-run] $ss: no claude runs in pane $TMUX_PANE — the self-worker would find nothing to relaunch · $LANE_LINE"
                 fi
@@ -468,7 +469,8 @@ while [ $# -gt 0 ]; do
         -h|--help) sed -n 's/^#   \(salamander revive .*\)/usage: \1/p' "$SALA_BIN"
                    echo "  (no option) every pane on an older CLI · --force: every idle pane · --only NAME: just that session"
                    echo "  --cwd DIR (with exactly one --only NAME; an absolute, existing, readable directory): the relaunch is made in DIR (a missing tmux session is created there)"
-                   echo "  and, once the claude is up, DIR is written into the session's pane-map row, so a later restore starts there; without it no relaunch writes a folder."
+                   echo "  and, once the claude is up, DIR is written into the session's pane-map row, so a later restore starts there (a back agent's: see below); without it only a back agent's relaunch writes a folder."
+                   echo "  with no --cwd, a project's back agent is relaunched in SALA_BACK_CWD when that names a directory; every other session keeps its folder"
                    echo "  A live claude on the current version needs --force too; a --cwd run is never retried or deferred"
                    echo "  every plan says \"lane: <runs on now> → <relaunched on>\"; a pane with no lane row that runs on another lane than the default is refused"
                    echo "  (salamander lane <lane> <session> records it; --lane-default accepts the default) · --dry-run: the verdicts, nothing relaunched or written"
@@ -695,6 +697,13 @@ served_back() {
 REVIVED=(); UPDATED=(); OK=(); SKIPPED=(); RETRY=()
 skip() { SKIPPED+=("$1"); transient_skip "$1" && RETRY+=("$pane|$sess|$label|${cpid:-}"); return 0; }
 
+# folder_plan <session> → FPLAN: what a dry run says about the folder of its relaunch (--cwd's, else a back agent's, else nothing)
+folder_plan() {
+    local bd
+    FPLAN=""
+    if [ -n "$RELAUNCH_CWD" ]; then FPLAN=" · $CWD_PLAN"; elif back_cwd_r bd "$1"; then FPLAN=" · in $bd (a back agent: SALA_BACK_CWD)"; fi
+}
+
 if [ "$SELF_WORKER" = 1 ]; then
     [ "$DRY" = 1 ] || echo "[$(date -Is)] self-worker: waiting for pane $SELF_PANE to go idle"
     pane_exists() { tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qxF "$1"; }
@@ -723,7 +732,8 @@ if [ "$SELF_WORKER" = 1 ]; then
     # post, never a silent skip. On a dry run (recycle's driver) the plan is said and nothing waited for or typed.
     if [ "$DRY" = 1 ]; then
         lane_plan "$label" "$cpid" || { echo "[$(date -Is)] self-worker: [dry-run] $label would be refused — $LANE_WHY ($LANE_LINE)"; exit 1; }
-        if [ -n "$cpid" ]; then echo "[$(date -Is)] self-worker: [dry-run] $label: would wait for pane $SELF_PANE to go idle, then /exit ($(proc_version "$cpid")) and resume $(registry_field "$cpid" sessionId) on $CURRENT_VER · $LANE_LINE — nothing waited for, nothing typed"
+        folder_plan "$label"
+        if [ -n "$cpid" ]; then echo "[$(date -Is)] self-worker: [dry-run] $label: would wait for pane $SELF_PANE to go idle, then /exit ($(proc_version "$cpid")) and resume $(registry_field "$cpid" sessionId) on $CURRENT_VER · $LANE_LINE$FPLAN — nothing waited for, nothing typed"
         else echo "[$(date -Is)] self-worker: [dry-run] $label: no claude runs in pane $SELF_PANE — nothing to relaunch · $LANE_LINE"; fi
         exit 0
     fi
@@ -801,14 +811,17 @@ if [ "$SELF_WORKER" = 1 ]; then
         echo "[$(date -Is)] self-worker: /exit not landed after ${SALA_EXIT_WAIT}s (a prompt may hold the pane); waiting up to 15 min"
         wait_exit "$SELF_PANE" 900 || wabort "claude did not exit within 15 min — a /exit may still be queued in the pane, check it"
     fi
-    why=$(resume_send "$SELF_PANE" "$uuid" "$(resume_cmd "$uuid" "$label")") || wabort "$why"   # on the session's lane (common.sh, lanes)
+    rcmd=$(resume_cmd "$uuid" "$label")   # on the session's lane (common.sh, lanes)
+    back_cwd_r bdir "$label" && rcmd="cd $(cwd_quote "$bdir") && $rcmd"   # a back agent's folder (common.sh, THE FOLDER OF A BACK AGENT)
+    why=$(resume_send "$SELF_PANE" "$uuid" "$rcmd") || wabort "$why"
     resume_wait "$SELF_PANE" "$uuid" "$SALA_RESUME_WAIT"; rc=$?   # live, not merely started (once a false "Recycle done")
     [ "$rc" = 2 ] && wabort "the resume started and died within ${SALA_RESUME_WAIT}s — the pane is back at a shell, the error above its prompt; resume it with: claude --resume $uuid"
     [ "$rc" = 0 ] || wabort "resume did not start within ${SALA_RESUME_WAIT}s — the pane is at a shell; resume it with: claude --resume $uuid"
     inbox_release "$uuid" "$hname" wait
     hold_cap_drop "$uuid"
+    CWD_SAID=""; [ -z "$bdir" ] || back_cwd_row "$label" "$uuid" "$bdir"
     [ -n "$DSET" ] && { set_resolve "$DSET" ok "$label" "$label relaunched on $(proc_version "$RESUMED_PID"), $(set_after "$DSET")"; set_report "$DSET"; }
-    echo "[$(date -Is)] self-worker: pane $SELF_PANE relaunched on conversation $uuid → $CURRENT_VER$(lane_note "$label") · $LANE_LINE"; exit 0
+    echo "[$(date -Is)] self-worker: pane $SELF_PANE relaunched on conversation $uuid → $CURRENT_VER$(lane_note "$label") · $LANE_LINE${CWD_SAID:+ · $CWD_SAID}"; exit 0
 fi
 
 # ── THE SWEEP, in three phases (a 35-pane recycle took 8 min at 12–17 s a pane, nearly
@@ -998,7 +1011,7 @@ check_pane() {
         [ -z "$uuid" ] && { SKIPPED+=("$label: no registry entry and no transcript matches title \"$(strip_marker "$title")\""); return; }
         draft=$(pane_draft "$pane" "$cpid")
         [ -n "$draft" ] && { skip "$label: unsubmitted text at the prompt (\"$draft\") — typing /exit would append to it and send the lot; submit or clear it, then rerun"; return; }
-        if [ "$DRY" = 1 ]; then emit ECHO "[dry-run] $label: would /exit ($ver) and resume $uuid on $CURRENT_VER · $LANE_LINE${RELAUNCH_CWD:+ · $CWD_PLAN}$([ "${SALA_EXIT_END:-1}" = 1 ] && echo " · a claude still running ${SALA_EXIT_WAIT}s after /exit: will end a stuck process (that one pid: TERM, then KILL after ${SALA_EXIT_TERM_WAIT}s) and resume the session")"; emit WOULD ""; return; fi
+        if [ "$DRY" = 1 ]; then folder_plan "$sess"; emit ECHO "[dry-run] $label: would /exit ($ver) and resume $uuid on $CURRENT_VER · $LANE_LINE$FPLAN$([ "${SALA_EXIT_END:-1}" = 1 ] && echo " · a claude still running ${SALA_EXIT_WAIT}s after /exit: will end a stuck process (that one pid: TERM, then KILL after ${SALA_EXIT_TERM_WAIT}s) and resume the session")"; emit WOULD ""; return; fi
         hold_relaunch_mark "$uuid"   # THE CAP: the session is not told it is free while this sweep is about to /exit it
         emit CLAUDE "$pane|$sess|$label|$cpid|$ver|$uuid|$LANE_LINE|$(registry_field "$cpid" name)"   # the lane line is said when the /exit is typed (phase 2)
         ;;
@@ -1013,7 +1026,7 @@ check_pane() {
         fi
         [ -n "$(pgrep -P "$panepid" 2>/dev/null)" ] && { SKIPPED+=("$label: shell busy with a child process"); return; }
         lane_plan "$sess" ""   # a shell runs on no lane: never refused, the line still said
-        if [ "$DRY" = 1 ]; then emit ECHO "[dry-run] $label: would resume $uuid on $CURRENT_VER (post-restore shell) · $LANE_LINE${RELAUNCH_CWD:+ · $CWD_PLAN}"; emit WOULD ""; return; fi
+        if [ "$DRY" = 1 ]; then folder_plan "$sess"; emit ECHO "[dry-run] $label: would resume $uuid on $CURRENT_VER (post-restore shell) · $LANE_LINE$FPLAN"; emit WOULD ""; return; fi
         dedupe_ok "$uuid" "$label" || return 0
         emit SHELL "$pane|$sess|$label|$uuid|$LANE_LINE|$(resume_cmd "$uuid" "$sess")"   # on the session's lane (common.sh, lanes); the resume line last: it may hold any character
         ;;
@@ -1105,9 +1118,9 @@ close_pane() {
     # so does a pane whose row name differs from its session and is not a hand rename (named, above)
     emit CLOSED "$pane|$sess|$label|$cpid|$ver|$uuid|$hname|$(resume_cmd "$uuid" "$sess" ${named:+named})"   # on the session's lane (common.sh, lanes)
 }
-# verify_pane <claude|shell> <pane> <label> <ver> <uuid> <name> [write] — phase 3, after the resume was typed: claude live in the
+# verify_pane <claude|shell> <pane> <label> <ver> <uuid> <name> [dir] — phase 3, after the resume was typed: claude live in the
 # pane within 30 s (resume_wait: registered and still there, or alive at the window's end; one that came up and died is a
-# skip, not an UPDATED row), then (--cwd, and only with <write>) the row's folder set to the one the caller named, and (a
+# skip, not an UPDATED row), then (only with <dir>: --cwd's folder, or a back agent's) the row's folder set to it, and (a
 # relaunched claude pane) the inbox released once the new process owns its socket
 verify_pane() {
     local kind="$1" pane="$2" label="$3" ver="$4" uuid="$5" hname="$6" write="${7:-}" cwdnote="" newver rc
@@ -1119,9 +1132,11 @@ verify_pane() {
         else SKIPPED+=("$label: resume didn't start within ${SALA_RESUME_WAIT}s — check manually$last"); fi
         return
     fi
-    if [ -n "$write" ]; then   # the folder the caller named (common.sh, THE FOLDER OF A RELAUNCH), only now that the claude is up
-        if ledger_cwd "${label%:*}" "$uuid" "$RELAUNCH_CWD"; then emit CWDSET ""; else emit CWDNOT ""; fi
+    if [ -n "$write" ] && [ -n "$RELAUNCH_CWD" ]; then   # the folder the caller named (common.sh, THE FOLDER OF A RELAUNCH), only now that the claude is up
+        if ledger_cwd "${label%:*}" "$uuid" "$write"; then emit CWDSET ""; else emit CWDNOT ""; fi
         cwdnote=" · $CWD_SAID"
+    elif [ -n "$write" ]; then
+        back_cwd_row "${label%:*}" "$uuid" "$write"; cwdnote=${CWD_SAID:+ · $CWD_SAID}
     fi
     if [ "$kind" = claude ]; then
         inbox_release "$uuid" "$hname" wait
@@ -1213,7 +1228,7 @@ if [ "$nclaude" -gt 0 ]; then
 fi
 # phase 3: resume, in order, a fixed gap apart; then verify in parallel
 if [ $((nclaude + nshell)) -gt 0 ]; then
-    T2=$(date +%s); sent=0; back0=$(( ${#UPDATED[@]} + ${#REVIVED[@]} ))
+    T2=$(date +%s); sent=0; back0=$(( ${#UPDATED[@]} + ${#REVIVED[@]} )); RDIR=()
     for ((i=1; i<=N; i++)); do
         case "${ELIG[$i]:-}" in
             "CLOSED|"*) IFS='|' read -r pane sess label cpid ver uuid hname rcmd <<<"${ELIG[$i]#"CLOSED|"}"; kind=claude;;
@@ -1221,12 +1236,13 @@ if [ $((nclaude + nshell)) -gt 0 ]; then
             *) continue;;
         esac
         [ "$sent" -gt 0 ] && sleep "$SALA_RESUME_GAP"
-        [ -z "$RELAUNCH_CWD" ] || rcmd="cd $(cwd_quote "$RELAUNCH_CWD") && $rcmd"   # sala puts the relaunch there; a cd that fails starts nothing
+        rdir=$RELAUNCH_CWD; [ -n "$rdir" ] || back_cwd_r rdir "$sess" || true   # --cwd, else a back agent's folder
+        [ -z "$rdir" ] || rcmd="cd $(cwd_quote "$rdir") && $rcmd"   # sala puts the relaunch there; a cd that fails starts nothing
         if ! why=$(resume_send "$pane" "$uuid" "$rcmd"); then
             [ "$kind" = claude ] && inbox_release "$uuid" "$hname"
             SKIPPED+=("$label: $why"); continue
         fi
-        sent=$((sent+1)); RESUMED[$i]="$kind|$pane|$label|$ver|$uuid|$hname"
+        sent=$((sent+1)); RESUMED[$i]="$kind|$pane|$label|$ver|$uuid|$hname"; RDIR[$i]=$rdir
     done
     # --cwd: the row takes the folder with the conversation resumed in it. A session whose panes hold two conversations has one row:
     # when more than one line was sent, only the conversation the row carries now writes
@@ -1234,7 +1250,7 @@ if [ $((nclaude + nshell)) -gt 0 ]; then
     for ((i=1; i<=N; i++)); do
         [ -n "${RESUMED[$i]:-}" ] || continue
         IFS='|' read -r kind pane label ver uuid hname <<<"${RESUMED[$i]}"
-        write=""; if [ -n "$RELAUNCH_CWD" ] && { [ "$sent" = 1 ] || [ "$uuid" = "$rowuuid" ]; }; then write=1; fi
+        write=${RDIR[$i]}; [ -z "$RELAUNCH_CWD" ] || [ "$sent" = 1 ] || [ "$uuid" = "$rowuuid" ] || write=""
         run_job "$TMPD/3.$i" verify_pane "$kind" "$pane" "$label" "$ver" "$uuid" "$hname" "$write"
     done
     wait_jobs

@@ -136,8 +136,9 @@ echo "== the drain's own stamp is not activity"
 # record <uuid> <id> <flip>: the Stop hook's record of a turn that left nothing in flight
 record() { mkdir -p "$SALA_BUSY_DIR"; printf 'id=%s\nflip=%s\ntasks=0\ncrons=0\n' "$2" "$3" > "$SALA_BUSY_DIR/$1"; }
 relaunch() { SALA_IDLE_SETTLE=12 SALA_RESUME_WAIT=20 SALA_EXIT_WAIT=30 "$SALA" revive --force --only "sala-test-$1" 2>&1; }
-# scratch <session>: a scratch folder of that conversation, one the idle check searches
-scratch() { local d; d="$SALA_PROJECTS/$(slug_for_cwd "$(cd "$HOME" && pwd -P)")/$(uuid "$1")/subagents"; mkdir -p "$d"; echo "$d"; }
+# scratch <session>: a scratch folder of that conversation, one the idle check searches: the subagents' folder sits beside the transcript
+# (projects/x, not the pane's own folder: a conversation resumed from another folder keeps writing where it started)
+scratch() { local d; d="$SALA_PROJECTS/x/$(uuid "$1")/subagents"; mkdir -p "$d"; echo "$d"; }
 # relaunched <n> <name> <session> <record: yes|no> <knob…>: one `revive` sends the draft and relaunches the pane. Before the send
 # the transcript already holds an answer and a scratch folder a file a minute old
 relaunched() {

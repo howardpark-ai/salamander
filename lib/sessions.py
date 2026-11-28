@@ -863,6 +863,17 @@ def cmd_front_names(R, a):
     return _role_names(R, a, "front")
 
 
+def cmd_back_agent(R, a):
+    """Read-only: exit 0 when the one live row named <name> is a project's background agent by its own row (role back, a project, no side
+    session), else 1. A relaunch asks it which folder to start in (lib/common.sh back_cwd_r), so nothing is read from the project record."""
+    if len(a.args) != 1:
+        raise RegistryError("back-agent needs exactly one session name")
+    rows = [r for r in R.rows.values() if r.get("state") == "live" and r.get("name") == a.args[0]]
+    if len(rows) != 1 or rows[0].get("side") or rows[0].get("role") != "back" or not str(rows[0].get("project") or "").strip():
+        return 1
+    return 0
+
+
 # -- phase 3: the published file and the resolver (both read-only) ------------------------------------------------------
 EXPORT_KEYS = ("id", "name", "aliases", "project", "project_key", "role", "lane", "model", "effort", "pane", "cwd",
                "state", "created", "retired_at", "transcripts")
@@ -1284,7 +1295,7 @@ def main():
     p.add_argument("--keep", type=int, default=30)
     p.add_argument("--caller", default="")
     p.add_argument("--machine", default="")
-    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "project-sessions", "slack-names", "record-surface", "migrate", "check", "relane"])
+    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "back-agent", "project-sessions", "slack-names", "record-surface", "migrate", "check", "relane"])
     p.add_argument("args", nargs="*")
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
@@ -1298,11 +1309,11 @@ def main():
     a = p.parse_args()
     R = Registry(a)
     rc = 0
-    if a.cmd in ("resolve", "transcript", "back-names", "front-names", "project-sessions", "slack-names", "record-surface"):  # read-only to the letter: not even an error line in sessions.log
+    if a.cmd in ("resolve", "transcript", "back-names", "front-names", "back-agent", "project-sessions", "slack-names", "record-surface"):  # read-only to the letter: not even an error line in sessions.log
         try:
             if a.cmd == "record-surface":   # answers from the project record alone: the registry is never opened, so one that is missing, corrupt or unreadable cannot change the answer (spawn's start directory follows it)
                 return cmd_record_surface(a)
-            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "project-sessions": cmd_project_sessions, "slack-names": cmd_slack_names}[a.cmd](R.load(), a)
+            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "back-agent": cmd_back_agent, "project-sessions": cmd_project_sessions, "slack-names": cmd_slack_names}[a.cmd](R.load(), a)
         except Exception as e:
             print("sessions %s: %s" % (a.cmd, e), file=sys.stderr)
             return 1

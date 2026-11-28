@@ -108,5 +108,11 @@ out=$("$SALA" unpark sala-test-p 2>&1); rc=$?
 [ "$(awk -F'\t' '$1=="sala-test-p" {print $2}' "$MAP")" = "$UF" ] && ok "the pane map moved to the fork as before" || bad "map: $(<"$MAP")"
 "$SALA" sessions record sala-test-p --transcript "$UF" --why resume >/dev/null 2>&1
 [ "$(rowq sala-test-p trs)" = "$UP:add $UF:resume" ] && ok "recording the fork again (the SessionStart hook of the resumed claude does) is a no-op" || bad "repeat: $(rowq sala-test-p trs)"
+# a project's back agent: the unparked conversation starts in SALA_BACK_CWD (common.sh, THE FOLDER OF A BACK AGENT)
+mkdir -p "$HOME/back"; "$SALA" sessions tag sala-test-p --project projects/demo --role back >/dev/null 2>&1
+CP=$(pane_claude sala-test-p); sed -i "s/\"version\"/\"parkedJobId\":\"$UF\",\"version\"/" "$HOME/.claude/sessions/$CP.json"
+out=$(SALA_BACK_CWD="$HOME/back" "$SALA" unpark sala-test-p 2>&1); rc=$?
+CP=$(pane_claude sala-test-p)
+[ "$rc" = 0 ] && [ "$(readlink "/proc/${CP:-0}/cwd")" = "$(cd "$HOME/back" && pwd -P)" ] && [ "$(awk -F'\t' '$1=="sala-test-p" {print $4}' "$MAP")" = "$(cd "$HOME/back" && pwd -P)" ] && ok "unpark of a back agent: in SALA_BACK_CWD, the pane map carries it" || bad "unpark back: rc=$rc cwd=$(readlink "/proc/${CP:-0}/cwd") map: $(<"$MAP") $out"
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

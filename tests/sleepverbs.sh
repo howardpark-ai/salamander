@@ -433,6 +433,45 @@ if [ -n "$OPID" ]; then
 fi
 gone_f; rm -rf "$OPS"; mkdir -p "$OPS"
 
+echo "== a project's back agent starts in SALA_BACK_CWD on a wake and every relaunch; every other session keeps its folder (common.sh, THE FOLDER OF A BACK AGENT)"
+BK="$HOME/back role"; FR="$HOME/front role"; mkdir -p "$BK" "$FR"; export SALA_BACK_CWD='~/back role'
+tagf() { "$SALA" sessions tag sala-test-f "$@" >/dev/null 2>&1 || bad "sessions tag $*"; }
+sleeper() { recreate_f "$FR"; sleeping_mark "$UF" sala-test-f; }                       # f asleep, its pane a bare shell in the front folder
+kept() { woken && [ "$(fcwd)" = "$FR" ] && rowis "$NEW2"; }                           # → woken where the pane stood, the row as it was
+moved() { waitfor 'hasclaude f && [ "$(fcwd)" = "$BK" ]' 40; [ "$(fcwd)" = "$BK" ] && rowis "$BK"; }   # → the claude runs in the back folder, the row carries it
+away() { run revive --force --only sala-test-f --cwd "$NEW"; waitfor 'hasclaude f' 40; [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" || bad "setup, f moved away: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"; }
+keeps() { sleeper; wakef sala-test-f; kept && ok "$1: woken in its own folder" || bad "$1: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"; }
+keeps "no role"
+tagf --project projects/demo --role front; keeps "a front agent"
+tagf --role back   # tagged back, as a retag does it
+sessions_set sala-test-f project= >/dev/null 2>&1; keeps "the role word back with no project"
+sessions_set sala-test-f project=projects/demo side=1 >/dev/null 2>&1; keeps "a side session"
+sessions_set sala-test-f side= >/dev/null 2>&1
+SALA_BACK_CWD='' keeps "SALA_BACK_CWD unset"
+SALA_BACK_CWD="$HOME/no-such-folder" keeps "SALA_BACK_CWD naming no directory"
+sleeper; wakef sala-test-f --dry-run
+[ "$RC" = 0 ] && has "$OUT" "in $BK (a back agent: SALA_BACK_CWD)" && is_sleeping sala-test-f && untouched "$NEW2" && ok "wake --dry-run of a back agent names the folder and changes nothing" || bad "back wake dry: rc=$RC row='$(row sala-test-f)' — $OUT"
+wakef sala-test-f
+woken && moved && has "$OUT" "resumed conversation $UF in $BK" && ok "a plain wake of an agent tagged back: the same conversation in SALA_BACK_CWD, the row carries it" || bad "back wake: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"
+down_f; wakef --only sala-test-f --cwd "$NEW"
+woken && [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" && ok "wake --cwd of a back agent: the folder given wins" || bad "back wake --cwd: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"
+run revive --force --only sala-test-f --dry-run
+has "$OUT" "in $BK (a back agent: SALA_BACK_CWD)" && rowis "$NEW" && ok "revive --dry-run names the folder" || bad "back revive dry: rc=$RC — $OUT"
+f0=$(n_starts 17); run revive --force --only sala-test-f
+moved && [ "$(n_starts 17)" = "$((f0 + 1))" ] && has "$OUT" "pane-map folder $NEW → $BK" && ok "a relaunch of the running claude (recycle, lane and model moves): in SALA_BACK_CWD" || bad "back revive: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"
+away; FP=$($T list-panes -t =sala-test-f -F '#{pane_id}' | head -1); f0=$(n_starts 17)
+OUT=$(SALA_SELF_WAIT=60 "$SALA" revive --self-worker "$FP" 2>&1); RC=$?
+[ "$RC" = 0 ] && moved && [ "$(n_starts 17)" = "$((f0 + 1))" ] && has "$OUT" "pane-map folder $NEW → $BK" && ok "the self-worker relaunches there too" || bad "back self-worker: rc=$RC cwd='$(fcwd)' row='$(row sala-test-f)' — $OUT"
+away; gone_f; run restore sala-test-f --dry-run
+has "$OUT" "detached in $BK" && rowis "$NEW" && ok "restore --dry-run: the session would be made in SALA_BACK_CWD" || bad "back restore dry: rc=$RC — $OUT"
+f0=$(n_starts 17); run restore sala-test-f
+[ "$RC" = 0 ] && moved && [ "$(fpane)" = "$BK" ] && [ "$(n_starts 17)" = "$((f0 + 1))" ] && ok "restore (a reboot's boot half): made and resumed there" || bad "back restore: rc=$RC pane='$(fpane)' row='$(row sala-test-f)' — $OUT"
+away; down_f; gone_f; wakef sala-test-f --dry-run
+has "$OUT" "recreate the session in SALA_BACK_CWD" && ! $T has-session -t =sala-test-f 2>/dev/null && ok "wake --dry-run with the tmux session gone names it" || bad "back wake gone dry: rc=$RC — $OUT"
+wakef sala-test-f
+woken && moved && [ "$(fpane)" = "$BK" ] && ok "wake with the tmux session gone: made and resumed there" || bad "back wake gone: rc=$RC pane='$(fpane)' row='$(row sala-test-f)' — $OUT"
+unset SALA_BACK_CWD; gone_f
+
 echo "== the teaching text names the verbs"
 run op --help --full
 has "$OUT" "op sleep --only NAME" && has "$OUT" "op wake --only NAME" && ok "sala op --help --full lists sleep and wake" || bad "op --help: $OUT"

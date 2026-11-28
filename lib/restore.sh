@@ -5,7 +5,7 @@
 #
 # The pane map is a ledger that keeps a row across a crash, a force-quit, or a reboot that did not
 # bring the session back (common.sh, "pane-map ledger"); this verb turns such a row back into a session: the tmux
-# session detached at a shell in the row's cwd, then `revive --only NAME`, which resumes the row's conversation by uuid
+# session detached at a shell in the row's cwd (a back agent's: SALA_BACK_CWD, common.sh THE FOLDER OF A BACK AGENT), then `revive --only NAME`, which resumes the row's conversation by uuid
 # (dedupe guard, effort re-pass, inbox hold) — common.sh restore_session. The end of a recycle sweep and the reboot's boot
 # half do the same on their own for every frozen row whose session is gone; this is the hand-run form, for an unclean
 # boot or a single session. Refused: a name the map does not know (spawn makes a new session, adopt registers a live

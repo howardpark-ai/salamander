@@ -4,12 +4,13 @@
 #   salamander wake --only NAME --cwd DIR [--dry-run]    one sleeper, moved: resumed in DIR, and DIR written into its pane-map row
 # --cwd (common.sh, THE FOLDER OF A RELAUNCH): `revive --only NAME --cwd DIR` makes the relaunch (a tmux session that is gone is created in DIR) and writes
 # the row once the claude is up. It takes exactly one --only and no other name. A target that is not relaunched writes nothing, says so and exits 1: a name
-# that is not asleep, one whose claude already runs in its pane (the marker comes off), a resume that fails. Without --cwd no wake writes a folder.
+# that is not asleep, one whose claude already runs in its pane (the marker comes off), a resume that fails. Without --cwd only a back agent's wake
+# writes a folder.
 #
 # A session put to sleep (lib/sleep.sh, common.sh THE SLEEPING SESSIONS) has no claude and keeps its tmux session and pane-map row. A wake clears its
 # marker, then resumes the row's conversation exactly as revive and restore do: `revive --only NAME` resumes by the conversation uuid on the session's
 # lane, model and effort (the dedupe guard, the inbox hold and the Remote Control re-registration are revive's own). A session whose tmux session is gone
-# (a reboot that did not bring it back) is recreated first at its row's directory, as restore does (common.sh restore_session).
+# (a reboot that did not bring it back) is recreated first, in the folder restore would use (common.sh restore_session).
 # A conversation is never resumed twice: a sleeper whose conversation is live in another pane is left asleep and the refusal says where it runs; one
 # whose own pane already runs its claude (started by hand) just loses its marker. A name that is not asleep gets one line and nothing is done (exit 0).
 # The wake also writes the wake stamp (common.sh, THE WAKE STAMP): the idle sleep tick never puts the session back to sleep inside SALA_SLEEP_AFTER.
@@ -17,13 +18,15 @@
 # (retrying it is the system's own job, never a second ask) and the line says so.
 # Fleet operation: queued like the others, `sala op wake --only NAME… (--item board#N | --why "<reason>") --from YOU` (lib/op.sh; --cwd only with
 # --words, never with a reason); the queue's runner, a sala-op-<id> unit, passes ops_guard. Run raw from a Claude session it is refused and points there.
+# A project's back agent wakes in SALA_BACK_CWD without a flag (common.sh, THE FOLDER OF A BACK AGENT); --cwd wins.
 # --dry-run: nothing is changed; the same refusals as the real run, as "[dry-run] would refuse: …" (exit 1), and for a sleeper what the run would do.
 # Read-only, so it passes the guard from a Claude session like every verb's dry run.
 
 usage="usage: salamander wake NAME… [--dry-run]
        salamander wake --only NAME --cwd DIR [--dry-run]
   resumes sleeping sessions by their conversation id; salamander sleep --list names them
-  --cwd DIR (exactly one --only NAME; an absolute, existing, readable directory): resumed in DIR, and DIR written into the pane-map row, so a later restore starts there"
+  --cwd DIR (exactly one --only NAME; an absolute, existing, readable directory): resumed in DIR, and DIR written into the pane-map row, so a later restore starts there (a back agent's: see below)
+  with no --cwd, a project's back agent wakes in SALA_BACK_CWD when that names a directory; every other session keeps its folder"
 [ $# -gt 0 ] || die "$usage"
 NAMES=(); DRY=0; DRYFLAG=""; CWD=""; ncwd=0; nonly=0; npos=0
 while [ $# -gt 0 ]; do case "$1" in
@@ -47,7 +50,7 @@ dry() { echo "[dry-run] $*"; }
 
 # wake_one <name> → 0 awake (or could be) · 3 not asleep: nothing done · 1 refused or failed; its lines on stdout
 wake_one() {
-    local n="$1" uuid live lpid lsess when t nm e row out why sess_re rc move="" plan="" cwdarg=()
+    local n="$1" uuid live lpid lsess when t nm e row out why sess_re rc move="" plan="" cwdarg=() bdir="" where="at its row's directory"
     if [ -n "$CWD" ]; then cwdarg=(--cwd "$CWD"); move="salamander revive --force --only $n --cwd $(cwd_quote "$CWD")"; fi
     if ! is_sleeping "$n"; then
         if [ -n "$CWD" ]; then
@@ -78,7 +81,8 @@ wake_one() {
     if [ -n "$CWD" ]; then   # the row that takes the folder; refused with the marker still on
         row=$(ledger_row "$n")
         [ -n "$row" ] || { echo "$([ "$DRY" = 1 ] && echo "[dry-run] would refuse:" || echo "✗") $n: not in the pane map, so no row can carry the folder; nothing done"; return 1; }
-        row=$(cut -f4 <<< "$row"); plan=" · in $CWD · pane-map folder ${row:-none} → $CWD"
+        row=$(cut -f4 <<< "$row"); plan=" · in $CWD · pane-map folder ${row:-none} → $CWD"; where="in the new folder"
+    elif back_cwd_r bdir "$n"; then plan=" · in $bdir (a back agent: SALA_BACK_CWD)"; where="in SALA_BACK_CWD"
     fi
     if tmux has-session -t "=$n" 2>/dev/null; then
         if [ "$DRY" = 1 ]; then dry "$n: asleep$when; a wake would take its marker off, then revive --only $n resumes conversation $uuid in the pane$plan"; return 0; fi
@@ -87,7 +91,7 @@ wake_one() {
         if [ "$DRY" = 1 ]; then
             tmux_server_up || { dry "would refuse: $n: no tmux server running — start it first (systemctl --user start tmux.service)"; return 1; }
             [ -n "$row" ] || { dry "would refuse: $n: not in the pane map, nothing to recreate it from"; return 1; }
-            dry "$n: asleep$when, its tmux session is gone; a wake would take its marker off, recreate the session $([ -n "$CWD" ] && echo "in the new folder" || echo "at its row's directory") and resume conversation $uuid$plan"; return 0
+            dry "$n: asleep$when, its tmux session is gone; a wake would take its marker off, recreate the session $where and resume conversation $uuid$plan"; return 0
         fi
         tmux_server_up || { echo "✗ $n: no tmux server running — start it first (systemctl --user start tmux.service); left asleep"; return 1; }
     fi
@@ -102,7 +106,8 @@ wake_one() {
     re_escape_r sess_re "$n"; printf '%s\n' "$out" | grep -E "^ *$sess_re:[0-9]+: |^✗|^⚠" | sed 's/^ */      /'
     if printf '%s\n' "$out" | grep -qE "^ *$sess_re:[0-9]+: resumed $uuid"; then
         if [ -n "$CWD" ] && [ "$rc" != 0 ]; then echo "✗ $n: awake$when — resumed conversation $uuid, but the pane-map folder was not written (the lines above say why)"; return 1; fi
-        echo "✅ $n: awake$when — resumed conversation $uuid${CWD:+ in $CWD}"; return 0
+        why=${CWD:-$bdir}
+        echo "✅ $n: awake$when — resumed conversation $uuid${why:+ in $why}"; return 0
     fi
     why=$(printf '%s\n' "$out" | grep -E "^ *$sess_re:[0-9]+: " | tail -1 | sed -E "s/^ *$sess_re:[0-9]+: //"); [ -n "$why" ] || why=$(printf '%s\n' "$out" | grep . | tail -1)
     if [ -n "$CWD" ]; then   # revive or the watch's heal would bring it back with no folder: only the same flag moves it

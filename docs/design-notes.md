@@ -26,8 +26,10 @@ The failure modes that shaped sala, and what each design choice answers.
   Absence never removes one: a crash, a force-quit, a dead claude or a missing tmux session leaves the row in place.
   The one change an observation may make is the **follow**: the live claude in a mapped session reports a different
   conversation than its row (a `/clear`, a hand `--resume`), and the row follows — `revive --save-map`, wired to
-  resurrect's post-save hook, does only that. A row's folder moves with a session only on a caller's word: `revive --only NAME --cwd DIR` (and `wake`)
-  puts the relaunch in DIR and writes DIR as a follow once the claude is up; no other relaunch writes a folder. Reading the folder from the pane at
+  resurrect's post-save hook, does only that. A row's folder moves with a session only on a caller's word, `revive --only NAME --cwd DIR` (and `wake`),
+  or by a back agent's role (`SALA_BACK_CWD`, [session-registry.md](session-registry.md)): the relaunch runs in that folder and writes it as a
+  follow once the claude is up; no other relaunch writes a folder. The folder is picked from the role at relaunch time, not moved by the retag: a
+  plain relaunch types the resume line in the pane's own folder and never reads the row's, so a rewritten row would change nothing there. Reading the folder from the pane at
   relaunch was rejected: after a reboot, tmux restore creates each pane in the folder it saved, or in `$HOME` when that one is gone, and a saved folder
   may be a worktree that is removed later, so the boot's plain `revive` would write a passing folder over a good row. Every write goes through one function (`ledger_write`): a lock, a temp
   file next to the map, no empty map over a non-empty one, the previous map in `map-history/`, and one line per change
@@ -45,7 +47,7 @@ The failure modes that shaped sala, and what each design choice answers.
   boot half, a dry run's end or a halt. A stale freeze (owner dead on this boot, a recycle's from an earlier boot, or
   older than 3 h) is cleared by `watch`, with a report.
 - **Compare and restore.** At the end of a recycle sweep, and in the reboot's boot half after resurrect's restore and
-  revive, the frozen roster is held against tmux: every session of it that is gone is recreated in its directory and
+  revive, the frozen roster is held against tmux: every session of it that is gone is recreated in its directory (a back agent's: `SALA_BACK_CWD`, when set to one) and
   resumed by uuid (`restore` under the hood; a conversation live anywhere is never resumed twice), and one post says
   "Recycle/Reboot: N sessions recreated", or 🚨 for any that could not be. A session that exists but runs no claude is
   revive's business as before. After a boot that was not a clean `sala reboot`, the post-boot report names the rows

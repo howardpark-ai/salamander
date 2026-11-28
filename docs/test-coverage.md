@@ -5672,6 +5672,19 @@ Changed with it: the web tests that read the old addresses (they read the view t
 
 Not covered, and why: a real proxy's sign-in return to a path with a query; a session named `.` or `..`, whose path a browser collapses.
 
+### A back agent starts in the background brief's folder on every wake and relaunch (Sat Nov 28th 2026)
+
+What broke: a session started as a front agent and tagged back woke in its old folder and so loaded the front rules; only `wake --cwd` moved it.
+
+Kept (`tests/sleepverbs.sh`, private tmux server, the compiled fake claude, which runs in whatever folder the typed line puts it in): with
+`SALA_BACK_CWD` set, a session with no role, a front agent, the role word back with no project and a side session wake in their own folder, as
+does a back agent with the setting unset or naming no directory; a session tagged back wakes on the same conversation in that directory (a
+leading `~` included) and its pane-map row records it; `--cwd` wins; the same for a forced relaunch of a running claude, the self-worker,
+`restore` and a wake whose tmux session is gone; the dry runs name the folder and change nothing. `tests/sessions-spawn.sh`: `unpark` of a
+back agent. `tests/holdmatch.sh`: a running subagent of a conversation resumed from another folder is still found where the transcript is.
+
+Not staged: the CLI's own trust question for a folder it has not seen (`SALA_BACK_CWD` is where back agents are spawned).
+
 ### The card of a question with previews or with a Next row: `web/tests/test_question_card.py`, `test_question_card_ui.py` (browser), `test_chat_layer.py`, `test_chat_layer_ui.py` (browser) changed (Fri Nov 27th 2026)
 
 The path guarded: a key the card sends can approve a permission request nobody saw. A dialog read as a question with previews gets Enter after the option's number, and a permission dialog's number already chooses, so an identical request that followed at once would take the Enter.
@@ -5699,7 +5712,7 @@ Covered: real processes named claude: one under another, in both orders (the out
 
 Not covered, and why: the retry worker's other verdicts (sleeping, listed in `SALA_NO_RELAUNCH`, closed one short) and the invoking pane's failed relaunch call the same function and are not staged one by one; a reboot's halt and dry run call the same function and are not run: the reboot drain reads the panes without their conversation ids, so it raises no flag today (not changed here); a sweep process killed between taking a flag down and its verdict leaves a told session without a note; macOS (no `/proc`) takes the `ps` branch, which no suite runs here.
 
-### A relaunch writes a folder only when `--cwd` names it: `tests/ledger-recycle.sh`, `tests/sleepverbs.sh` (Sat Nov 28th 2026)
+### A relaunch writes a folder only when `--cwd` names it, or a back agent's role does: `tests/ledger-recycle.sh`, `tests/sleepverbs.sh` (Sat Nov 28th 2026)
 
 The paths guarded: a session moved to another folder kept the old folder in its row, so a later restore brought it back there; and a relaunch that takes the folder from the pane would write over a good row after a reboot, where tmux restore creates the pane in `$HOME` (the saved folder is gone) or in a worktree that is removed later.
 
