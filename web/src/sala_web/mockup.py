@@ -64,12 +64,35 @@ HEADERS = {
 }
 
 
+# The return button, at the left end of the bar's row (the links beside it are 54 px further in, so neither covers the other). It is sala's, so it is
+# outside the stored HTML, and it works inside the sandbox with nothing added to it: history.back() when this window has an earlier entry; else
+# window.close() (a window a script opened may close itself; any other ignores it, and a link opened from another app has no history, which is the
+# case that sent Back to the phone's home screen); else, 300 ms later, the site's home page (the session list). `up` is the way from the page's address
+# to the site root. It listens to no popstate and pushes no history entry, so the phone's own Back button is left alone. Its meaning is its tooltip.
+_RETURN_TIP = "Go back one step. If there is no earlier page in this window, close it, or open the sala home page."
+# Every name goes through `window.`: an inline handler's scope holds the element, its form and the document first, and document.URL (a string) would
+# stand in for the URL constructor.
+_RETURN_JS = ("if(window.history.length>1){window.history.back();return false}window.close();"
+              "setTimeout(function(){window.location.href=new window.URL('%s',window.location.href).href},300);return false")
+_RETURN_ICON = ('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" '
+                'stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>')
+
+
+def return_button(up: str = "../") -> str:
+    return ('<button type="button" data-sala-return aria-label="%s" title="%s" onclick="%s" style="all:initial;display:flex;position:absolute;'
+            'top:0;left:0;box-sizing:border-box;width:54px;height:44px;justify-content:center;align-items:center;cursor:pointer;'
+            'background:#2c2c2e;border-right:1px solid #48484a">%s</button>' % (_RETURN_TIP, _RETURN_TIP, _RETURN_JS % up, _RETURN_ICON))
+
+
+RETURN_BUTTON = return_button()
+
+
 # The link at the top of every served page. A page opened from a reply in the installed app has no address bar, and the page is not sala, so it
 # would be a dead end: this is a plain in-flow link (not fixed, so it covers nothing of the design), at least 44 px high, as wide as the page and
 # no wider (border-box, no margin), to the chat route. "../chat" is relative to /mockup/<n>, so it works under any path prefix; /chat answers a 302
 # to the chat session (or the main page). Inline style only: the page's own sheet cannot be relied on, and the policy allows inline styles.
-BACK_LINK = ('<div data-sala-back style="all:initial;display:block;box-sizing:border-box;width:100%;max-width:100%;background:#161617;">'
-             '<a href="../chat" style="all:initial;display:block;box-sizing:border-box;min-height:44px;line-height:44px;padding:0 16px;'
+BACK_LINK = ('<div data-sala-back style="all:initial;display:block;box-sizing:border-box;width:100%;max-width:100%;background:#161617;position:relative;">'
+             + RETURN_BUTTON + '<a href="../chat" style="all:initial;display:block;box-sizing:border-box;min-height:44px;line-height:44px;padding:0 16px 0 54px;'
              'font:600 16px/44px system-ui,sans-serif;color:#fff;text-decoration:none;white-space:nowrap;overflow:hidden;'
              'text-overflow:ellipsis;cursor:pointer">&larr; Back to sala</a></div>')
 _MASK_RE = re.compile(r"<script\b.*?(?:</script\s*>|\Z)|<style\b.*?(?:</style\s*>|\Z)|<!--.*?(?:-->|\Z)", re.I | re.S)
@@ -113,10 +136,11 @@ def kst_label(vid: str) -> str:
 # that row, never over the page, and each of its rows is 44 px high.
 _ICON = ('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" '
          'stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>')
-_BAR_STYLE = "all:initial;display:block;box-sizing:border-box;width:100%;max-width:100%;background:#161617;"
+_BAR_STYLE = "all:initial;display:block;box-sizing:border-box;width:100%;max-width:100%;background:#161617;position:relative;"
 _ROW_STYLE = ("all:initial;display:block;box-sizing:border-box;min-height:44px;line-height:44px;padding:0 16px;"
               "font:600 16px/44px system-ui,sans-serif;color:#fff;text-decoration:none;white-space:nowrap;overflow:hidden;"
               "text-overflow:ellipsis;cursor:pointer")
+_TOP_STYLE = _ROW_STYLE.replace("padding:0 16px;", "padding:0 16px 0 54px;")   # the row's first link, clear of the return button
 
 
 def history_block(n: int, ids: list) -> str:
@@ -126,24 +150,24 @@ def history_block(n: int, ids: list) -> str:
         return BACK_LINK
     rows = "".join('<li style="all:initial;display:block"><a href="%d/versions/%s" style="%s">Until %s</a></li>'
                    % (n, vid, _ROW_STYLE, html.escape(kst_label(vid))) for vid in ids)
-    return ('<div data-sala-back style="%sposition:relative">'
+    return ('<div data-sala-back style="%s">%s'
             '<a href="../chat" style="%s;width:calc(100%% - 54px)">&larr; Back to sala</a>'
             '<details data-sala-versions style="all:initial;display:block">'
             '<summary aria-label="Earlier versions" title="Earlier versions" style="all:initial;display:flex;position:absolute;top:0;right:0;'
             'box-sizing:border-box;width:54px;height:44px;justify-content:center;align-items:center;cursor:pointer;list-style:none">%s</summary>'
             '<ol style="all:initial;display:block;box-sizing:border-box;margin:0;padding:0;list-style:none">%s</ol>'
-            '</details></div>' % (_BAR_STYLE, _ROW_STYLE, _ICON, rows))
+            '</details></div>' % (_BAR_STYLE, RETURN_BUTTON, _TOP_STYLE, _ICON, rows))
 
 
 def version_block(n: int, vid: str) -> str:
     """The bar of a version view, one row: a way back to the current page (`../../<n>` is relative to /mockup/<n>/versions/<id>) at the left, and at
     the right until when the version was the page. In a row too narrow for both, the time is cut with an ellipsis, never the link."""
-    return ('<div data-sala-back style="%sdisplay:flex">'
+    return ('<div data-sala-back style="%sdisplay:flex">%s'
             '<a href="../../%d" style="%s;flex:none">&larr; Current page</a>'
             '<span data-sala-when style="all:initial;display:block;box-sizing:border-box;flex:1;min-width:0;height:44px;padding:0 16px 0 0;'
             'font:400 14px/44px system-ui,sans-serif;color:#bbb;text-align:right;white-space:nowrap;overflow:hidden;'
             'text-overflow:ellipsis">Until %s</span></div>'
-            % (_BAR_STYLE, n, _ROW_STYLE, html.escape(kst_label(vid))))
+            % (_BAR_STYLE, return_button("../../../"), n, _TOP_STYLE, html.escape(kst_label(vid))))
 
 
 def _is_real_dir(path: Path) -> bool:
