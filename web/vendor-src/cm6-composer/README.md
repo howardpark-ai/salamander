@@ -16,7 +16,7 @@ bullet; Select All is the one range that keeps the first marker), Backspace at a
 item's start leaving the list, Enter/Shift+Enter continuing a list
 and an empty item ending it, Tab and Shift+Tab as indent, Ctrl+arrows, every key behind an IME guard, the theme on the app's CSS
 variables, a placeholder in a compartment: the bundle's own `div` over the empty line, outside the contenteditable), `resetDoc(view, text)` (the text replaced, the undo history started over, no change
-event), `setPlaceholder(view, text)`, plus `EditorView`, `EditorState`, `EditorSelection`, `LIST_RE` and `versions`. It also
+event), `setPlaceholder(view, text)`, plus `EditorView`, `EditorState`, `EditorSelection`, `LIST_RE`, `indentItem(view, outdent)` (the Tab and Shift+Tab command, for the phone's buttons), `onNumberedLine(state)` and `versions`. It also
 sets `EditorView.EDIT_CONTEXT = false`, so that on Android the keyboard stays with the contenteditable (the keyboard's image
 insertion; `web/README.md`). The comments in `entry.js` say how each rule is implemented. The document is always the plain
 text that is sent: the dot and the indent of a list item are drawn, never typed.
@@ -71,8 +71,8 @@ change it in `package.json`, `npm install --save-exact` (with `--before=<date>` 
 in), commit the lockfile with the new bundle, and update `banner.txt`, the `versions` export in `entry.js`, the table above
 and `VERSIONS` in `web/tests/test_composer_cm6.py`. A change to `entry.js` is a rebuild and a commit of the bundle with it.
 
-The bundle committed with this recipe: 269,550 bytes, 88,286 gzipped (`gzip -9`), sha256
-`cbf7c421e7741d30200aa1d14e100b20ccbd399159eccbbc9e1ea5e6edf137a5`. It was rebuilt from the committed lockfile in a fresh directory
+The bundle committed with this recipe: 269,698 bytes, 88,327 gzipped (`gzip -9`), sha256
+`13cf0cb12a9326add9e87f879867ddc239b35346d9aa2429b69b5375c2640d3d`. It was rebuilt from the committed lockfile in a fresh directory
 with the commands above and came out byte for byte the same.
 
 ## License

@@ -644,6 +644,11 @@
         <button id="reply-ref-drop" type="button" aria-label="Stop replying to this line" data-i18n-aria-label="ui.cmp.replyDrop" title="Stop replying to this line" data-i18n-title="ui.cmp.replyDrop">&#215;</button>
       </div>
       <div id="send-status" role="status"></div>
+      <!-- a phone has no Tab key: Indent and Outdent, shown by app.js only on a touch screen while the caret is on a numbered item -->
+      <div id="list-keys" class="list-keys" hidden>
+        <button type="button" id="list-outdent" data-dir="out" aria-label="Outdent" data-i18n-aria-label="ui.cmp.outdent" title="Outdent" data-i18n-title="ui.cmp.outdent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18M13 10h8M13 14h8M3 19h18M7 9l-4 3 4 3"/></svg></button>
+        <button type="button" id="list-indent" data-dir="in" aria-label="Indent" data-i18n-aria-label="ui.cmp.indent" title="Indent" data-i18n-title="ui.cmp.indent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18M13 10h8M13 14h8M3 19h18M3 9l4 3-4 3"/></svg></button>
+      </div>
       <div class="compose-row">
         <!-- attach: a phone has no paste or drop for files; the input takes any file, an image stays a thumbnail -->
         <button id="attach" class="attach-btn" type="button" aria-label="Attach files" data-i18n-aria-label="ui.cmp.attach" title="Attach files" data-i18n-title="ui.cmp.attach"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8l-7 7a2 2 0 0 0 3 3l7.5-7.5a4 4 0 0 0-6-6L6 12a6 6 0 0 0 8.5 8.5l6-6"/></svg></button>

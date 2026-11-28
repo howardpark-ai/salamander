@@ -261,6 +261,15 @@ const tabKey = (outdent) => (view) => {
   return true;
 };
 
+// The phone's Indent and Outdent buttons (a phone keyboard has no Tab key) run the Tab and Shift+Tab command itself, so the
+// two keys and the two buttons are one code path. They show only while the caret's line is a numbered item: the same LIST_RE,
+// its number group set.
+export const indentItem = (view, outdent) => tabKey(outdent)(view);
+export const onNumberedLine = (state) => {
+  const m = LIST_RE.exec(state.doc.lineAt(state.selection.main.head).text);
+  return !!m && m[3] !== undefined;
+};
+
 // Ctrl+Left/Right cross a line break instead of stopping at it; Ctrl+Up/Down jump a line, as in Windows editors. Shift
 // extends the selection. Anything else is the editor's own (Ctrl+Left/Right by words).
 const ctrlArrow = (name, extend) => (view) => {

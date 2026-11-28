@@ -798,6 +798,12 @@ details.notice { background: transparent; }
    button's 30px, so the text sits centred), growth up to 40vh and a scroll past that, as the textarea did, the app's colours,
    and the drawn list markers. #input is its contenteditable */
 #composer-editor { flex: 1; min-width: 0; }
+.list-keys { display: none; }
+@media (pointer: coarse) { .list-keys:not([hidden]) { display: flex; gap: 8px; margin-bottom: 8px; }
+  .list-keys button { flex: none; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .list-keys button:active { background: var(--hover); }
+  .list-keys button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; } }
+
 /* CodeMirror styles its editable `-webkit-user-modify: read-write-plaintext-only`; the composer keeps the plain "read-write" of
    contenteditable="true" it always had, which is what a phone keyboard's image insertion needs (app.js, composer) */
 #input.cm-content[contenteditable="true"] { -webkit-user-modify: read-write; }
