@@ -1544,7 +1544,7 @@ only**: the server keeps the token counts on each row and the page never shows t
   replies, a first week with nothing before it, a lane with only flat-plan spend and a model with no price each get a sentence that says so, never `NaN` or `undefined`. The same words
   in the same order for the same rows, whatever the order of the rows, so a scheduled job can call `usage_digest.digest(answer)` and deliver the report at the weekly reset. `GET /api/usage/digest?week=0|1|2`
   serves it (the page asks when the Digest is opened, on a change of week and on Reload).
-- **Where the figures come from.** Nothing is asked of Anthropic or AWS: every assistant reply in a Claude Code transcript carries its token counts, which are multiplied by the model's
+- **Where the figures come from.** The count asks nothing of Anthropic or AWS (only the daily job asks Anthropic's read-only usage check, for each live lane whose reading is due): every assistant reply in a Claude Code transcript carries its token counts, which are multiplied by the model's
   list price. The count is `spend.py`'s, reused: **the one price table** (`spend.PRICES`, USD per million tokens, with `spend.PRICES_AS_OF` beside it: a marker, set by whoever checks the
   prices; the tab prints it as *As of …* under the table), the same model-name normalizer, the same rule that a reply is counted once (a streamed reply is several lines with one message
   id, a fork copies history: each id once, with the largest of each token field), the same reading of subagent transcripts (they belong to the session whose folder holds them) and the

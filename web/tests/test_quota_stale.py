@@ -16,6 +16,7 @@ from starlette.testclient import TestClient
 from sala_web import quota as Q
 from sala_web import sessions as S
 from sala_web import swr as SWR
+from sala_web import usage_job as UJ
 from sala_web.app import create_app
 from sala_web.config import Settings
 
@@ -214,3 +215,29 @@ def test_the_job_asks_nothing_for_a_lane_inside_its_ttl(tmp_path):
     q = job_cache(tmp_path, asked)
     asyncio.run(q.refresh_due({"subscription-2": {"reason": "", "since": ""}, "subscription-3": {"reason": "", "since": ""}}))
     assert asked == [] and not Q.is_stale(q.saved()[0])
+
+
+def test_the_jobs_own_saved_quota_awaits_the_refresh_so_a_due_live_lane_keeps_its_percent(tmp_path, monkeypatch):
+    dirs = {f"subscription-{n}": tmp_path / f"claude-{n}" for n in (1, 2, 3)}
+    for d in dirs.values():
+        lane_creds(d)
+    sala = tmp_path / "sala"
+    sala.mkdir()
+    (sala / "lane-state.tsv").write_text("subscription-3\tdormant\tidle\t2026-01-01\n")
+    state = tmp_path / "state"
+    save(state, "subscription-1", 60)
+    save(state, "subscription-2", 60 * 24, errorKind="refused", nextTry=ms_ago(-60 * 24))
+    save(state, "subscription-3", 60)
+    asked = []
+
+    def fetch(token):
+        asked.append(token)
+        return USAGE
+
+    real = Q.QuotaCache
+    monkeypatch.setattr(UJ.Q, "QuotaCache", lambda lanes, state_dir: real(lanes, fetch=fetch, state_dir=state_dir))
+    monkeypatch.setattr(S, "LANE_DIRS", {k: v for k, v in dirs.items() if k != "subscription-1"})
+    cache = UJ.build_cache(Settings(claude_dir=dirs["subscription-1"], state_dir=state, sala_state_dir=sala))
+    one, two, three = asyncio.run(cache.quota())                                            # the function the job hands the count
+    assert len(asked) == 1 and not Q.is_stale(one) and one["limits"][1]["percent"] == 64.5
+    assert Q.is_stale(two) and three["lane"] == "subscription-3" and "limits" not in three

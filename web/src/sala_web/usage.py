@@ -1,7 +1,7 @@
 """The Overview's Usage analysis tab: what the Claude Code replies on this machine cost, AT LIST PRICES, by week, day, lane, model, project,
 agent and folder. One data layer under three views of the tab (Report, Explorer, Digest); `GET /api/usage?week=<0|1|2>` serves it.
 
-WHERE THE FIGURES COME FROM. Nothing is asked of Anthropic or AWS: every assistant reply in a Claude Code transcript carries
+WHERE THE FIGURES COME FROM. The count asks nothing of Anthropic or AWS (only the scheduled job asks Anthropic's read-only usage check, for a due live lane's percent): every assistant reply in a Claude Code transcript carries
 message.usage (input, output, cache-read and the two cache-write tiers), which is multiplied by the model's list price. The count
 is spend.py's, reused rather than copied: the same price table (spend.PRICES, ONE place), the same model-name normalizer, the same
 rule that a reply is counted once (a streamed reply is several lines with one message id, a fork copies history: each id once,
