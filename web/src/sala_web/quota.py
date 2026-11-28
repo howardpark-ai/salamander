@@ -222,6 +222,14 @@ class QuotaCache:
         dormant = dormant or {}
         return [{"lane": lane, "dormant": dormant[lane]} if lane in dormant else dict(self._swr[lane].state) for lane in self.lanes]
 
+    async def refresh_due(self, dormant: dict[str, dict] | None = None) -> None:
+        """Refresh, and wait for, each lane that is due (its answer is TTL old, or its wait has passed) and is not dormant: the quota
+        route's own refresh (`swr.refresh_now` on `_refresh`), run for the scheduled job so a lane nobody polled keeps its percent.
+        A lane still inside its TTL or its back-off wait asks nothing; a failure stays on the lane's answer as ever."""
+        dormant = dormant or {}
+        await asyncio.gather(*(self._swr[lane].refresh_now(lambda lane=lane: self._refresh(lane))
+                               for lane in self.lanes if lane not in dormant and self._swr[lane].due))
+
     def _dormant(self, lane: str, d: dict) -> dict:
         out = {"lane": lane, "dormant": d}
         plan = read_plan(self.lanes[lane])

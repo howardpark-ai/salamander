@@ -450,7 +450,7 @@ window.SALA_I18N_KO = {
   "ov.q.nextTry": "{text} \u00b7 \ub2e4\uc74c \uc2dc\ub3c4 {when}",
   "ov.q.noLimits": "\ubcf4\uace0\ub41c \ud55c\ub3c4\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.",
   "ov.q.refused": "Anthropic\uc774 \uc0ac\uc6a9\ub7c9 \ud655\uc778\uc744 \uac70\ubd80\ud588\uc2b5\ub2c8\ub2e4",
-  "ov.q.stale": "\uc624\ub798\ub428",
+  "ov.q.stale": "\uac31\uc2e0 \uc548 \ub428",
   "ov.q.used": "{pct}% \uc0ac\uc6a9",
   "ov.reason.creditUsedUp": "API \ud0a4\uc758 \ud06c\ub808\ub527\uc774 \uc5c6\uc2b5\ub2c8\ub2e4",
   "ov.rec.account": "\uacc4\uc815",

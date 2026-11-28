@@ -102,7 +102,7 @@ class Revalidating:
 
     def serve(self, refresh: Callable[[], Awaitable[dict]]) -> dict:
         """The answer now; a background refresh started when one is due and none runs."""
-        if time.monotonic() >= self._next:
+        if self.due:
             self.start(refresh)
         return self.peek()
 
@@ -132,6 +132,10 @@ class Revalidating:
     def expire(self) -> None:
         """Make the answer due now: the next `serve` starts a refresh (a refresh already running is left to finish)."""
         self._next = 0.0
+
+    @property
+    def due(self) -> bool:
+        return time.monotonic() >= self._next
 
     @property
     def running(self) -> bool:

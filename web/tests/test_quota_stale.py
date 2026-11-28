@@ -6,6 +6,7 @@ the same saved answers. An answer is stale (quota.is_stale) when its last good r
 Every credentials file, state file and lane record here is a fake in tmp_path; nothing asks Anthropic. The card is checked in a
 headless Chromium when one is installed (conftest.py: `browser`), else that test is skipped."""
 
+import asyncio
 import json
 import time
 
@@ -167,7 +168,9 @@ def test_the_card_says_stale_where_a_percent_was_and_a_fresh_card_keeps_its_numb
     save(state, "subscription-2", 60 * 24 * 19, errorKind="refused", nextTry=ms_ago(-60 * 24))
     url = page_app["start"](lambda token: USAGE)
     browser.open(f"{url}/#sessions")
-    assert wait_for(browser, "document.querySelectorAll('#q-cards .q-card:not(.c-card) .q-pct').length >= 6")
+    # the cards first draw placeholder rows with a dash while the answer is pending: read only once no percent reads the dash
+    assert wait_for(browser, """(() => { const n = [...document.querySelectorAll('#q-cards .q-card:not(.c-card) .q-pct')];
+      return n.length >= 6 && n.every((x) => x.textContent.trim() && x.textContent.trim() !== '\\u2014' && x.textContent.trim() !== '-'); })()""")
     cards = {c["lane"]: c for c in pcts(browser)}
     assert cards["subscription-1"]["stale"] is False
     assert cards["subscription-1"]["pcts"] == ["5% used", "50% used", "20% used"]
@@ -176,3 +179,38 @@ def test_the_card_says_stale_where_a_percent_was_and_a_fresh_card_keeps_its_numb
     assert all("%" not in t and not any(ch.isdigit() for ch in t) for t in two["pcts"]), two
     assert two["full"] == ["0%", "0%", "0%"]
     assert two["pcts"] == ["stale"] * 3
+
+
+# ── the scheduled job asks for a refresh of the lanes it reports ─────────────
+def job_cache(tmp_path, asked, dormant_lane=None):
+    for n in (1, 2, 3):
+        lane_creds(tmp_path / f"claude-{n}")
+
+    def fetch(token):
+        asked.append(1)
+        return USAGE
+
+    return Q.QuotaCache({f"subscription-{n}": tmp_path / f"claude-{n}" for n in (1, 2, 3)}, fetch=fetch, state_dir=tmp_path / "state")
+
+
+def test_the_job_refreshes_a_due_live_lane_so_its_percent_is_kept_and_leaves_refused_and_dormant_lanes_out(tmp_path):
+    state = tmp_path / "state"
+    save(state, "subscription-1", 60)                                                     # live lane, nobody polled for an hour: due
+    save(state, "subscription-2", 60 * 24, errorKind="refused", nextTry=ms_ago(-60 * 24))  # refused and waiting: nothing is asked
+    save(state, "subscription-3", 60)                                                     # dormant: nothing is asked
+    asked = []
+    q = job_cache(tmp_path, asked)
+    dormant = {"subscription-3": {"reason": "idle", "since": "x"}}
+    assert Q.is_stale(q.saved(dormant)[0])                                                # what the job used to read: an old reading
+    asyncio.run(q.refresh_due(dormant))
+    one, two, three = q.saved(dormant)
+    assert len(asked) == 1 and not Q.is_stale(one) and one["limits"][1]["percent"] == 64.5
+    assert Q.is_stale(two) and three == {"lane": "subscription-3", "dormant": dormant["subscription-3"]}
+
+
+def test_the_job_asks_nothing_for_a_lane_inside_its_ttl(tmp_path):
+    save(tmp_path / "state", "subscription-1", 1)
+    asked = []
+    q = job_cache(tmp_path, asked)
+    asyncio.run(q.refresh_due({"subscription-2": {"reason": "", "since": ""}, "subscription-3": {"reason": "", "since": ""}}))
+    assert asked == [] and not Q.is_stale(q.saved()[0])
