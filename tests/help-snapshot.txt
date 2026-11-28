@@ -545,6 +545,8 @@ usage: sala mockup add FILE|-
           sandbox: the page's own scripts and styles run, but it cannot reach sala's API or cookies and fetches nothing (no network, no external
           script or stylesheet); data: images work, and Google Fonts (fonts.googleapis.com, fonts.gstatic.com). Put
           <meta name="viewport" content="width=device-width, initial-scale=1"> in the page so a phone shows it at its own width (add notes when it is missing).
+          The page should also name its board item and link it in its first line (https://<board host>/items/<n>); add and update note it when the
+          page holds no such link (a note on stderr, never a refusal).
           Refused: an empty file, one over 5 MiB, one that is not UTF-8 or holds a NUL byte, a page that letters its designs
           (Variant A, Option B: name them instead, the same words as the board's options; no override), a link, form or button whose target or
           formtarget opens a new window (remove the attribute: the link opens in the same window). New windows (target, window.open) never work on

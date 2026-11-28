@@ -5700,3 +5700,11 @@ Also covered, the clock's own life: it goes with a worker's relaunch and with a 
 Also covered, the edges: under a reboot (its flag, its pane map freeze, its marker) nothing is lifted and watch raises no flag again, a freeze whose owner is gone holding nothing back; a reboot that ends without rebooting keeps the recycle's clock; a lift clears an earlier `sala ready` and keeps a later one; the cap is asked again under the lock (a newer set raised in between is simulated) and a raised flag starts its clock under it; a huge `SALA_HOLD_MAX` is bounded and 90 s is said as 90 s; past the cap with a relaunch running, the first line and watch's say refused; the self-worker's and the sweep's relaunch show the running mark while they run and leave no clock; `pause_try`, run alone, sends no Escape when the cap passes before its gate; `SALA_PAUSE_AFTER` at or past the cap predicts no pause.
 
 Not covered, and why: the lift's lock against a relaunch starting in the same instant is not raced; a real reboot or a systemd shutdown is not run; a server-mode inbox release detached from the hook is not run (the suite uses hold files); a box without `flock` (macOS) is not run.
+
+### A mockup page that links no board item gets a note: `tests/mockup.sh` +6 (Sat Nov 28th 2026)
+
+The path guarded: a page stored with no link to its board item leaves a reader with a picture and no way back to the discussion. `add` and `update` print a note on stderr when the stored page holds no `<scheme>://<host>/items/<digits>` link; the note is never a refusal.
+
+Covered: `add` of a page with no link prints one note (exit 0, the address on stdout unchanged); a page with a link prints none, on any host and port; `/items/` with no digits, a bare `/items/9` path and a non-number do not count; `update` the same, both ways. The shared test pages now carry a link so their checks that stderr is empty still hold.
+
+Not covered, and why: a link inside a comment or script counts (the check is a text match, not a parse; a missed warning costs nothing).

@@ -72,6 +72,8 @@ VERSION_RE = re.compile(r"(\d{8}T\d{6})\.(\d{6})Z\.html")   # one saved version:
 VERSION_NUM_RE = re.compile(r"[1-9][0-9]*")
 REF_RE = re.compile(r"/mockup/([1-9][0-9]{0,17})(?![0-9])")
 VIEWPORT_RE = re.compile(r"<meta[^>]+name\s*=\s*[\"']?viewport", re.I)
+# A link to a board item: any host, then /items/<digits>.
+ITEM_LINK_RE = re.compile(r"https?://[^\s\"'<>/]+/items/\d+")
 # What a reader sees: script and style bodies, comments and tags are dropped first (an unterminated one runs to the end of the page).
 HIDDEN_RE = re.compile(r"<script\b.*?(?:</script\s*>|\Z)|<style\b.*?(?:</style\s*>|\Z)|<!--.*?(?:-->|\Z)", re.I | re.S)
 TAG_RE = re.compile(r"<[/!?]?[A-Za-z](?:\"[^\"]*\"|'[^']*'|[^'\">])*>")
@@ -265,6 +267,9 @@ def notes(text: str) -> None:
     if not VIEWPORT_RE.search(text):
         print("sala mockup: note: the page has no <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">; "
               "a phone shows it zoomed out until it has one", file=sys.stderr)
+    if not ITEM_LINK_RE.search(text):
+        print("sala mockup: note: the page links no board item (https://<board host>/items/<n>); "
+              "it should name its board item and link it in its first line", file=sys.stderr)
     if not base_url():
         print("sala mockup: note: SALA_SESSION_URL is not set, so this is the path only: put your sala address in front of it", file=sys.stderr)
 
