@@ -566,8 +566,6 @@ agent's row carries a filled accent (orange) count of the replies it has written
 row's far right (after the ⋯ when that shows). Each turn that ends in a reply adds one; a turn still running does not count
 yet. Above 9 it reads **9+**. A folded project or scope header carries the total of the sessions inside it (9+ above 9
 there too). The chat session's entry (*The chat session in sala's own view*, below) wears the same pill at its far right, after its red waiting count, and the Unread total still leaves that session out. The open session never has one, and background agents never get one, nor does a session with no project or a
-quick session (only stackshot's role `front` counts). The pill is 18 px tall, at least 20 px wide, 11 px type at weight
-there too). The open session never has one, and background agents never get one, nor does a session with no project or a
 quick session (only stackshot's role `front` counts, and a session with a project and no role at all: the owner's own, made by the form's *session* choice; it is on no agents map, so its project comes from its registry row (`no_role`), and it sits under that project in the list). The pill is 18 px tall, at least 20 px wide, 11 px type at weight
 600, `--accent-text` on `--accent` (white on the light orange, the dark panel colour on the dark one, 5.7:1 and 6.5:1); its `aria-label` reads "3 unread replies in <session>" ("More than 9 unread replies in ..."
 above 9). The server decides, so the phone and the desktop agree (`unread.py`): `unread_count` is the number of replies in
