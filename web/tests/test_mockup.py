@@ -103,6 +103,53 @@ def test_the_back_link_goes_in_the_right_place(page, where):
     assert out.index(MK.BACK_LINK) == (out.index(where) + len(where) if where else 0)
 
 
+# -- the return button -----------------------------------------------------------------------------------------------------------------
+
+
+def test_every_bar_carries_one_return_button_in_the_bar_before_the_stored_page(env):
+    store(env["root"], 3)
+    root = env["root"]
+    store_version(root, 3, V_OLD)
+    for url, bar in [("/mockup/3", MK.history_block(3, [V_OLD])), ("/mockup/3/versions/" + V_OLD, MK.version_block(3, V_OLD))]:
+        body = env["client"].get(url).text
+        assert body.count("data-sala-return") == 1 and body.count("<button") == 1
+        assert bar in body and bar.index("<button") < bar.index("<a ")
+        assert body.index("data-sala-return") < body.index("<h1")      # chrome sala adds, ahead of the stored content
+    assert "data-sala-return" in MK.BACK_LINK
+    assert "data-sala-return" not in PAGE                                 # and never in the stored file
+
+
+def test_the_return_button_is_named_by_a_tooltip_alone_and_has_no_text():
+    btn = MK.return_button()
+    assert 'title="' in btn and 'aria-label="' in btn
+    from html.parser import HTMLParser
+
+    got = []
+
+    class P(HTMLParser):
+        def handle_data(self, d):
+            got.append(d)
+
+    P().feed(btn)
+    assert "".join(got).strip() == ""                                                     # an icon only: no inline explanatory text
+    assert "min-height" not in btn and "width:54px;height:44px" in btn    # a tap target of at least 44 px
+
+
+def test_the_return_button_intercepts_nothing_else():
+    js = re.search(r'onclick="([^"]*)"', MK.return_button()).group(1)
+    for word in ["popstate", "pushState", "replaceState", "beforeunload", "addEventListener", "onpopstate", "hashchange"]:
+        assert word not in js and word not in MK.BACK_LINK.replace(js, "")
+    assert js.startswith("if(window.history.length>1){window.history.back();return false}window.close();")   # back, else close, else home
+    assert "window.location.href=new window.URL('../',window.location.href)" in js
+    assert "../../../" in re.search(r'onclick="([^"]*)"', MK.return_button("../../../")).group(1)
+
+
+def test_the_return_button_leaves_the_sandbox_alone(env):
+    store(env["root"], 3)
+    check_sandbox_headers(env["client"].get("/mockup/3"))
+    assert "allow-top-navigation" not in MK.CSP and "allow-popups" not in MK.CSP and "allow-same-origin" not in MK.CSP
+
+
 def test_numbers_are_the_files_and_the_largest_works(env):
     store(env["root"], 9999999999, "<p>big number</p>")
     assert env["client"].get("/mockup/9999999999").text == MK.with_back_link("<p>big number</p>")
@@ -296,7 +343,7 @@ def test_the_icon_is_inside_the_one_bar_and_has_a_name_and_no_other_row(env):
 
 def test_the_version_bar_is_one_row_and_only_its_time_may_be_cut():
     block = MK.version_block(3, V_OLD)
-    assert block.count("<div") == 1 and block.endswith("</span></div>") and 'background:#161617;display:flex">' in block
+    assert block.count("<div") == 1 and block.endswith("</span></div>") and 'background:#161617;position:relative;display:flex">' in block
     link, when = re.findall(r'<(?:a href="[^"]*"|span data-sala-when) style="([^"]*)"', block)
     assert link.endswith(";flex:none")                                                  # the link keeps its own width
     for part in ["flex:1;", "min-width:0;", "height:44px;", "padding:0 16px 0 0;", "text-align:right;", "overflow:hidden;", "text-overflow:ellipsis"]:
@@ -578,3 +625,37 @@ def test_in_a_real_browser_the_history_icon_shares_the_back_row_and_its_list_cov
     assert row["whole"] is True and when["right"] <= 390 and row["sw"] <= 390, row                  # the link is never cut, nothing sideways
     browser.evaluate("document.querySelector('[data-sala-back] a').click()")
     wait_for(browser, "location.pathname.endsWith('/mockup/1')")
+
+
+@pytest.mark.parametrize("dark", [False, True])
+def test_in_a_real_browser_the_return_button_goes_back_when_there_is_history(served, browser, dark):
+    root = served["settings"].mockups_dir
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    store(root, 1, PROBE)
+    browser.open(served["url"] + "/", dark=dark)
+    wait_for(browser, "document.readyState === 'complete'")
+    browser.evaluate("location.href = '/mockup/1'")
+    wait_for(browser, "location.pathname === '/mockup/1' && document.readyState === 'complete'")
+    box = browser.evaluate("(() => { const r = document.querySelector('[data-sala-return]').getBoundingClientRect();"
+                           "return [r.top, r.left, r.width, r.height, document.querySelector('[data-sala-return]').title]; })()")
+    assert box[2] >= 44 and box[3] >= 44 and box[1] >= 0 and box[0] >= 0 and box[4], box
+    assert browser.evaluate("(() => { const r = document.querySelector('[data-sala-return]').getBoundingClientRect();"
+                            "return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2).closest('button') !== null; })()")
+    assert browser.evaluate("document.documentElement.scrollWidth") <= 390
+    browser.evaluate("document.querySelector('[data-sala-return]').click()")
+    wait_for(browser, "location.pathname === '/overview'")                # history.back(): the page the reader came from ('/' lands on /overview)
+
+
+@pytest.mark.parametrize("path", ["/mockup/1", "/mockup/1/versions/" + V_OLD])
+def test_in_a_real_browser_with_no_history_the_return_button_tries_to_close_then_opens_the_home_page(served, browser, path):
+    root = served["settings"].mockups_dir
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    store(root, 1, PROBE)
+    store_version(root, 1, V_OLD)
+    browser.open(served["url"] + path, dark=False)
+    wait_for(browser, "document.readyState === 'complete'")
+    # the harness's tab already has an entry behind it, so it is made to look like a new window (one entry); the test tab must also stay open to be read
+    browser.evaluate("Object.defineProperty(History.prototype, 'length', {get: () => 1}); window.close = () => {}")
+    browser.evaluate("document.querySelector('[data-sala-return]').click()")
+    wait_for(browser, "['/', '/overview'].includes(location.pathname)")   # sala's home page, the session list ('/' goes on to /overview)
+    assert browser.evaluate("self.origin") != "null"                      # the home page is sala itself, outside the sandbox

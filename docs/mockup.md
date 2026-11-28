@@ -51,6 +51,13 @@ desktop page; `add` prints a note on stderr when the meta is missing, and change
 to a page of its own site inside its own window, with no address bar and no way back. The stored file is not changed, so a page needs nothing for it, and need not draw a way back to the chat of its own
 (web/README.md, *Canvas pages*).
 
+**The return button.** At the left end of that same row sala-web adds a small arrow button (54 by 44 px, on a slightly lighter square so it reads in a light or a dark page). Its meaning is
+its tooltip (`title`), with no text beside it. A tap goes `history.back()` when the window has an earlier entry. A link opened from another app in a new window has none, and
+there Android's Back button would close the whole app, so the button instead calls `window.close()` (it works only for a window a script opened) and, 300 ms later if the window is
+still there, opens the site's home page (the session list; `../` from the page's address, `../../../` from a version's). It is part of the bar, not of the stored file, and it uses
+only an inline `onclick`: no `popstate` or `beforeunload` listener and no `pushState`, so the hardware Back button keeps its own behaviour. The sandbox is unchanged (no
+`allow-top-navigation`, no `allow-popups`): the button only moves the page's own window.
+
 ## Storage
 
 Under sala's state folder: `$SALA_STATE_DIR/mockups/` (else `$XDG_STATE_HOME/salamander/mockups/`, else `~/.local/state/salamander/mockups/`), mode 700.
@@ -152,4 +159,4 @@ A command that prints nothing readable but exits 0 means nothing is linked. The 
 All three are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
 
 Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, new-window targets on `add` and `update`, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, the history icon and the version view with their
-addresses and refusals, and a real headless browser at a 390 px phone width in light and dark).
+addresses and refusals, and a real headless browser at a 390 px phone width in light and dark, with the return button going back in a window with history and, in one with none, trying to close and then opening the home page).
