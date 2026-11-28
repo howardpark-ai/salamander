@@ -10,7 +10,7 @@ sala-web's board items and roles. With stackshot on the box, two lines in the co
 `SALA_STACKSHOT_DIR` (unset: `~/stackshot`, as every default was before; set empty on a box with no stackshot, and each default
 command that names `client.py` is empty at once; the explicit knobs still win; `config.example`). Inside that folder the
 programs are at stackshot's package paths (`stackshot/fleet/client.py`; the update hook's example is
-`stackshot/web/publish.py bump`, the mockup pass's `stackshot/tools/open_item_text.py --links`); a checkout from before the package keeps them
+`stackshot/web/publish.py bump`, the Canvas cleanup pass's `stackshot/tools/open_item_text.py --links`); a checkout from before the package keeps them
 in its root (`client.py`), and sala's defaults use that path while it is the only one there (`lib/stackshot-path.sh`). What needs
 stackshot today: `spawn --project` is **the one command that needs stackshot**: its agents-map check
 reads stackshot's project record alone (asked of stackshot first, through its client; only when stackshot cannot be reached the file copy `~/.local/state/stackshot/projects.json` is read, no older than 600 s, and the refusal says how old it was; no page is read and no `pages.py` is run), and the spawn is

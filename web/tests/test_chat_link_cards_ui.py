@@ -89,7 +89,7 @@ def test_each_mockup_and_artifact_link_has_a_card_under_the_text_and_a_plain_lin
     d = browser.evaluate(CARDS)
     assert d["count"] == 3 and d["all"] == 3 and d["cardsInMd"] == 0, d
     mock, art, bare = d["cards"]
-    assert (mock["href"], mock["title"], mock["kind"]) == ("mockup/3", "Pricing page", "Mockup 3"), mock
+    assert (mock["href"], mock["title"], mock["kind"]) == ("mockup/3", "Pricing page", "Canvas 3"), mock
     assert (art["href"], art["title"], art["kind"]) == (ART, "the plan", "Claude artifact"), art
     assert (bare["href"], bare["title"], bare["kind"]) == (ART_LONG, "Claude artifact", None), bare   # no link text: the kind is the title
     for c in d["cards"]:
@@ -148,7 +148,7 @@ def test_a_card_follows_the_interface_language_in_place(served, browser, monkeyp
     assert wait_for(browser, "document.querySelectorAll('#chat .link-card').length === 3", 15.0)
     words = "(() => { const a = document.querySelector('#chat .link-card'); return [a.querySelector('.lc-l').textContent, a.querySelector('.lc-o').textContent, a.querySelector('.lc-t').textContent]; })()"
     en = browser.evaluate(words)
-    assert en[0] == "Mockup 3" and en[2] == "Pricing page"
+    assert en[0] == "Canvas 3" and en[2] == "Pricing page"
     browser.evaluate("SalaI18n.setLang('ko'); ''")
     try:
         assert wait_for(browser, f"document.querySelector('#chat .link-card .lc-o').textContent !== {json.dumps(en[1])}", 5.0)

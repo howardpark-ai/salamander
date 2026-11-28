@@ -1,4 +1,6 @@
-# Mockup pages: `sala mockup`
+# Canvas pages: `sala mockup`
+
+sala calls such a page a **Canvas**; the command and the address keep the name `mockup`.
 
 A session that cannot publish an Artifact still needs to show a reader a design. `sala mockup add page.html` stores an HTML file under the next
 number and prints its address, `https://<sala's address>/mockup/<n>`; sala-web serves it. The reader opens a link instead of a picture, on a desktop or a phone.
@@ -29,7 +31,7 @@ keep showing the old design. `update` refuses a number that has no page: a new p
 note on stderr says what to put in front of it.
 
 **What a page may be.** UTF-8 text, not empty, at most 5 MiB, no NUL byte, and no lettered designs; anything else is refused with a sentence and takes no number. UTF-8 is the one
-encoding because the response says `text/html; charset=utf-8` (no byte-order guessing, no per-file charset) and a mockup is text; 5 MiB is far more than
+encoding because the response says `text/html; charset=utf-8` (no byte-order guessing, no per-file charset) and a Canvas is text; 5 MiB is far more than
 a hand-made page with inline styles, scripts and `data:` images needs, and the response is read whole.
 A page that letters its designs is refused too: when the visible text holds a design word (variant, option, design, layout, proposal, alternative, concept,
 version, approach, or the Korean words for option, draft design and design) followed by one capital letter standing alone ("Variant A", "Option B"), `add` says
@@ -39,7 +41,7 @@ attributes (`class="variant-a"`) are skipped, and a lowercase letter or a senten
 There is no override flag: a name is always possible.
 A page that opens a new window is refused too: a `<a>`, `<area>`, `<form>` or `<base>` whose `target`, or a `<button>` or `<input>` whose `formtarget`, names anything other
 than `_self`, `_top` or `_parent` (or no target at all), compared case-insensitively with surrounding whitespace removed. `add` and `update` both say which tag and target they
-found, that a sala mockup page cannot open a new window, and to remove the attribute so the link opens in the same window; nothing is saved and no number is taken.
+found, that a sala Canvas page cannot open a new window, and to remove the attribute so the link opens in the same window; nothing is saved and no number is taken.
 Detection uses Python's standard HTML parser, so text inside `<script>`, `<style>` and comments does not count. New windows (`target`, `window.open`) never work on
 these pages: the check above only catches the markup, so a script that calls `window.open` is not refused, and it does not open a window either.
 Put `<meta name="viewport" content="width=device-width, initial-scale=1">` in the page's `<head>` so a phone lays it out at its own width instead of a zoomed-out
@@ -47,7 +49,7 @@ desktop page; `add` prints a note on stderr when the meta is missing, and change
 
 **Back to sala.** When sala-web serves a page it adds one link at the top of the body, "Back to sala" (at least 44 px high, in the page's flow, no sideways scroll at phone width), because the installed phone app opens a link
 to a page of its own site inside its own window, with no address bar and no way back. The stored file is not changed, so a page needs nothing for it, and need not draw a way back to the chat of its own
-(web/README.md, *Mockup pages*).
+(web/README.md, *Canvas pages*).
 
 ## Storage
 
@@ -110,13 +112,13 @@ Cache-Control: private, no-cache
 - `sandbox allow-scripts` (no `allow-same-origin`) gives the page an opaque origin: `document.cookie` and `localStorage` throw, and a request the page makes is origin-less and cross-site,
   so sala's API is neither readable nor reachable by it. No forms, popups, modals, navigation of the top page, downloads.
 - `connect-src 'none'` closes `fetch`, XHR, WebSocket, EventSource and beacons; `default-src 'none'` and the other `'none'`s close frames, workers and plugins.
-- What a mockup needs stays open: inline scripts and styles, `data:` images and fonts, Google Fonts (the stylesheet from `fonts.googleapis.com`, files from `fonts.gstatic.com`).
+- What a Canvas needs stays open: inline scripts and styles, `data:` images and fonts, Google Fonts (the stylesheet from `fonts.googleapis.com`, files from `fonts.gstatic.com`).
 - `nosniff` and `no-referrer` keep the type fixed and the page from learning where it was opened from. `private, no-cache` because the page is behind a sign-in and a deleted page should be gone at the next load.
 
 The sandbox was checked in a real headless Chromium (`web/tests/test_mockup.py`): the page's inline script runs, `self.origin` is `"null"`, cookie and storage reads throw `SecurityError`, `fetch` of sala's API (relative,
 absolute, credentialed), a fetch of another site, XHR, WebSocket and a beacon are all blocked, an inline style applies, a `data:` image decodes, and at a 390 px wide phone viewport the page does not scroll sideways.
 
-The service worker (`web/src/sala_web/static/sw.js`) has no fetch handler, so it never sees a request for a mockup; a test fails if a handler is ever added that does not step aside for `/mockup/`.
+The service worker (`web/src/sala_web/static/sw.js`) has no fetch handler, so it never sees a request for a Canvas; a test fails if a handler is ever added that does not step aside for `/mockup/`.
 
 ## Cleanup
 
