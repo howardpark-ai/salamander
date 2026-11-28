@@ -1,16 +1,19 @@
 """The done rows of the chat session's first list, in a headless Chromium (the server's side, the confirm route and the reply a row links to: test_chat_motion_done.py).
 
 The rule: a line the session marked done with `sala motion done` waits in the owner's list, after his moves and counted with them, with a result (the given link,
-else a jump to the first reply after the done time) and a confirm button; his confirm cannot be undone and is what takes it away. Held here against the app
-itself (its api/chat, its confirm route and the session's motion file; only the moves are put in by the test), at 1280 x 800 and 390 x 844:
-  - the done rows follow the moves, the tab counts both, and each row has its text, "Done", its result and its confirm button;
+else a jump to the first reply after the done time), a reply button and a confirm button; his confirm cannot be undone, and it or a reply made with the row's
+button is what takes it away. Held here against the app itself (its api/chat, its confirm and outbox routes and the session's motion file; only the moves are
+put in by the test), at 1280 x 800 and 390 x 844:
+  - the done rows follow the moves, the tab counts both, and each row has its text, "Done", its result, its reply button and its confirm button;
+  - a press on reply puts the line over the composer, where it can be taken away; a message sent with it there names the line and takes its row off the list,
+    one sent without it takes nothing, and a refused send or a command takes nothing;
   - the jump lights the reply in the thread;
   - a press on confirm posts, the line leaves the file and the row leaves the list, the others staying;
   - a confirm the server refuses says so under the tabs, the row staying, and the next confirm that works takes the line of words away;
   - the bar's one (?) says what the open list holds: for the first list the note on the moves, the note on the done lines, or both on lines of their own (with
     nothing in it, the one on the moves), for the second list its own note; a read that changes which notes those are shuts the box, any other leaves it;
-  - under a finger the result and the confirm button are at least 44 px each way, no two targets of the list share a point and each of the two answers
-    in its middle and at the middle of each edge (the confirm button's corners are rounded off); with a mouse neither has the finger's size.
+  - under a finger the result, the reply and the confirm button are at least 44 px each way, no two targets of the list share a point and each of them
+    answers in its middle and at the middle of each edge (the buttons' corners are rounded off); with a mouse none has the finger's size.
 
 What a wrong answer costs: a line confirmed by a tap meant for its result, which no one can take back; a done line nobody sees; a confirm that fails in silence.
 Runs in a headless Chromium when one is installed (conftest.py: `served`, `browser`), else is skipped; GitHub CI runs it. All names are invented."""
@@ -28,12 +31,15 @@ from test_board_items_ui import wait_for
 from test_chat_motion_done import filler_line, reply_line, write_motion
 from test_chat_onit_ui import HELP_BTN, MOVE_NOTE, MOVE_PANEL, MOVE_TAB, NOTE, ONIT_TAB, PIN, click, phone, waiting
 from test_chat_session_view_ui import DESKTOP, SIZES, open_page
+from test_composer_editable import typed
+from test_outbox_send import until
 
 LINKED = "Compare the two venues and say which one holds the whole group, with the reasons for it"
 JUMPED = "Draw slide 4"
 RESULT = "https://example.com/results/4"
 FAILED = "Could not confirm. The list was read again."
-MINE_NOTE = "Lines the assistant has marked done in this chat. Confirm one once you have seen its result; it then leaves this list."
+MINE_NOTE = "Lines the assistant has marked done in this chat. Confirm or reply to one once you have seen its result; it then leaves this list."
+HEAD = '> In reply to the done "On it" line: '
 
 
 def open_mine(browser, served, monkeypatch, size) -> list[dict]:
@@ -59,14 +65,19 @@ def open_mine(browser, served, monkeypatch, size) -> list[dict]:
 
 ROWS = f"""(() => {{ const p = document.getElementById('{MOVE_PANEL}'), text = (n) => n ? n.textContent : null;
   return {{ tab: {MOVE_TAB}.textContent.trim(), err: [...document.querySelectorAll('#chat-strip-wait .wait-err')].filter((n) => n.getClientRects().length).map(text),
-    rows: [...p.querySelectorAll('.wait-row')].map((r) => {{ const res = r.querySelector('.mine-result'), ok = r.querySelector('.mine-confirm');
+    rows: [...p.querySelectorAll('.wait-row')].map((r) => {{ const res = r.querySelector('.mine-result'), ok = r.querySelector('.mine-confirm'), re = r.querySelector('.mine-reply');
       return {{ mine: r.classList.contains('mine-row'), title: text(r.querySelector('.wait-title, .wait-link')), state: text(r.querySelector('.mine-state')),
-        result: res ? [res.tagName, text(res), res.getAttribute('href'), res.getAttribute('target')] : null, confirm: ok ? [ok.tagName, ok.type, text(ok)] : null }}; }}) }}; }})()"""
+        result: res ? [res.tagName, text(res), res.getAttribute('href'), res.getAttribute('target')] : null, confirm: ok ? [ok.tagName, ok.type, text(ok)] : null,
+        reply: re ? [re.tagName, re.type, text(re)] : null }}; }}) }}; }})()"""
+
+
+def row_button(title: str, kind: str) -> str:
+    return (f"[...document.querySelectorAll('#{MOVE_PANEL} .mine-row')].find((r) => r.querySelector('.wait-title').textContent === {json.dumps(title)})"
+            f".querySelector('.mine-{kind}')")
 
 
 def confirm_button(title: str) -> str:
-    return (f"[...document.querySelectorAll('#{MOVE_PANEL} .mine-row')].find((r) => r.querySelector('.wait-title').textContent === {json.dumps(title)})"
-            ".querySelector('.mine-confirm')")
+    return row_button(title, "confirm")
 
 
 def kept(served) -> list[str]:
@@ -83,7 +94,8 @@ def test_done_rows_follow_the_moves_and_a_confirm_takes_its_row_away(served, bro
     assert (linked["title"], linked["state"], linked["result"]) == (LINKED, "Done", ["A", "View result", RESULT, "_blank"]), got
     assert (jumped["title"], jumped["state"], jumped["result"]) == (JUMPED, "Done", ["BUTTON", "View result", None, None]), got
     assert [r["confirm"] for r in (linked, jumped)] == [["BUTTON", "button", "Confirm"]] * 2, got
-    assert all(r["confirm"] is None and r["state"] is None for r in got["rows"][:2]), got
+    assert [r["reply"] for r in (linked, jumped)] == [["BUTTON", "button", "Reply"]] * 2, got
+    assert all(r["confirm"] is None and r["reply"] is None and r["state"] is None for r in got["rows"][:2]), got
 
     reply = "document.querySelector('#chat > .msg[data-uuid=\"a-result\"]')"
     assert wait_for(browser, f"!!{reply}", 15.0)
@@ -117,32 +129,90 @@ def test_a_refused_confirm_says_so_and_the_row_stays(served, browser, monkeypatc
     assert browser.evaluate(ROWS)["err"] == [] and kept(served) == [LINKED, "Still open"]
 
 
-# Every target of the first list (the moves' title links, each done row's result and confirm button): its box, the pairs whose boxes cross, and, scrolled to the
+# The reference over the composer: whether it shows, and its line.
+REF = """(() => { const r = document.querySelector('#reply-ref');
+  return [!r.hidden && r.getClientRects().length > 0, document.querySelector('#reply-ref-line').textContent]; })()"""
+
+
+def say(browser, text: str) -> None:
+    assert wait_for(browser, "!state.sending", 15.0)   # the send button is off while the last message is on its way
+    browser.evaluate("document.querySelector('#input').focus(); ''")
+    typed(browser, text)
+    click(browser, "document.querySelector('#send')")
+
+
+def sent(served) -> list[dict]:
+    """The messages the server keeps for the session (the made-up pane takes nothing, so each is held)."""
+    path = served["settings"].outbox_dir / f"{served['name']}.json"
+    return json.loads(path.read_text())["messages"] if path.exists() else []
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_reply_names_its_line_over_the_composer_and_once_sent_takes_that_row_away(served, browser, monkeypatch, size):
+    open_mine(browser, served, monkeypatch, size)
+    assert browser.evaluate(REF) == [False, ""]
+    click(browser, row_button(JUMPED, "reply"))
+    assert browser.evaluate(REF) == [True, JUMPED]
+    click(browser, "document.querySelector('#reply-ref-drop')")
+    assert browser.evaluate(REF) == [False, ""]
+    # the reference taken away: the message is an ordinary one, whatever it quotes, and no line leaves
+    say(browser, f"> {JUMPED}")
+    assert until(lambda: [m["text"] for m in sent(served)] == [f"> {JUMPED}"]), sent(served)
+    assert kept(served) == [LINKED, JUMPED, "Still open"]
+
+    # a send the server refuses takes nothing
+    browser.evaluate("""(() => { const real = window.fetch.bind(window); window.__refused = 0;
+      window.fetch = (url, opts) => { if (!String(url).startsWith('api/outbox/') || opts?.method !== 'POST' || window.__refused) return real(url, opts);
+        window.__refused = 1; return Promise.resolve(new Response('{"ok": false, "error": "no"}', { status: 400 })); }; return ''; })()""")
+    click(browser, row_button(LINKED, "reply"))
+    say(browser, "this one is refused")
+    assert wait_for(browser, "window.__refused === 1", 15.0)
+    assert browser.evaluate(REF) == [False, ""]
+    assert kept(served) == [LINKED, JUMPED, "Still open"] and len(sent(served)) == 1
+
+    # a command can not be a reply: said so, kept in the box, nothing sent
+    click(browser, row_button(JUMPED, "reply"))
+    say(browser, "/status")
+    assert wait_for(browser, "document.querySelector('#send-status').textContent.includes('A command cannot reply to a line')", 15.0)
+    assert browser.evaluate(REF) == [True, JUMPED] and browser.evaluate("getText()") == "/status"
+    assert len(sent(served)) == 1
+    browser.evaluate("setText(''); ''")
+
+    say(browser, "go on")
+    assert wait_for(browser, f"document.querySelectorAll('#{MOVE_PANEL} .wait-row').length === 3", 15.0), browser.evaluate(ROWS)
+    assert kept(served) == [LINKED, "Still open"]
+    last = sent(served)[-1]
+    assert (last["text"], last["own"], last["reply"]["text"]) == (f"{HEAD}{JUMPED}\ngo on", "go on", JUMPED), last
+    assert browser.evaluate(REF) == [False, ""]
+    assert wait_for(browser, "document.querySelector('#chat').textContent.includes('In reply to the done')", 15.0)
+
+
+# Every target of the first list (the moves' title links, each done row's result, reply and confirm button): its box, the pairs whose boxes cross, and, scrolled to the
 # middle of the list, the points (the middle, and the middle of each edge 1 px in) where elementFromPoint answers with something else.
 TARGETS = f"""(() => {{ const w = document.getElementById('{MOVE_PANEL}'); w.style.scrollBehavior = 'auto';
-  const all = [...w.querySelectorAll('.wait-link, .mine-confirm')], boxes = all.map((n) => n.getBoundingClientRect()), overlap = [], missed = [];
+  const all = [...w.querySelectorAll('.wait-link, .mine-reply, .mine-confirm')], boxes = all.map((n) => n.getBoundingClientRect()), overlap = [], missed = [];
   boxes.forEach((a, i) => boxes.slice(i + 1).forEach((b, k) => {{
     const x = Math.min(a.right, b.right) - Math.max(a.left, b.left), y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (x > 0.1 && y > 0.1) overlap.push([i, i + 1 + k, x, y]); }}));
-  const mine = all.filter((n) => n.matches('.mine-result, .mine-confirm')).map((n) => {{
+  const mine = all.filter((n) => n.matches('.mine-result, .mine-reply, .mine-confirm')).map((n) => {{
     const q = n.getBoundingClientRect(), b = w.getBoundingClientRect(); w.scrollTop += Math.round((q.top + q.bottom - b.top - b.bottom) / 2);
     const r = n.getBoundingClientRect(), c = getComputedStyle(n);
     const mx = (r.left + r.right) / 2, my = (r.top + r.bottom) / 2;
     for (const [x, y] of [[mx, my], [r.left + 1, my], [r.right - 2, my], [mx, r.top + 1], [mx, r.bottom - 2]])
       if (document.elementFromPoint(x, y) !== n) missed.push([n.className, x - r.left, y - r.top]);
-    return {{ kind: n.classList.contains('mine-confirm') ? 'confirm' : n.tagName, w: r.width, h: r.height, pad: [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].join(' '),
+    return {{ kind: n.classList.contains('mine-confirm') ? 'confirm' : n.classList.contains('mine-reply') ? 'reply' : n.tagName, w: r.width, h: r.height, pad: [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].join(' '),
       min: [c.minWidth, c.minHeight].join(' ') }}; }});
   return {{ targets: all.length, overlap, missed, mine, side: w.scrollWidth - w.clientWidth }}; }})()"""
 
 
 @pytest.mark.parametrize("size", [pytest.param((390, 844), id="390"), pytest.param((360, 844), id="360"), pytest.param((320, 844), id="320"),
                                   pytest.param(DESKTOP, id="desktop")])
-def test_under_a_finger_the_result_and_the_confirm_are_44px_and_apart(served, browser, monkeypatch, size):
+def test_under_a_finger_the_result_the_reply_and_the_confirm_are_44px_and_apart(served, browser, monkeypatch, size):
     open_mine(browser, served, monkeypatch, size)
     browser.touch()
     assert wait_for(browser, "matchMedia('(pointer: coarse)').matches", 10.0)
     browser.settle(PIN)
     got = browser.evaluate(TARGETS)
-    assert got["targets"] == 6 and sorted(t["kind"] for t in got["mine"]) == ["A", "BUTTON", "confirm", "confirm"], got
+    assert got["targets"] == 8 and sorted(t["kind"] for t in got["mine"]) == ["A", "BUTTON", "confirm", "confirm", "reply", "reply"], got
     assert all(t["w"] >= 43.9 and t["h"] >= 43.9 for t in got["mine"]), got
     assert got["overlap"] == [] and got["missed"] == [] and got["side"] <= 0, got
 
@@ -152,7 +222,7 @@ def test_with_a_mouse_the_done_row_keeps_its_small_controls(served, browser, mon
     assert browser.evaluate("matchMedia('(pointer: coarse)').matches") is False
     got = browser.evaluate(TARGETS)
     for t in got["mine"]:
-        assert t["h"] < 32 and t["pad"] == ("2px 8px 2px 8px" if t["kind"] == "confirm" else "0px 0px 0px 0px"), got
+        assert t["h"] < 32 and t["pad"] == ("2px 8px 2px 8px" if t["kind"] in ("confirm", "reply") else "0px 0px 0px 0px"), got
         assert "44px" not in t["min"], got
     assert got["overlap"] == [], got
 

@@ -637,6 +637,12 @@
       <!-- a sleeping session's chat: it sleeps, and a message wakes it (app.js, "a sleeping session"); drawn by the script, hidden otherwise -->
       <div id="sleep-band" class="sleep-band" role="status" hidden></div>
       <div id="chips"></div>
+      <!-- the done line the next message replies to: set by that row's Reply in the chat session's strip, removed by the button (app.js) -->
+      <div id="reply-ref" hidden>
+        <span class="rr-label" title="Your next message goes out as a reply to this line. The line leaves the list once the message is accepted." data-i18n-title="ui.cmp.replyTip" data-i18n="ui.cmp.reply">Replying to</span>
+        <span id="reply-ref-line"></span>
+        <button id="reply-ref-drop" type="button" aria-label="Stop replying to this line" data-i18n-aria-label="ui.cmp.replyDrop" title="Stop replying to this line" data-i18n-title="ui.cmp.replyDrop">&#215;</button>
+      </div>
       <div id="send-status" role="status"></div>
       <div class="compose-row">
         <!-- attach: a phone has no paste or drop for files; the input takes any file, an image stays a thumbnail -->

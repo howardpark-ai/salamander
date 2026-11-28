@@ -7,21 +7,22 @@ off with a promise to report back in the chat, and marks it done in the turn it 
   add "<line>"          put a line on the list (one line of text, at most 120 characters; adding a line already open there changes nothing)
   done "<line>" | N [--link URL]
                         mark one done, by its exact text or its number in `list`. The line is not removed: it is kept, marked done with the time and its
-                        result link, in the owner's "my turn" list until he confirms it on the chat page (which removes it). --link: an https address,
+                        result link, in the owner's "my turn" list until he confirms it or replies to it on the chat page (either removes it). --link: an https address,
                         an in-app path (/...) or one of the page's own anchors (LINK_FORMS), anything else is refused; without it the page
                         links the first chat reply at or after the done time
-  clear                 take them all off (done or not)
-  list [--json]         the lines on the list, numbered; a done line is marked as waiting for the owner's confirm
+  clear                 take the open lines off; a done line the owner has not acknowledged stays
+  list [--json]         the lines on the list, numbered; a done line is marked as waiting for the owner's confirm or reply
 
   --for NAME            the session whose lines these are (default: the session this command runs in; outside a session it is required)
 
 Storage: <state>/motion/<session>.json (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamander), folder mode 700, file mode 600, one small JSON
 file per session: {"v": 1, "lines": [{"text": "...", "at": <epoch seconds, when the line was first added>, "done": <epoch seconds, when marked done,
 or absent>, "link": "<result address, or absent>"}]}. The CLI is the writer, under an exclusive lock on <folder>/.lock; a file is written to a temporary
-name, flushed and renamed, so a reader (sala-web, which only reads, except its confirm, which takes the same lock) never sees half of one.
+name, flushed and renamed, so a reader (sala-web, which only reads, except where it takes off an acknowledged line, under the same lock) never sees half of one.
 At most 8 lines, each at most 120 characters: a ninth line and a longer one are refused with a sentence (nothing is cut or dropped silently).
-A done line stays until the owner confirms it on the chat page (sala-web's confirm route, which takes the same lock and writes the same file) or
-until it is cleared: nothing expires it. A same-text `add` after a done line starts a new open line and leaves the done one.
+A done line stays until the owner acknowledges it on the chat page, by its confirm or by a reply to it (sala-web takes the same lock and writes the
+same file): nothing here removes it, `clear` included, and nothing expires it. A same-text `add` after a done line starts a new open line and leaves
+the done one.
 
 Tests: SALA_MOTION_DIR (the folder), SALA_MOTION_NOW (the clock, epoch seconds), SALA_MOTION_SELF (the caller's own session name, which the shell
 wrapper reads from sala's registry).
@@ -176,7 +177,7 @@ def main(argv):
             print("nothing right now")
         else:
             for k, r in enumerate(lines):
-                mark = "  [done, waiting for the owner's confirm]" if "done" in r else ""
+                mark = "  [done, waiting for the owner's confirm or reply]" if "done" in r else ""
                 print("%d. %s%s" % (k + 1, r["text"], mark))
         return 0
 
@@ -185,9 +186,11 @@ def main(argv):
         fcntl.flock(lock, fcntl.LOCK_EX)
         lines = load(path)
         if verb == "clear":
-            n = len(lines)
-            save(d, path, [])
-            print("motion: cleared %d line%s for %s" % (n, "" if n == 1 else "s", name))
+            kept = [r for r in lines if "done" in r]   # the owner has not acknowledged these: only he takes them off
+            n = len(lines) - len(kept)
+            save(d, path, kept)
+            stays = "; %d done line%s kept until the owner confirms or replies on the chat page" % (len(kept), "" if len(kept) == 1 else "s") if kept else ""
+            print("motion: cleared %d line%s for %s%s" % (n, "" if n == 1 else "s", name, stays))
             return 0
         if verb == "add":
             text = clean_text(rest[0])
@@ -200,12 +203,12 @@ def main(argv):
                 print("motion: already listed, nothing changed (%d of %d)" % (len(lines), MAX_LINES))
                 return 0
             if len(lines) >= MAX_LINES:
-                die("%d lines are already listed for %s (the most there is room for, done ones included): wait for the owner to confirm a done one, or empty the list with `sala motion clear` (done ones included)" % (len(lines), name))
+                die("%d lines are already listed for %s (the most there is room for, done ones included): wait for the owner to confirm or reply to a done one, or take the open ones off with `sala motion clear` (done ones stay)" % (len(lines), name))
             lines.append({"text": text, "at": now()})
             save(d, path, lines)
             print("motion: added (%d of %d): %s" % (len(lines), MAX_LINES, text))
             return 0
-        # done: the line stays, marked, until the owner confirms it on the page
+        # done: the line stays, marked, until the owner confirms it or replies to it on the page
         want = rest[0].strip()
         hit = None
         if re.fullmatch(r"[0-9]{1,3}", want):
@@ -214,7 +217,7 @@ def main(argv):
                 hit = k - 1
         if hit is None:
             exact = [k for k, r in enumerate(lines) if r["text"] == clean_text(want)]
-            open_ = [k for k in exact if "done" not in lines[k]]   # a done line of the same text waits for its confirm: the open one is the one meant
+            open_ = [k for k in exact if "done" not in lines[k]]   # a done line of the same text waits for the owner: the open one is the one meant
             if len(open_) == 1:
                 hit = open_[0]
             elif len(exact) == 1:
@@ -223,13 +226,13 @@ def main(argv):
             die("no such line for %s: %s (see `sala motion list`)" % (name, want))
         row = lines[hit]
         if "done" in row:
-            die("already done, waiting for the owner's confirm: %s" % row["text"])
+            die("already done, waiting for the owner's confirm or reply: %s" % row["text"])
         row["done"] = now()
         if link is not None:
             row["link"] = link
         save(d, path, lines)
         where = ("its result link: " + link) if link is not None else "the page links the first chat reply at or after now"
-        print("motion: done: %s; it waits in the owner's \"my turn\" list until he confirms it (%s)" % (row["text"], where))
+        print("motion: done: %s; it waits in the owner's \"my turn\" list until he confirms it or replies to it (%s)" % (row["text"], where))
         return 0
     finally:
         os.close(lock)   # closing the descriptor releases the lock

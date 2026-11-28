@@ -241,9 +241,12 @@ none itself):
                                   the text into the pane, then Enter (with a dialog
                                   open: an option number or "esc" is sent as that one key)
   GET  /api/outbox/<name>         the messages the server holds for a session (outbox.py): {"messages": [{id, state, reason, ...}]}
-  POST /api/outbox/<name>         {"text", "uploads", "cid"?} -> typed at once when the pane can take it, else HELD and typed when it can,
+  POST /api/outbox/<name>         {"text", "uploads", "cid"?, "reply"?} -> typed at once when the pane can take it, else HELD and typed when it can,
                                   in order (a dialog is open, the terminal's box holds text, no input box, asleep, no pane); a lone option
-                                  number or "esc" over a dialog is pressed at once; a `!` command is refused (400: it goes through /send)
+                                  number or "esc" over a dialog is pressed at once; a `!` command is refused (400: it goes through /send).
+                                  "reply" ({"text", "at"}, a done line of the chat session as GET /api/chat sent it) makes the message a reply
+                                  to that line: it is typed with the line quoted in front of it, is never pressed as a key, and once taken
+                                  (not failed) removes that done line and no other (400: another session, a slash command, a bad shape)
   POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed). A queued one (sent to a
                                   busy pane, not yet read) is taken back too: Up pulls the pane's whole queue into the input box, the
                                   others are cleared out and sent again in order. Text already in the input line is cleared first (and
@@ -258,7 +261,8 @@ none itself):
                                   that the transcript does not show yet, a dialog, a line that can not be cleared, a queue that does not
                                   read back as sala's, an upload in it, an Up that took nothing back, or an Up that can not be confirmed:
                                   then those messages are failed with their text kept); 409 tooLate when the session already took it
-  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it (a queued one as in cancel), then the new text joins at the end (409 as above)
+  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it (a queued one as in cancel), then the new text joins at the end (409 as
+                                  above); a reply stays a reply to its line
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
                                   laneOrder, agentsGroup, agentsFolded, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
@@ -2215,12 +2219,34 @@ def create_app(settings: Settings | None = None) -> Starlette:
             except T.TmuxError:
                 return None
 
-    async def _enqueue(name: str, s: S.Session, text: str, names: list[str], cid: str | None) -> dict | None:
-        e, created = outbox.add(name, text, names, cid)
+    def _reply_ref(name: str, raw: object, text: str) -> dict | Response:
+        """The done line a message says it answers, as the body carried it: {"text", "at"}. Only the chat session's lines can be answered, and
+        not by a command: the line goes in front of the message, which would turn a slash command into plain words."""
+        line = raw.get("text") if isinstance(raw, dict) else None
+        at = raw.get("at") if isinstance(raw, dict) else None
+        if (not isinstance(line, str) or not line or len(line) > MO.MAX_CHARS or line != " ".join(line.split())
+                or re.search(r"[\x00-\x1f\x7f-\x9f]", line) or isinstance(at, bool) or not isinstance(at, int)):
+            return _err(400, 'reply must be {"text": "<line>", "at": <seconds>}')
+        if name != chat_session():
+            return _err(400, "only a line of the chat session can be replied to")
+        if text.lstrip().startswith("/"):
+            return _err(400, "a command cannot be a reply to a line")
+        return {"text": line, "at": at}
+
+    async def _enqueue(name: str, s: S.Session, text: str, names: list[str], cid: str | None, reply: dict | None = None) -> dict | None:
+        e, created = outbox.add(name, text, names, cid, reply)
         if created:
             outbox_kick.set()
             await _pump_name(name, s)   # try it now: the answer says where the message is
-        return _view(name, e["id"])
+        view = _view(name, e["id"])
+        # a reply the server has taken (held, typed or read) is the owner's answer to its line: that done line, and no other, leaves the list.
+        # The kept message's own reference counts, so a repeated cid clears what that message names. A message that failed clears nothing
+        if view and view.get("reply") and view["state"] not in (OB.FAILED, OB.WITHDRAWN):
+            try:
+                await run_in_threadpool(MO.confirm, settings.motion_dir, name, view["reply"]["text"], view["reply"]["at"])
+            except OSError as ex:   # the message is taken all the same: the line stays, to be confirmed by hand
+                log.warning("outbox: %s: the line replied to was not cleared: %s", name, type(ex).__name__)
+        return view
 
     async def outbox_get(request: Request) -> Response:
         name = _outbox_name(request)
@@ -2231,7 +2257,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def outbox_post(request: Request) -> Response:
         """A message from a page. 200 {ok, message, messages}: `message.state` says where it is (held with its reason, queued, delivered or failed);
         a lone option number or esc that answers a dialog open now is pressed at once and not kept ({ok, dialogAnswer}); a `!` command is refused
-        here (400, bang: true) and goes through api/s/<pid>/send, which holds nothing."""
+        here (400, bang: true) and goes through api/s/<pid>/send, which holds nothing. With `reply` (_reply_ref) the message answers a done line
+        of the chat session: it is always kept (never pressed as a key), names the line, and takes it off the list once taken (_enqueue)."""
         if _cross_origin(request):
             return _err(403, "cross-origin request refused")
         if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
@@ -2249,11 +2276,16 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return got
         text, names, paths = got
         cid = body.get("cid") if isinstance(body.get("cid"), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body["cid"]) else None
+        reply = None
+        if body.get("reply") is not None:
+            reply = _reply_ref(name, body["reply"], text)
+            if isinstance(reply, Response):
+                return reply
         try:
-            passed = await _dialog_pass(s, text, paths)
+            passed = None if reply else await _dialog_pass(s, text, paths)
             if passed is not None:
                 return passed
-            view = await _enqueue(name, s, text, names, cid)
+            view = await _enqueue(name, s, text, names, cid, reply)
         except T.TmuxError as e:
             return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "message": view, "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
@@ -2578,6 +2610,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         old = outbox.get(name, request.path_params["mid"])
         if old is None:
             return _err(404, "no such message")
+        reply = old.get("reply")   # an edited reply still answers its line
+        if reply:
+            reply = _reply_ref(name, reply, text)
+            if isinstance(reply, Response):
+                return reply
         if old["state"] in (OB.QUEUED, OB.TYPING):
             try:
                 refusal = await _take_back(name, s, old["id"])
@@ -2590,7 +2627,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         except OB.TooLate as late:
             return _too_late(name, late.entry)
         try:
-            view = await _enqueue(name, s, text, names, None)
+            view = await _enqueue(name, s, text, names, None, reply)
         except T.TmuxError as e:
             return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "message": view, "withdrawn": old["id"], "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})

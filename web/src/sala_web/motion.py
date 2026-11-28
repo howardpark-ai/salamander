@@ -2,8 +2,9 @@
 
 One small JSON file per session, <sala state>/motion/<session>.json: {"v": 1, "lines": [{"text": str, "at": epoch seconds, "done": epoch seconds
 (absent while open), "link": str (absent unless `motion done --link` gave one)}]}. The CLI is the writer (an exclusive lock, a temporary file renamed
-into place). This module reads, and its one write is the owner's confirm (`confirm`): it takes the same lock and writes the same way, and removes
-the line. A line stays until the session marks it done and the owner confirms it (or the session clears the list): nothing here ages one out.
+into place). This module reads, and its one write is the owner's acknowledgement of a done line (`confirm`, for the Confirm tap and for a reply to
+the line): it takes the same lock and writes the same way, and removes the line. An open line stays until the session marks it done or clears it, a
+done one until the owner acknowledges it: nothing here ages one out.
 `at` is when the line was first set; `done` is when the session marked it done. At most 8 lines are shown, each at most 120 characters (a longer one
 in a hand-made file is cut, with an ellipsis; a non-string, a time no clock says or a malformed row is skipped). No model writes or filters these
 lines: what the session set is what the page shows.
@@ -101,8 +102,9 @@ def read_lines(root: Path, session: str) -> list[dict]:
 
 
 def confirm(root: Path, session: str, text: str, at: int) -> str:
-    """The owner's confirm of a done line: the line whose text and `at` match and that is done is removed from the file, under the CLI's lock,
-    the file replaced whole. Returns "ok", or "unknown" for no such done line (a line not done, one already confirmed, or no file)."""
+    """The owner's acknowledgement of a done line (a confirm, or a reply to it): the line whose text and `at` match and that is done is removed from
+    the file, under the CLI's lock, the file replaced whole. Returns "ok", or "unknown" for no such done line (a line not done, one already
+    acknowledged, or no file)."""
     if not NAME_RE.fullmatch(session or ""):
         return "unknown"
     try:

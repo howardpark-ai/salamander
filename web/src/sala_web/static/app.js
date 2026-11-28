@@ -373,7 +373,8 @@ async function saveList(key, compute) {
      count that matters). The Overview still lists it. The marks are read every CHAT_MARKS_MS while the page is visible, whether or not the session is open;
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
    - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
-     what the session has promised to report back, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the
+     what the session has promised to report back, and the kept-back switch with its count (a done line's Reply also puts that line over the composer,
+     #reply-ref, until the message is sent or the reference removed). It is on screen while the open session has the `chat` flag (the
      server marks the session in api/sessions, sessions.py). The two lists are PINNED: #chat-strip-wait is sticky at the top of the pane, a bar of two tabs,
      the owner's moves ("<group> · 3"; the group's name is the one stackshot serves) and "On it" (api/chat `motion`: the lines the session set itself with
      `sala motion`, each on the list until the session marks it done), with a chevron: one list open at a time, height-capped, and the bar drawn while either
@@ -664,8 +665,8 @@ function refreshChatOnit() {
   paintChatWait();
 }
 setInterval(refreshChatOnit, 60000);
-// a done line of the session's own, in the owner's list: its text, "done", the result (the given link, else a jump to the reply's place in the chat) and the confirm button.
-// The link is the server's (lib/motion.py takes only https, a path or one of this page's anchors); all of it is set as text or as an attribute value, never as markup.
+// a done line of the session's own, in the owner's list: its text, "done", the result (the given link, else a jump to the reply's place in the chat), a reply
+// button (the composer's next message answers this line) and the confirm button. The link is the server's (lib/motion.py takes only https, a path or one of this page's anchors); all of it is set as text or as an attribute value, never as markup.
 function chatMineRow(m, d) {
   const meta = [el("span", { class: "mine-state", ...tx("chat.mine.done") })];
   if (m.link) {
@@ -678,7 +679,9 @@ function chatMineRow(m, d) {
   }
   const ok = el("button", { type: "button", class: "mine-confirm", ...tx("chat.mine.confirm") });
   ok.addEventListener("click", () => confirmMine(m));
-  meta.push(ok);
+  const reply = el("button", { type: "button", class: "mine-reply", ...tx("chat.mine.reply"), ...tx("chat.mine.replyTip", null, "title") });
+  reply.addEventListener("click", () => { setReplyRef(d.session, { text: m.text, at: m.at }); clearStatus(); focusEnd(); });
+  meta.push(el("span", { class: "mine-acts" }, reply, ok));
   const subj = el("span", { class: "wait-subj" }, el("span", { class: "wait-title", text: m.text }), el("span", { class: "wait-meta" }, ...meta));
   return el("li", { class: "wait-row mine-row" }, subj);
 }
@@ -2654,6 +2657,7 @@ function leaveSession() {
   clearStatus();
   state.selected = null;
   state.current = null;
+  paintReplyRef();
   state.modelInfo = null; updateModelLine();
   state.termLoadedFor = null;
   $("#terminal-pane").replaceChildren();
@@ -2806,6 +2810,7 @@ function selectSession(name, { force = false } = {}) {
   $("#sleep-band").hidden = true;
   if (!document.hidden) markRead(name, { force: true });  // opening a session reads its latest reply
   if (switching) restoreDraft(name);
+  paintReplyRef();
   state.modelInfo = null; updateModelLine();
   const s = state.byName.get(name);
   perfMark("select", { session: name || "", live: !!s, force });
@@ -3864,7 +3869,7 @@ function matchPending(m, live) {
     if (p.ob && !first) return false;
     // an older identical prompt is not this one (once the server has the message, its time is the transcript's clock: little slack)
     if (!Number.isNaN(ts) && ts < p.sentAt - (p.mid ? 5000 : 120000)) return false;
-    const pt = normText(p.text);
+    const pt = normText(p.sent || p.text);
     if (!pt && !t) return p.images.length === n;
     // a long prompt may come back truncated (TEXT_LIMIT): compare the start
     return pt === t || (pt.length >= 40 && t.length >= 40 && pt.slice(0, 200) === t.slice(0, 200));
@@ -3898,7 +3903,8 @@ function pendingNode(p) {
   if (sentFiles.length) box.append(el("div", { class: "sent-files" }, ...sentFiles.map((im) =>
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
       im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
-  if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(p.text, linkNodes)));
+  const shown = p.sent || p.text;   // a reply shows the line it answers, quoted, as the transcript's copy will
+  if (shown.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(shown, linkNodes)));
   if (waits && p.status !== "held") box.append(SalaWaiting.line(p));
   else if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));   // a "!" command from here on, until "held"
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
@@ -4054,6 +4060,7 @@ function toComposer(p) {
   }
   const cur = getText();
   if (state.selected === p.session) setText(p.text + (cur ? "\n" + cur : ""));
+  if (p.reply) setReplyRef(p.session, p.reply);   // it comes back as the reply it was
   for (const im of p.images) {
     state.uploads.push(im.file ? { id: ++uploadSeq, kind: "file", name: im.name, fileName: im.file.name, size: im.file.size, uploading: false }
                                : { id: ++uploadSeq, name: im.name, url: im.url, uploading: false });
@@ -4429,14 +4436,20 @@ function send() {
   // the server's outbox takes the message, so it can be edited or cancelled while it waits. Not a "!" command; nor, to a live session with
   // nothing waiting ahead of it, a slash command; nor what follows a message this page holds itself (the order is kept)
   const behind = state.pending.some((x) => x.session === s.name && x.status === "held");
-  const ob = !behind && !isBang(text) && (!!asleep || !SalaWaiting.isSlash(text) || SalaWaiting.active(s.name));
+  // a reply to a done line goes through the outbox alone, which names the line: no command, and nothing ahead of it that only this page holds
+  const reply = replyRef(s.name);
+  if (reply && (isBang(text) || SalaWaiting.isSlash(text))) { setStatus(() => tl("chat.reply.command"), "error"); return; }
+  if (reply && behind) { setStatus(() => tl("chat.reply.behind"), "error"); return; }
+  const ob = !behind && !isBang(text) && (!!reply || !!asleep || !SalaWaiting.isSlash(text) || SalaWaiting.active(s.name));
   const hold = !ob && (!!asleep || behind);
   const p = { id: ++pendingSeq, session: s.name, text, images: ups.map((u) => ({ name: u.name, url: u.url, file: u.kind === "file" ? { name: u.fileName, size: u.size } : null })),
-              status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}) };
+              status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}),
+              ...(reply ? { reply, sent: SalaWaiting.replyText(reply.text, text) } : {}) };
   state.pending.push(p);
   setText("");
   quotedText = null;
   clearDraft(s.name);   // sent: nothing to come back to
+  if (reply) setReplyRef(s.name, null);   // it left with the message: a bubble that fails keeps it, for Retry and Edit
   state.uploads = []; renderChips();
   clearStatus();
   redrawPending(p);
@@ -4798,6 +4811,33 @@ function restoreDraft(name) {
     if (t && !getText()) { setText(t); refreshSendButton(); }
   } catch { /* storage unavailable */ }
 }
+// The done line the composer is replying to ({text, at}), set by that row's Reply and kept per session beside its draft: the next message sent
+// there answers the line (send), and its × takes the reference away. Only a row's Reply sets one; nothing is read out of what is typed or quoted.
+const replyKey = (name) => "salaweb.reply." + name;
+const replyRefs = new Map();
+function replyRef(name) {
+  if (!name) return null;
+  if (!replyRefs.has(name)) {
+    let ref = null;
+    try { ref = JSON.parse(localStorage.getItem(replyKey(name))); } catch { /* storage unavailable, or not the reference */ }
+    replyRefs.set(name, ref && typeof ref.text === "string" && Number.isInteger(ref.at) ? { text: ref.text, at: ref.at } : null);
+  }
+  return replyRefs.get(name);
+}
+function setReplyRef(name, ref) {
+  replyRefs.set(name, ref);
+  try {
+    if (ref) localStorage.setItem(replyKey(name), JSON.stringify(ref));
+    else localStorage.removeItem(replyKey(name));
+  } catch { /* storage unavailable */ }
+  paintReplyRef();
+}
+function paintReplyRef() {
+  const ref = replyRef(state.selected);
+  $("#reply-ref").hidden = !ref;
+  $("#reply-ref-line").textContent = ref ? ref.text : "";
+}
+$("#reply-ref-drop").addEventListener("click", () => { setReplyRef(state.selected, null); clearStatus(); focusEnd(); });
 // leaving the session the composer belongs to (another session, the Overview): its text is kept and the box emptied
 function leaveComposer() {
   if (!state.selected) return;
@@ -4811,7 +4851,7 @@ function leaveComposer() {
 function keptForSignIn() {
   const unsent = state.pending.filter((p) => !p.hold && !p.mid && (p.status === "failed" || p.status === "sending")).map((p) => ({   // one with a mid is on the server
     session: p.session, text: p.text, at: p.sentAt, error: p.status === "failed" ? p.error : tl("app.pend.noNet"), ...(p.ob ? { cid: p.cid } : {}),
-    images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
+    ...(p.reply ? { reply: p.reply } : {}), images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
   const files = state.uploads.filter((u) => u.name).map((u) => ({ name: u.name, fileName: u.fileName || u.name, size: u.size }));
   const text = getText(), long = state.selected && text.length > DRAFT_MAX ? { session: state.selected, text } : null;
   return unsent.length || files.length || long ? { unsent, files, long } : null;
@@ -4819,7 +4859,8 @@ function keptForSignIn() {
 function restoreFromSignIn(kept) {
   for (const m of kept.unsent) {
     const p = { id: ++pendingSeq, session: m.session, text: m.text, status: "failed", error: m.error, sentAt: m.at,
-                ...(m.cid ? { ob: true, cid: m.cid } : {}), images: m.images.map((im) => ({ ...im, url: null })) };
+                ...(m.cid ? { ob: true, cid: m.cid } : {}), images: m.images.map((im) => ({ ...im, url: null })),
+                ...(m.reply ? { reply: m.reply, sent: SalaWaiting.replyText(m.reply.text, m.text) } : {}) };
     state.pending.push(p);
     redrawPending(p);
     if (p.session === state.selected) $("#chat").append(p.node);

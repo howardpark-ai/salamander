@@ -14,17 +14,18 @@ usage: sala motion add "<line>" [--for NAME]
 
   add     puts a line on the session's list: one line of text, at most 120 characters (a longer one is refused, never cut). At most 8 lines are
           kept; a ninth is refused with a sentence. Adding a line already open changes nothing: it keeps the time it was first added. After a
-          line is done, the same text added again starts a new open line; the done one stays until the owner confirms it.
+          line is done, the same text added again starts a new open line; the done one stays until the owner confirms it or replies to it.
   done    marks a line done, by its exact text or by its number in `list`. The line is not removed: it waits, with the time it was done and its
-          result link, in the owner's "my turn" list on the chat page until he confirms it there. --link URL: the result's address, one of: https,
+          result link, in the owner's "my turn" list on the chat page until he confirms it or replies to it there. --link URL: the result's address, one of: https,
           an in-app path /..., or one of the page's anchors (#s=SESSION, #lane=ID, #sessions, #schedules, #machines, #usage, #new, #search,
           #search?QUERY, #side=...); anything else is refused. Without --link the page links the first chat reply at or after the done time.
-  clear   takes every line off, done ones included.
-  list    the lines on the list, numbered ("nothing right now" when there are none); a done line is marked as waiting for the owner's confirm;
-          --json: the same as an array of {n, text, at, done, link}.
+  clear   takes the open lines off. A done line the owner has not acknowledged stays, and the sentence says how many stayed.
+  list    the lines on the list, numbered ("nothing right now" when there are none); a done line is marked as waiting for the owner's confirm or
+          reply; --json: the same as an array of {n, text, at, done, link}.
 
   The session is the one this command runs in; --for NAME says another's (and is required outside a session). A done line stays until the owner
-  confirms it or it is cleared: nothing expires it. The lines are the session's own words: nothing else writes them and no model filters them.
+  confirms it or replies to it: no command here takes it off and nothing expires it. The lines are the session's own words: nothing else writes
+  them and no model filters them.
   Stored as one small file per session under $SALA_STATE_DIR/motion (mode 700, files 600), written whole and renamed into place.
 USAGE
 }

@@ -219,8 +219,10 @@ class Outbox:
         return next((e for e in box if e["state"] == HELD), None)
 
     # ── writing ───────────────────────────────────────────────────────────────────────────────────────────
-    def add(self, name: str, text: str, uploads: list[str], cid: str | None = None) -> tuple[dict, bool]:
-        """A new held entry at the end of the list. A `cid` the list already has (the page asked twice) returns that entry, created False."""
+    def add(self, name: str, text: str, uploads: list[str], cid: str | None = None, reply: dict | None = None) -> tuple[dict, bool]:
+        """A new held entry at the end of the list. A `cid` the list already has (the page asked twice) returns that entry, created False.
+        With `reply` ({"text", "at"}, the done line this message answers) the entry's text, which is what is typed and what the transcript is
+        matched against, names that line (reply_text); the sender's own words are kept as `own`."""
         box = self._load(name)
         if cid:
             for e in box:
@@ -230,6 +232,8 @@ class Outbox:
         e = {"id": secrets.token_hex(5), "cid": cid or "", "text": text[:MAX_TEXT], "uploads": list(uploads), "state": HELD, "reason": None,
              "detail": "", "error": "", "created": now, "updated": now, "sentAt": None, "attempts": 0, "resent": False,
              "pasted": False, "pid": None, "procStart": None, "sessionId": ""}
+        if reply:
+            e.update(text=reply_text(reply["text"], text)[:MAX_TEXT], own=text[:MAX_TEXT], reply={"text": reply["text"], "at": reply["at"]})
         box.append(e)
         self._save(name)
         return e, True
@@ -260,6 +264,19 @@ class Outbox:
         return self.update(name, mid, state=WITHDRAWN, reason=None, detail="")
 
 
+# ── a message that answers a done line ────────────────────────────────────────────────────────────────────
+# The line goes in front of the message as a quote (static/waiting.js replyText makes the same text).
+REPLY_HEAD = '> In reply to the done "On it" line: '
+
+
+def reply_text(line: str, own: str) -> str:
+    """The message the session receives for a reply to `line`: the line quoted, then the sender's words (after an empty line when they start
+    with a quote of their own, so the two stay apart)."""
+    if not own.strip():
+        return REPLY_HEAD + line
+    return REPLY_HEAD + line + ("\n\n" if re.match(r" {0,3}>", own) else "\n") + own
+
+
 # ── what the page is given ────────────────────────────────────────────────────────────────────────────────
 PUBLIC = ("id", "cid", "text", "uploads", "state", "reason", "detail", "error", "created", "updated", "sentAt", "attempts", "resent")
 
@@ -270,6 +287,8 @@ def public(entries: list[dict]) -> list[dict]:
     seen_active = False
     for e in entries:
         v = {k: e.get(k) for k in PUBLIC}
+        if e.get("reply"):
+            v.update(reply=e["reply"], own=e.get("own", ""))
         if e["state"] in ACTIVE:
             if seen_active and e["state"] == HELD:
                 v["reason"] = "ahead"
