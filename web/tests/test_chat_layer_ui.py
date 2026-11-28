@@ -641,7 +641,7 @@ def rows_only_over_messages(seen: list[dict]) -> None:
 def test_a_load_and_a_reload_of_the_chat_address_show_no_other_view_with_the_setting_off_and_on(served, browser, monkeypatch, size, layer):
     write(served, *long_thread())
     monkeypatch.setenv("SALA_CHAT_LAYER", layer)
-    boot.prepare(browser, served, monkeypatch)
+    boot.prepare(browser, served, monkeypatch, in_turn=True)
     boot.load(browser, served, monkeypatch, size, "#s=" + NAME)
     for again in (False, True):
         if again:
