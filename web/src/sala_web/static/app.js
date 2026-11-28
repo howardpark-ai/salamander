@@ -92,6 +92,16 @@ async function apiFetch(url, opts = {}, { tries = 5 } = {}) {
 
 /* ---------- markdown ---------- */
 if (window.marked) noSingleTildeStrike(marked);  // only ~~x~~ strikes; a lone ~ is text (shared.js)
+// A link to one of sala's own mockup pages (/mockup/<n>, and /mockup/<n>/versions/<id>), under the app's root: it opens in the window it is tapped in, so the
+// browser's Back returns to the chat (an installed phone app opens a target=_blank link in a window of its own, where Back closes the app). Any other link, another origin included, keeps target=_blank.
+function isOwnMockupLink(href) {
+  let u;
+  try { u = new URL(String(href), document.baseURI); } catch { return false; }
+  const top = new URL("./", document.baseURI);
+  return u.origin === top.origin && u.pathname.startsWith(top.pathname + "mockup/") && /^mockup\/[1-9]\d*(?:\/versions\/[^/]+)?\/?$/.test(u.pathname.slice(top.pathname.length));
+}
+// the attributes a link gets: none for sala's own mockup page, else a new tab
+const linkTarget = (href) => (isOwnMockupLink(href) ? {} : { target: "_blank", rel: "noopener noreferrer" });
 if (window.DOMPurify) {
   DOMPurify.addHook("uponSanitizeElement", (node, data) => {
     if (node.nodeType !== 1) return;
@@ -100,9 +110,12 @@ if (window.DOMPurify) {
     if (data.tagName === "dialog" && !node.hasAttribute("open")) node.replaceChildren();
   });
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    // every link opens in a new tab, a drawing's and an image map's too; a formula's element is no link
+    // every link opens in a new tab (but a mockup page of sala's own), a drawing's and an image map's too; a formula's element is no link
     if (node.namespaceURI === "http://www.w3.org/1998/Math/MathML") { node.removeAttribute("href"); node.removeAttribute("xlink:href"); }
-    else if (node.localName === "a" || node.localName === "area") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+    else if (node.localName === "a" || node.localName === "area") {
+      if (isOwnMockupLink(node.getAttribute("href"))) { node.removeAttribute("target"); node.removeAttribute("rel"); }
+      else { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+    }
   });
 }
 // marked's HTML as the nodes a reply may show (the rules are MD_PURIFY, mdAttr and mdStyle in shared.js); the sanitized
@@ -307,7 +320,7 @@ function markWrappedLinks(...roots) {
 // text nodes and <a> elements from linkTokens (shared.js), never innerHTML. A phone showed
 // "[board#N](https://board.example.test/items/N)" as plain text in these.
 const linkNodes = (text) => linkTokens(text).map((t) =>
-  t.href ? el("a", { href: t.href, target: "_blank", rel: "noopener noreferrer", text: t.text }) : document.createTextNode(t.text));
+  t.href ? el("a", { href: t.href, ...linkTarget(t.href), text: t.text }) : document.createTextNode(t.text));
 const linkedPre = (text) => el("pre", {}, ...linkNodes(text));
 
 /* ---------- prefs ---------- */
@@ -3797,7 +3810,7 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
 }
 
 // A link card under a chat-session reply (chatkeep.with_cards): a /mockup/<n> page of this site or a claude.ai artifact the reply links. It is one <a>, so it takes
-// the keyboard's focus, and opens in a new tab with rel noopener. What it shows is what the server sent (the title, from the local mockup store or the link text,
+// the keyboard's focus, and opens in a new tab with rel noopener (a mockup page of sala's own in the same window, so Back returns to the chat). What it shows is what the server sent (the title, from the local mockup store or the link text,
 // and what kind of page it is); nothing is fetched here. A card whose address is neither shape is not drawn and the link stays the plain link in the text.
 // Its words are the strings chat.card.*; `tx` words them again in place when the language changes.
 function linkCard(c) {
@@ -3813,7 +3826,7 @@ function linkCard(c) {
   const kids = [c.title ? el("span", { class: "lc-t", text: String(c.title) }) : el("span", { class: "lc-t", ...label })];
   if (c.title) kids.push(el("span", { class: "lc-l", ...label }));
   kids.push(el("span", { class: "lc-o", ...tx("chat.card.opens") }));
-  return el("a", { class: "link-card", href, target: "_blank", rel: "noopener noreferrer" }, ...kids);
+  return el("a", { class: "link-card", href, ...linkTarget(href) }, ...kids);
 }
 
 // the chat session's kept-back turns (chatkeep.py): one quiet line each, in the thread where the turn started, drawn only while the strip's switch is on
