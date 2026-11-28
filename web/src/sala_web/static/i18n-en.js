@@ -456,6 +456,7 @@ window.SALA_I18N_EN = {
   "ov.q.nextTry": "{text} · next try {when}",
   "ov.q.noLimits": "No limits reported.",
   "ov.q.refused": "Anthropic refused the usage check",
+  "ov.q.stale": "stale",
   "ov.q.used": "{pct}% used",
   "ov.reason.creditUsedUp": "No credit on the API key",
   "ov.rec.account": "Account",

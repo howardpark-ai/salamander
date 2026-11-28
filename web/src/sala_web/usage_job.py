@@ -2,8 +2,8 @@
 
 It makes the count the tab shows, once, with the code the tab's Reload uses (`usage.UsageCache.count`), and leaves it where the app reads it
 (the state dir: usage-answer.json, usage-replies.json, usage-scan.json). The app notices the newer files by itself and serves them; a visit to the tab never counts
-(usage.py). Nothing is asked of Anthropic or AWS: the weekly reset the weeks hang on is the one the lane cards last saved (quota-<lane>.json), read and not
-refreshed. The exit status is 0 when it counted and saved, 1 when the count failed (one line on stderr, in plain words, never an exception's own text;
+(usage.py). Nothing is asked of AWS. Anthropic's usage check is asked only for a live lane whose saved reading is due (the quota route's own refresh, `QuotaCache.refresh_due`),
+so the weekly percent the digest shows is not dropped as stale after quiet hours; a dormant or refused lane is left out as ever. The exit status is 0 when it counted and saved, 1 when the count failed (one line on stderr, in plain words, never an exception's own text;
 the last saved count stays in place), 2 for a wrong command line. It runs from a timer once a day (README, Usage analysis).
 """
 
@@ -39,7 +39,9 @@ def build_cache(settings: Settings) -> USG.UsageCache:
     quota = Q.QuotaCache({"subscription-1": settings.claude_dir, **S.LANE_DIRS}, state_dir=settings.state_dir)
 
     async def saved_quota() -> list[dict]:
-        return quota.saved(LS.dormant(settings.sala_state_dir / "lane-state.tsv"))
+        dormant = LS.dormant(settings.sala_state_dir / "lane-state.tsv")
+        await quota.refresh_due(dormant)   # the quota route's own refresh, for a lane that is due: a live lane keeps its percent; a refused or dormant one stays out
+        return quota.saved(dormant)
 
     lane_names = LNM.LaneNames(run_lane_names, settings.sala_state_dir)
     return USG.UsageCache(settings, lambda: S.read_live_sessions(settings), lane_table, lane_names.rows, saved_quota)

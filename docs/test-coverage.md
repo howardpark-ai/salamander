@@ -5796,3 +5796,13 @@ A frame that says a person types in it made the strip take the pane but three li
 Kept (a headless Chromium; GitHub CI runs it): a typing frame with a mouse leaves `ans-kbd` off and the strip within 40vh, with the thread keeping at least 30% of the height, and the same word on touch turns it on; a plain row has the card's size, weight, left bar and corners, no dot and one underlined link. The earlier keyboard tests set touch where they send the typing word.
 
 Not covered, and why: a real phone keyboard and a phone-width visual check by eye (the viewport is set by the test).
+
+### A lane's old or refused numbers are never shown as live: `web/tests/test_quota_stale.py` (new, 15; one needs a browser) (Sat Nov 28th 2026)
+
+A lane that was refused once, or that nobody asks any more, kept its saved percent and the Overview card and the Usage analysis tab drew it as if it were current. An answer is stale (`quota.is_stale`) when its last good reading is older than `quota.STALE_AFTER` (15 minutes, three refresh periods) or its last check was refused; the card says `stale` in place of each percent and the Usage tab leaves the lane's weekly limit out. A lane the dormant record lists is still one head and one line, with no numbers.
+
+Kept: the threshold and the refused rule; a fresh lane keeps its numbers and has no stale mark; a refused lane past its nextTry stays stale; an old lane with no error saved on it is stale by age; a dormant lane is a head with no figures; the Usage tab gives a fresh lane its percent and a stale one (old, old and refused, refused just now) none; in a headless Chromium (else skipped) the fresh card reads `5% used` and the stale card `stale` three times, with empty bars and no digit. Every state file is a fake in a temporary folder; nothing asks Anthropic.
+
+Not covered: the real lane files of a machine (the tests never read them), and the Korean word (`ov.q.stale`; `test_i18n.py` holds that both languages have the same keys).
+
+The scheduled usage job asks for the quota route's own refresh (`QuotaCache.refresh_due`) of each live lane that is due, so a lane nobody polled for an hour keeps its percent in the digest; a refused lane waiting out its back-off and a dormant lane are asked nothing and stay out, and a lane inside its TTL is not asked again; one test builds the job's own cache (`usage_job.build_cache`) with a fake fetch and calls its quota function, so the job's wiring to the refresh is held. The card test waits until no percent reads the placeholder dash before it reads.

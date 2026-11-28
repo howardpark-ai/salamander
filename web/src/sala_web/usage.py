@@ -1,7 +1,7 @@
 """The Overview's Usage analysis tab: what the Claude Code replies on this machine cost, AT LIST PRICES, by week, day, lane, model, project,
 agent and folder. One data layer under three views of the tab (Report, Explorer, Digest); `GET /api/usage?week=<0|1|2>` serves it.
 
-WHERE THE FIGURES COME FROM. Nothing is asked of Anthropic or AWS: every assistant reply in a Claude Code transcript carries
+WHERE THE FIGURES COME FROM. The count asks nothing of Anthropic or AWS (only the scheduled job asks Anthropic's read-only usage check, for a due live lane's percent): every assistant reply in a Claude Code transcript carries
 message.usage (input, output, cache-read and the two cache-write tiers), which is multiplied by the model's list price. The count
 is spend.py's, reused rather than copied: the same price table (spend.PRICES, ONE place), the same model-name normalizer, the same
 rule that a reply is counted once (a streamed reply is several lines with one message id, a fork copies history: each id once,
@@ -473,7 +473,8 @@ def compute(settings, live: list, lane_rows: list[dict], lane_names: list[dict],
         lane = LS.norm(a.get("lane"))
         lim = weekly_limit(a)
         r_at = reset_epoch(lim)
-        if lim and isinstance(lim.get("percent"), (int, float)) and r_at is not None and r_at > now:
+        # a stale answer (quota.is_stale: an old reading, or a refused check) gives no figure: the lane card then reads without a percent
+        if lim and isinstance(lim.get("percent"), (int, float)) and r_at is not None and r_at > now and not Q.is_stale(a, now):
             quotas[lane] = {"percent": lim["percent"], "resetsAt": int(r_at)}
     out_lanes = [{"code": c, "label": v["label"], "billing": v["billing"], "flat": c in flat, "known": v["known"], "quota": quotas.get(c)}
                  for c, v in sorted(lanes.items(), key=lambda kv: (kv[0] not in seen, kv[0]))]

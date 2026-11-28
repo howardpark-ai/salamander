@@ -22,6 +22,7 @@ from . import swr as SWR
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 TTL = 300.0          # a good answer is reused for 5 minutes
+STALE_AFTER = 3 * TTL  # a reading older than this (15 minutes: three missed refreshes) is stale: no view shows its figures as live
 ERROR_RETRY = 55.0   # a failure that asked Anthropic nothing (no sign-in, or one expired) is looked at again at the
 #                      page's next poll (every 60 s): the sign-in renews by itself when a session on the lane runs.
 #                      A failure that did ask backs off instead (swr.py BACKOFF; a 429 waits what Retry-After says).
@@ -30,6 +31,19 @@ EXPIRED = "sign-in expired; it renews when a session on this lane next runs"
 RATE_LIMITED = "Anthropic is limiting usage checks"  # a 429; the card words it from errorKind, with the saved time
 REFUSED = "Anthropic refused the usage check"        # a 403; errorKind "refused" is what sala's watch reads
 PLAN_NAMES = {"max": "Max", "pro": "Pro", "team": "Team", "enterprise": "Enterprise"}
+
+
+def is_stale(answer: dict, now: float | None = None) -> bool:
+    """True when an answer's figures must not be read as live: its last good reading is older than STALE_AFTER, or the last check
+    was refused (errorKind "refused": the figures are from before the access was withdrawn). A dormant head and an answer with no
+    reading yet (pending) carry no figures and are not stale. A restart drops errorKind once nextTry has passed, so the age rule is
+    what still catches a lane nobody asks any more."""
+    if answer.get("dormant"):
+        return False
+    if answer.get("errorKind") == "refused":
+        return True
+    fetched = answer.get("fetchedAt")
+    return isinstance(fetched, int) and (time.time() if now is None else now) * 1000 - fetched > STALE_AFTER * 1000
 
 
 class Expired(Exception):
@@ -192,16 +206,29 @@ class QuotaCache:
         """Each lane's answer. A lane the dormant record lists (sala's lane-state.tsv, lanestate.py) is a head and one line
         and no check: {"lane", "dormant": {"reason", "since"}, "plan"?, "fetchedAt"?} comes back and its cache is not touched,
         so nothing is asked. The plan is the sign-in file's word (read_plan); without it the card's head has no plan text.
-        fetchedAt (epoch ms) is the time of the lane's last good reading kept in its saved answer, absent when it has none."""
+        fetchedAt (epoch ms) is the time of the lane's last good reading kept in its saved answer, absent when it has none.
+        An answer whose figures are not live (is_stale) carries "stale": true."""
         dormant = dormant or {}
-        return [self._dormant(lane, dormant[lane]) if lane in dormant
-                else self._swr[lane].serve(lambda lane=lane: self._refresh(lane)) for lane in self.lanes]
+        out = [self._dormant(lane, dormant[lane]) if lane in dormant
+               else self._swr[lane].serve(lambda lane=lane: self._refresh(lane)) for lane in self.lanes]
+        for a in out:
+            if is_stale(a):
+                a["stale"] = True   # the card draws "stale" where the figure would be (STALE_AFTER, or a refused check)
+        return out
 
     def saved(self, dormant: dict[str, dict] | None = None) -> list[dict]:
         """Each lane's last saved answer as `get` would serve it, and nothing asked: no sign-in is read and no refresh started (for the
         Usage analysis job, which needs only the weekly reset the lane cards last saw; a dormant lane is its head without the plan)."""
         dormant = dormant or {}
         return [{"lane": lane, "dormant": dormant[lane]} if lane in dormant else dict(self._swr[lane].state) for lane in self.lanes]
+
+    async def refresh_due(self, dormant: dict[str, dict] | None = None) -> None:
+        """Refresh, and wait for, each lane that is due (its answer is TTL old, or its wait has passed) and is not dormant: the quota
+        route's own refresh (`swr.refresh_now` on `_refresh`), run for the scheduled job so a lane nobody polled keeps its percent.
+        A lane still inside its TTL or its back-off wait asks nothing; a failure stays on the lane's answer as ever."""
+        dormant = dormant or {}
+        await asyncio.gather(*(self._swr[lane].refresh_now(lambda lane=lane: self._refresh(lane))
+                               for lane in self.lanes if lane not in dormant and self._swr[lane].due))
 
     def _dormant(self, lane: str, d: dict) -> dict:
         out = {"lane": lane, "dormant": d}
