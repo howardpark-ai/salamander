@@ -65,6 +65,36 @@ def test_the_filter_rules_in_node():
     assert got["none"] == [] and got["noneOpen"] == ["y"], got
 
 
+NODE_ROLELESS = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const m = /\/\/ <unread-words>[^\n]*\n([\s\S]*?)\/\/ <\/unread-words>/.exec(src);
+eval(m[1] + 'globalThis.api = { unreadOfSession, unreadTotal, unreadKept };');
+const { unreadOfSession, unreadTotal, unreadKept } = globalThis.api;
+const r = (name, extra) => ({ name, role: null, project: 'projects/alpha', unread_count: 3, unread: true, ...extra });
+const all = [r('own'), r('own-nopro', { project: null }), r('own-side', { side: { kind: 'fork' } }), r('own-slack', { surface: 'slack' }),
+             r('front', { role: 'front' }), r('back', { role: 'back' }), r('own-nocount', { unread_count: undefined }), r('own-empty', { role: '' })];
+console.log(JSON.stringify({
+  of: all.map((s) => unreadOfSession(s, null)), openOwn: unreadOfSession(r('own'), 'own'),
+  total: unreadTotal(all, null), kept: unreadKept(all, null).map((s) => s.name), keptOpen: unreadKept(all, 'own-nopro').map((s) => s.name),
+}));
+"""
+
+
+def test_a_session_with_no_role_and_a_project_has_the_count_a_front_agent_has():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("no node")
+    out = subprocess.run([node, "-e", NODE_ROLELESS, str(STATIC / "shared.js")], capture_output=True, text=True, check=True).stdout
+    got = json.loads(out)
+    # own, own-nopro, own-side, own-slack, front, back, own-nocount, own-empty
+    assert got["of"] == [3, 0, 0, 0, 3, 0, 1, 3], got   # no project, a quick (side) session and a Slack agent: none; `unread` with no count reads as 1
+    assert got["openOwn"] == 0, got                      # the open one never has one
+    assert got["total"] == 10, got
+    assert got["kept"] == ["own", "front", "own-nocount", "own-empty"], got      # "Unread only" keeps it
+    assert got["keptOpen"] == ["own", "own-nopro", "front", "own-nocount", "own-empty"], got
+
+
 # ── the page ──────────────────────────────────────────────────────────────────
 SESS = """(() => {
   const real = window.fetch.bind(window), json = (o) => new Response(JSON.stringify(o), { headers: { "Content-Type": "application/json" } });

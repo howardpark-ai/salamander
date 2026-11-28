@@ -54,31 +54,31 @@ AWAY = (1270, 790)
 
 def test_a_mouse_resting_on_the_marker_shows_the_box_and_a_press_keeps_it(sala, served, browser):
     open_form(browser, served, width=1280, height=800)
-    front, back = "exp-ui-ns-frontHint", "exp-ui-ns-backHint"
-    at = spot(browser, front, scroll=True)
+    session, back = "exp-ui-ns-sessionHint", "exp-ui-ns-backHint"
+    at = spot(browser, session, scroll=True)
     assert not at["shown"] and at["expanded"] == "false", at
     mouse(browser, at["x"], at["y"])
-    shows(browser, front, True)
-    box = spot(browser, front)
+    shows(browser, session, True)
+    box = spot(browser, session)
     assert box["onTop"] and box["left"] >= 0 and box["right"] <= box["vw"], box
     mouse(browser, box["px"], box["py"])          # the way into the box does not shut it
-    stays(browser, front)
+    stays(browser, session)
     mouse(browser, *AWAY)
-    shows(browser, front, False)
+    shows(browser, session, False)
     # hover, then a press: kept until the next press, wherever the mouse goes
-    at = spot(browser, front)
+    at = spot(browser, session)
     mouse(browser, at["x"], at["y"])
-    shows(browser, front, True)
+    shows(browser, session, True)
     press(browser, at["x"], at["y"])
     mouse(browser, *AWAY)
-    stays(browser, front)
+    stays(browser, session)
     press(browser, at["x"], at["y"])
-    shows(browser, front, False)
+    shows(browser, session, False)
     # the (?) beside the other choice picks nothing, and a press elsewhere shuts its box
     other = spot(browser, back)
     press(browser, other["x"], other["y"])
     shows(browser, back, True)
-    assert browser.evaluate(ROLE) == "front"
+    assert browser.evaluate(ROLE) == "none"
     press(browser, *AWAY)
     shows(browser, back, False)
     # the one in a fold's summary does not unfold it
@@ -111,7 +111,7 @@ def test_a_tap_shows_each_box_of_the_new_session_forms_inside_a_phones_width(sal
     browser.touch()
     assert wait_for(browser, "matchMedia('(pointer: coarse)').matches", 10.0)
     seen = "[...document.querySelectorAll('#new-pane .exp-help')].filter((b) => b.getClientRects().length).map((b) => b.getAttribute('aria-controls'))"
-    want = {False: {"exp-ui-ns-frontHint", "exp-ui-ns-backHint", "ns-name-hint", "exp-ui-ns-defaultHint"},
+    want = {False: {"exp-ui-ns-sessionHint", "exp-ui-ns-backHint", "ns-name-hint", "exp-ui-ns-defaultHint"},
             True: {"exp-ui-sd-itemHint", "exp-ui-sd-forkHint", "exp-ui-sd-nameHint", "exp-ui-sd-topicHint"}}
     for quick in (False, True):
         if quick:
@@ -130,7 +130,7 @@ def test_a_tap_shows_each_box_of_the_new_session_forms_inside_a_phones_width(sal
             tap(browser, box["x"], box["y"])
             shows(browser, pid, False)
         if not quick:
-            assert browser.evaluate(ROLE) == "front" and browser.evaluate("document.querySelector('.ns-more').open") is False
+            assert browser.evaluate(ROLE) == "none" and browser.evaluate("document.querySelector('.ns-more').open") is False
 
 
 def test_the_chat_bars_marker_answers_a_mouse_and_the_keyboard(served, browser, monkeypatch):

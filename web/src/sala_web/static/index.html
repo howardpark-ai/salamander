@@ -551,7 +551,7 @@
           </div>
           <fieldset class="ns-field ns-role">
             <legend data-i18n="common.role">Role</legend>
-            <span class="ns-choice"><label class="ns-radio"><input type="radio" name="ns-role" value="front" checked> front</label><span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-frontHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-frontHint" role="note" hidden data-i18n="ui.ns.frontHint" data-i18n-arg="{{owner}}">a session {{owner}} talks to</span></span></span>
+            <span class="ns-choice"><label class="ns-radio"><input type="radio" name="ns-role" value="none" checked> session</label><span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-sessionHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-sessionHint" role="note" hidden data-i18n="ui.ns.sessionHint" data-i18n-arg="{{owner}}">a session {{owner}} works with: no agent role, starts in the home folder</span></span></span>
             <span class="ns-choice"><label class="ns-radio"><input type="radio" name="ns-role" value="back"> back</label><span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-backHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-backHint" role="note" hidden data-i18n="ui.ns.backHint">a background agent, unattended</span></span></span>
           </fieldset>
           <div class="ns-field">
@@ -560,7 +560,7 @@
             <div id="ns-name-err" class="ns-err" role="alert"></div>
           </div>
           <div class="ns-field">
-            <label for="ns-mandate"><span data-i18n="ui.ns.mandate">Mandate</span> <span id="ns-mandate-hint" class="ns-hint" data-i18n="ui.ns.mandateHint">optional for a front agent</span></label>
+            <label for="ns-mandate"><span data-i18n="ui.ns.mandate">Mandate</span> <span id="ns-mandate-hint" class="ns-hint" data-i18n="ui.ns.mandateHintNone">optional for a session</span></label>
             <textarea id="ns-mandate" rows="2" placeholder="What this session is for, in its own words. The session reads it at its first prompt." data-i18n-placeholder="ui.ns.mandatePh" aria-describedby="ns-mandate-hint ns-mandate-err"></textarea>
             <div id="ns-mandate-err" class="ns-err" role="alert"></div>
           </div>
