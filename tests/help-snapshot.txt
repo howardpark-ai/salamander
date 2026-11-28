@@ -207,7 +207,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):
                                      read GitHub yourself then (lib/cipoll.sh, lib/cipoll.py, docs/ci-runs.md)
   salamander ci-poll           the resident CI-run poller (sala-cipoll.service): one conditional `gh api -i` read of each repo in ~/.config/salamander/ci-repos
-                                     (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/
+                                     (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/;
+                                     a run queued over 30 min with no jobs is flagged once to the inbox of the repo's builder (the repo table of `sala job`); it changes nothing on GitHub
   salamander codex-review <owner/repo> <pr>
                                      a trial: OpenAI's Codex CLI reviews the PR's diff read-only and the review is posted as a comment on it (lib/codex-review.sh,
                                      lib/codex-review.py, docs/codex-review.md). Only the two repos it names; one review per head sha; a review passes the public scan
@@ -486,6 +487,10 @@ usage: salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
   ci-poll  the resident poller (sala-cipoll.service): every SALA_CIPOLL_INTERVAL s (60) one conditional read (ETag; a 304 is free) of
            repos/<repo>/actions/runs?per_page=30 for each repo in ~/.config/salamander/ci-repos (else lib/ci-repos, which lists none), one atomic file per repo.
            A GitHub error keeps the old file and backs off (doubling to SALA_CIPOLL_BACKOFF_MAX s, 600; a rate limit waits for its reset).
+           It also flags a stuck run once (queued over 30 min with no jobs: it never starts and cannot be cancelled or rerun) to the inbox of
+           the repo's builder, the `builder` of its `github` row in the repo table (~/.config/salamander/unit-repos.tsv); a session that is
+           not live gets it later. It changes nothing on GitHub; a repo with no builder is logged once. To find a run older than the 30
+           listed, it also reads each such repo's queued runs every SALA_CIPOLL_STUCK_LIST s (300), conditionally.
 
 ### sala codex-review --help (exit 0)
 usage: salamander codex-review <owner/repo> <pr>

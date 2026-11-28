@@ -14,6 +14,10 @@ usage: salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
   ci-poll  the resident poller (sala-cipoll.service): every SALA_CIPOLL_INTERVAL s (60) one conditional read (ETag; a 304 is free) of
            repos/<repo>/actions/runs?per_page=30 for each repo in ~/.config/salamander/ci-repos (else lib/ci-repos, which lists none), one atomic file per repo.
            A GitHub error keeps the old file and backs off (doubling to SALA_CIPOLL_BACKOFF_MAX s, 600; a rate limit waits for its reset).
+           It also flags a stuck run once (queued over 30 min with no jobs: it never starts and cannot be cancelled or rerun) to the inbox of
+           the repo's builder, the `builder` of its `github` row in the repo table (~/.config/salamander/unit-repos.tsv); a session that is
+           not live gets it later. It changes nothing on GitHub; a repo with no builder is logged once. To find a run older than the 30
+           listed, it also reads each such repo's queued runs every SALA_CIPOLL_STUCK_LIST s (300), conditionally.
 USAGE
 }
 case "${sub:-}" in

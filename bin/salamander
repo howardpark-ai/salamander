@@ -207,7 +207,8 @@
 #                                      stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):
 #                                      read GitHub yourself then (lib/cipoll.sh, lib/cipoll.py, docs/ci-runs.md)
 #   salamander ci-poll           the resident CI-run poller (sala-cipoll.service): one conditional `gh api -i` read of each repo in ~/.config/salamander/ci-repos
-#                                      (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/
+#                                      (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/;
+#                                      a run queued over 30 min with no jobs is flagged once to the inbox of the repo's builder (the repo table of `sala job`); it changes nothing on GitHub
 #   salamander codex-review <owner/repo> <pr>
 #                                      a trial: OpenAI's Codex CLI reviews the PR's diff read-only and the review is posted as a comment on it (lib/codex-review.sh,
 #                                      lib/codex-review.py, docs/codex-review.md). Only the two repos it names; one review per head sha; a review passes the public scan
