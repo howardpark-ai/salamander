@@ -5796,3 +5796,10 @@ A frame that says a person types in it made the strip take the pane but three li
 Kept (a headless Chromium; GitHub CI runs it): a typing frame with a mouse leaves `ans-kbd` off and the strip within 40vh, with the thread keeping at least 30% of the height, and the same word on touch turns it on; a plain row has the card's size, weight, left bar and corners, no dot and one underlined link. The earlier keyboard tests set touch where they send the typing word.
 
 Not covered, and why: a real phone keyboard and a phone-width visual check by eye (the viewport is set by the test).
+### A session with no agent role: `tests/spawn.sh` +3, `tests/sessions.sh` +2, `web/tests/test_unread_count.py` +1; the New session browser tests changed (Sat Nov 28th 2026)
+
+`sala spawn NAME --project K --role none` (the New session form's default) makes a session to work with: on no agents map, stackshot not asked, the row carries the project and `no_role`, the start folder is the home folder. Covered: the dry run (the plan names no agent role, no register step); a real spawn (the pane starts, the row has the project, no role and `no_role` = 1, no post to stackshot); a name the record lists as an agent is refused; `sessions_set` keeps the mark and a row that later gets a role loses it; the web unread count and marker for a roleless session with a project (counted), against a quick session, a back agent, a Slack session and a session with no project (not counted). The two refusal messages in `tests/spawn.sh` follow the new wording.
+
+Browser tests (`test_new_session*.py`, the explainer tooltip tests) were changed for the new default and the hint text. They run only in CI and were not run here.
+
+Not covered, and why: the retire and watch exemption reads the row's mark through one helper and is covered by the existing suites staying green, not by a case of its own; a lead's start folder is the existing `SALA_BACK_CWD` rule and unchanged.

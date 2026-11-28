@@ -70,7 +70,8 @@
 #                                             model.sh relaunches it through `revive --force --only` (a busy one is handed to the retry
 #                                             worker and relaunched once idle); `op` tells the hearer so when it is the target.
 #   provision [--only STEP[,STEP…]] [HOST…]
-#   spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+#   spawn NAME --project <page key> --role front|back|none [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+#                                             (--role none: a session to work with, on no agents map: nothing is registered, it starts in $HOME with the front rules and no mandate is required)
 #                                             a project agent's session (lib/spawn.sh): the one path a web request
 #                                             takes. Checked here before anything is written: the name (sala's rule: lowercase,
 #                                             digits, dashes, ≤48), the page key's shape, the role, the surface (slack only with the front role: an agent
@@ -729,8 +730,8 @@ op_shapes() {
   model <model> [--effort <level>] <session>… | --clear <session>… | <session> <model> [--effort <level>] | <session> --clear
                                             the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records. Fable (fable|claude-fable-…) runs only on the Ultra lane (subscription-1): refused at queue time, in the plan, for a session on any other lane (a batch: refused whole). A lane move of a Fable session off Ultra puts it on opus first
   provision [--only STEP[,STEP…]] [HOST…]
-  spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
-                                            a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
+  spawn NAME --project <page key> --role front|back|none [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+                                            --role none: a session to work with, on no agents map (nothing registered, home folder, no mandate needed). Otherwise a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
   reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
@@ -994,7 +995,7 @@ op_shape() {
         else
             [ -z "$forkof$item$agents" ] || { op_bad "--fork-of, --item and --agents go with --side"; return 1; }
             page_key_ok "$project" || { op_bad "spawn needs --project <page key> — <dir>/<slug> with the dir one of ${SALA_PAGE_DIRS// /, }, lowercase letters, digits and dashes (projects/site-redesign, projects/demo) — not '${project:-nothing}'"; return 1; }
-            case "$role" in front|back) ;; *) op_bad "spawn needs --role front or --role back, not '${role:-nothing}'"; return 1;; esac
+            case "$role" in front|back|none) ;; *) op_bad "spawn needs --role front, --role back or --role none, not '${role:-nothing}'"; return 1;; esac
             [ -z "$surface_set" ] || case "$surface" in sala) surface="" ;; slack) [ "$role" = front ] || { op_bad "a slack agent is a front agent: --surface slack goes with --role front, not --role $role"; return 1; } ;; *) op_bad "--surface takes sala or slack, not '$surface'"; return 1;; esac
         fi
         [ -z "$mkind" ] || [ -n "$mandate" ] || { op_bad "$mkind needs a file or text, not an empty argument"; return 1; }
@@ -1018,6 +1019,8 @@ op_shape() {
         OP_PAR=par; OP_KEYS="$name${forkof:+ $forkof}"
         if [ -n "$side" ]; then
             OP_PLAN_NOTE="a side conversation, on no agents map ($([ -n "$forkof" ] && echo "a fork of $forkof's live conversation" || echo "a fresh session about $item of $project")): the dry run finds the agent to fork or the project's page, and checks the name is not live and the lane can launch; the session is made at run time and retires only on ${SALA_OWNER_NAME}'s word, once it ran \`sala side done\`"
+        elif [ "$role" = none ]; then
+            OP_PLAN_NOTE="a new session named after $project with no agent role: on no agents map, nothing is registered with stackshot (a name the record lists refuses the operation); the dry run checks that the name is not live and that the lane can launch; the session is made at run time and starts in the home folder"
         else
         OP_PLAN_NOTE="a new $role${surface:+ ($surface surface)} agent of $project: the dry run reads stackshot's project record for the name (a name not on it refuses the operation: exit 3 and the REGISTER: line with stackshot's register command; a record that cannot answer: exit 6), that the name is not live and that the lane can launch; the session is made at run time"
         fi ;;

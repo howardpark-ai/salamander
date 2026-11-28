@@ -150,8 +150,8 @@ N48=$(printf '%*s' 48 '' | tr ' ' a); N49="${N48}a"; list projects/foo "$N48" "a
 
 echo "== the argument matrix: refused before anything is asked or made (exit 1, no stackshot call, no session)"
 run x --role back; [ "$RC" = 1 ] && has "$OUT" "--role needs --project" && ok "--role without --project" || bad "role alone: rc=$RC — $OUT"
-run x --project projects/foo; [ "$RC" = 1 ] && has "$OUT" "--project needs --role front or --role back" && ok "--project without --role" || bad "project alone: rc=$RC — $OUT"
-run x --project projects/foo --role sideways; [ "$RC" = 1 ] && has "$OUT" "--role takes front or back" && ok "--role sideways" || bad "role sideways: rc=$RC — $OUT"
+run x --project projects/foo; [ "$RC" = 1 ] && has "$OUT" "--project needs --role front, back or none" && ok "--project without --role" || bad "project alone: rc=$RC — $OUT"
+run x --project projects/foo --role sideways; [ "$RC" = 1 ] && has "$OUT" "--role takes front, back or none" && ok "--role sideways" || bad "role sideways: rc=$RC — $OUT"
 run x --project projects/foo --role back; [ "$RC" = 1 ] && has "$OUT" "a back agent needs --mandate" && ok "a back agent without a mandate" || bad "back no mandate: rc=$RC — $OUT"
 for n in Foo_Bar -foo foo- "a.b" "$N49"; do run "$n" --project projects/foo --role front --dry-run; [ "$RC" = 1 ] && { has "$OUT" "is not an agent name" || has "$OUT" "invalid session name" || has "$OUT" "unknown first argument"; } && ok "name '${n:0:12}…' refused" || bad "name '$n': rc=$RC — $OUT"; done
 run "$N48" --project projects/foo --role front --dry-run; [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn '$N48'" && ok "a 48-character name passes the name rule (SALA_AGENT_NAME_MAX)" || bad "48 chars: rc=$RC — $OUT"
@@ -220,6 +220,13 @@ run gamma-foo-main --project projects/foo --role front --dry-run; [ "$RC" = 3 ] 
 unlist gamma-foo-main
 run orphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "a name on no project of the record: not on this one: refused with the command (exit 3)" || bad "orphan: rc=$RC — $OUT"
 [ -z "$(sessions)" ] && [ ! -f "$HOME/reg-args.txt" ] && [ ! -r "$SALA_LANES" ] && ok "none of the refusals made a session, called the hook or wrote a lane row" || bad "sessions: $(sessions) reg: $(slurp "$HOME/reg-args.txt")"
+# a session with no agent role (--role none): on no agents map, stackshot is not asked, the row is marked, the start folder is $HOME
+run gamma-foo-sess --project projects/foo --role none --dry-run
+[ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-foo-sess' as a session with no agent role, named after projects/foo" && ! has "$OUT" "REGISTER:" && ! has "$OUT" "[dry-run] register:" && ok "--role none: the plan names no agent role, asks no register, needs no listing" || bad "role none dry run: rc=$RC — $OUT"
+list projects/foo gamma-foo-listed "a listed agent"
+run gamma-foo-listed --project projects/foo --role none --dry-run
+[ "$RC" != 0 ] && has "$OUT" "agent" && ok "--role none on a name the record lists as an agent: refused" || bad "role none listed: rc=$RC — $OUT"
+unlist gamma-foo-listed
 SALA_AGENT_CHECK=off run gamma-foo-main --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && has "$OUT" "not checked (SALA_AGENT_CHECK=off)" && ok "SALA_AGENT_CHECK=off: the record is not read, the dry run says so" || bad "check off: rc=$RC — $OUT"
 
@@ -814,6 +821,11 @@ tmux kill-session -t =gamma-rec-rcv 2>/dev/null
 creset; : > "$HOME/tmux-fail-new"; run gamma-rec-rcv2 --project projects/foo --role back --mandate "rcv2 work" --lane subscription-1; rm -f "$HOME/tmux-fail-new"
 run gamma-rec-rcv2 --project projects/foo --role front --mandate "rcv2 work" --lane subscription-1
 [ "$RC" != 0 ] && [ "$(cposts)" = 1 ] && has "$OUT" "as a back agent" && ! tmux has-session -t =gamma-rec-rcv2 2>/dev/null && ok "gate: a retry that names the other side is refused by the record, nothing registered twice" || bad "gate repeat other side: rc=$RC calls=$(cposts) — $OUT"
+
+# a real spawn with --role none: the pane starts, the row has the project, no role and no_role=1, nothing is registered with stackshot
+creset; run gamma-rec-sess --project projects/foo --role none
+[ "$RC" = 0 ] && [ "$(sregf gamma-rec-sess no_role)" = "projects/foo None 1" ] && [ "$(cposts)" = 0 ] && tmux has-session -t =gamma-rec-sess 2>/dev/null && ok "--role none: the pane starts, the row has the project and no_role=1 and no role, nothing registered" || bad "role none real: rc=$RC row='$(sregf gamma-rec-sess no_role)' — $OUT"
+tmux kill-session -t =gamma-rec-sess 2>/dev/null
 
 # THE EXEMPTION'S REACH on a project spawn: it skips the requirement to be listed, never the role of a name the record DOES list
 mkrec 5 '{"projects/foo": {"gamma-rec-main": [true, "main"], "gamma-rec-test-role": [false, "back one"], "gamma-rec-probe-front": [true, "front one"]}}'; creset

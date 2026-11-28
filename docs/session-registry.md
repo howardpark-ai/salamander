@@ -22,7 +22,7 @@ stackshot is a [proposal](session-registry-contract-proposal.md); its sala-to-st
 
 - `id`: minted once, never reused. `name` and `pane` (the tmux session) are equal today. `aliases` are the names it had.
 - `lane`, `model`, `effort` are the tables' recorded values (`lanes.tsv`, `models.tsv`), empty where nothing is recorded.
-  `project` and `role` come from `spawn --project … --role …` (the page key as given, `front` or `back`), empty otherwise.
+  `project` and `role` come from `spawn --project … --role …` (the page key as given, `front` or `back`), empty otherwise. `spawn --role none` writes the project, no `role`, and `no_role` = `1`: a session to work with, on no agents map. `retire`, `forget` and the unregistered-agent report read the mark as an exemption from the agent gate; a row that later gets a role loses it.
 - `transcripts[0]` is the conversation the row was made with (`why`: `add`, `adopt`, or `import` from the migration; a row `spawn`
   made first has none until its claude is up). A later `add` of the same name with a new conversation appends one, and phase 2
   appends `clear`, `resume` and `start`. A `follow` records nothing: most of its lines were

@@ -184,7 +184,7 @@ lane_dry_line() {  # <session> → what the lane and model rows are, for the dry
     if [ -n "$m" ]; then dry "would drop its model row ($1 → $(printf '%s' "$m" | tr '\t' /)) from $SALA_MODELS"; else dry "no model row to drop"; fi
 }
 retire_gate_exempt() {  # → 0 when this session is on the closed exceptions list (common.sh, THE SPAWN GATE: a throwaway's name, a side session, sala's shell): stackshot is not asked
-    agent_gate_exempt "$name" "$(if side_is "$name"; then echo 1; else echo 0; fi)" 0
+    agent_gate_exempt "$name" "$(if side_is "$name"; then echo 1; else echo 0; fi)" 0 "$(_row_no_role "$name")"
 }
 retire_blind_warn() {  # → the loud line for a non-exempt session whose project could not be found because stackshot's project record could not answer: nobody was asked, the entry may stay on a project
     echo "⚠ stackshot was NOT asked to take '$name' off a project: no project is known for it and $RETIRE_PROJ_BLIND. If '$name' is a project agent its entry stays on the project's record: once the record is fresh, take it off with: python3 $(stackshot_client 2>/dev/null || echo '<stackshot client.py>') post project-agent-retire <project page key> $name --sender $SALA_RETIRE_SENDER"

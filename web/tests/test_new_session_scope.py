@@ -46,6 +46,13 @@ def calls(sala, which: str) -> list[dict]:
     return sala.ss.calls("/client/" + which)
 
 
+def as_back(browser, name: str, mandate: str = "Look after it") -> None:
+    """The form opens on the session choice (no agent role: nothing is added to the project). A flow that adds an agent to the project is a background agent's: pick it, wait for its name, give the mandate it needs."""
+    click(browser, 'input[name="ns-role"][value="back"]')
+    assert wait_for(browser, name_is(name)), ns(browser)
+    set_value(browser, "#ns-mandate", mandate)
+
+
 # ── the box ──────────────────────────────────────────────────────────────────
 def test_hidden_matches_show_below_a_divider_only_for_a_typed_query_and_a_note_page_is_not_offered(sala, served, browser):
     open_form(browser, served, scope="gamma")
@@ -86,26 +93,27 @@ def test_the_new_project_row_follows_the_typed_name_and_gives_way_to_a_project_t
     g = wait_order(browser, ["(empty)", "__new__"])
     assert g["rows"][-1]["text"] == '+ New project "Fresh Idea"fresh-idea', g["rows"]
     pick(browser, "__new__")
-    # the name is the one stackshot gives a new page's agents: <scope>-<slug>-main (-main for its first front agent, a random word otherwise)
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
+    # the form opens on the session choice (no agent role): the name is <scope>-<slug>-<word>, never -main, and no agent is added to the new project
+    assert wait_for(browser, name_is("beta-fresh-idea-pink")), ns(browser)
     g = ns(browser)
     assert g["rows"][-1]["sel"] == "true" and not g["submitDisabled"], g
     assert g["picked"] == ("Create will make fresh-idea (beta; its page is written through gbrain and can take a few minutes), "
-                           "add beta-fresh-idea-main to it, then start the session."), g["picked"]
-    click(browser, 'input[name="ns-role"][value="back"]')
+                           "then start the session."), g["picked"]
+    click(browser, 'input[name="ns-role"][value="back"]')   # a background agent is added to the new project too
     assert wait_for(browser, name_is("beta-fresh-idea-pink")), ns(browser)
-    click(browser, 'input[name="ns-role"][value="front"]')
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
+    assert "add beta-fresh-idea-pink to it" in ns(browser)["picked"], ns(browser)["picked"]
+    click(browser, 'input[name="ns-role"][value="none"]')
+    assert wait_for(browser, name_is("beta-fresh-idea-pink")), ns(browser)
     # typing more changes the project it would make; a slug that starts with the scope is its own name
     type_filter(browser, "beta docs 2")
-    assert wait_for(browser, name_is("beta-docs-2-main")), ns(browser)
+    assert wait_for(browser, name_is("beta-docs-2-pink")), ns(browser)
     assert "make docs-2 (beta" in ns(browser)["picked"]
     # example (a page dir too, here) makes example/<slug>
     set_scope(browser, "example")
     type_filter(browser, "New Box")
     wait_order(browser, ["(empty)", "__new__"])
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("example-new-box-main")), ns(browser)
+    assert wait_for(browser, name_is("example-new-box-pink")), ns(browser)
     assert "make new-box (example" in ns(browser)["picked"]
     # nothing but Korean has no slug: the row asks for a name, and Create stays off
     type_filter(browser, "한글 이름")
@@ -114,7 +122,7 @@ def test_the_new_project_row_follows_the_typed_name_and_gives_way_to_a_project_t
     # a name that is an existing project's key is that project: no new-project row, and the pick of a new one is dropped
     type_filter(browser, "New Box")
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("example-new-box-main")), ns(browser)   # the name comes from sala a moment after the pick; Create waits for it
+    assert wait_for(browser, name_is("example-new-box-pink")), ns(browser)   # the name comes from sala a moment after the pick; Create waits for it
     assert not ns(browser)["submitDisabled"]
     sala.ss.rows.append(FS.row("example/new-box", "New Box", "example"))
     set_scope(browser, "beta")
@@ -272,14 +280,14 @@ def test_a_project_picked_under_all_is_made_ready_in_its_own_scope(sala, served,
     wait_order(browser, ["--divider--", "projects/beta-api"])
     pick(browser, "projects/beta-api")
     # the agent name takes the row's scope (beta), not "all"
-    assert wait_for(browser, name_is("beta-api-main")), ns(browser)
-    assert ns(browser)["picked"] == "Create will list api again, add beta-api-main to it, then start the session."
+    as_back(browser, "beta-api-pink")
+    assert ns(browser)["picked"] == "Create will list api again, add beta-api-pink to it, then start the session."
     click(browser, "#ns-submit")
     g = wait_state(browser, "queued", 20.0)
-    assert g["steps"] == ["List the project againdone", "Add beta-api-main to the projectdone", "Start the sessiondone"], g["steps"]
+    assert g["steps"] == ["List the project againdone", "Add beta-api-pink to the projectdone", "Start the sessiondone"], g["steps"]
     (listed,) = calls(sala, "project-list")
     assert listed["body"] == {"key": sala.ss.find("projects/beta-api")["id"], "scope": "beta", "sender": "sala-web"}   # never "all"
-    assert calls(sala, "project") == [] and [r["argv"][2] for r in sala.spawns()] == ["beta-api-main"]
+    assert calls(sala, "project") == [] and [r["argv"][2] for r in sala.spawns()] == ["beta-api-pink"]
     # a listed project of another scope with agents: sala suggests its name, no extra step
     reopen(browser, served, scope="all")
     pick(browser, "projects/gamma-harbor")
@@ -314,33 +322,32 @@ def test_a_new_project_is_made_then_the_agent_added_then_the_session_queued_with
     type_filter(browser, "Fresh Idea")
     wait_order(browser, ["(empty)", "__new__"])
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
-    set_value(browser, "#ns-mandate", "# Fresh idea\nWork out whether the idea holds.")
+    as_back(browser, "beta-fresh-idea-pink", "# Fresh idea\nWork out whether the idea holds.")
     click(browser, "#ns-submit")
     # the make step is on: the button is off, the progress says what is happening and for how long, nothing later has run
     assert wait_for(browser, "document.querySelectorAll('#ns-status .ns-step').length === 3", 5.0), ns(browser)
     g = ns(browser)
-    assert g["pending"] and g["submitDisabled"] and g["state"] == "beta-fresh-idea-main: working…", g
+    assert g["pending"] and g["submitDisabled"] and g["state"] == "beta-fresh-idea-pink: working…", g
     assert g["steps"][0].startswith("Making the project page, which can take a few minutes (") and g["steps"][0].endswith("working"), g["steps"]
-    assert g["steps"][1:] == ["Add beta-fresh-idea-main to the projectwaiting", "Start the sessionwaiting"], g["steps"]
+    assert g["steps"][1:] == ["Add beta-fresh-idea-pink to the projectwaiting", "Start the sessionwaiting"], g["steps"]
     # a second press and a second submit event while it runs send nothing
     browser.evaluate("document.querySelector('#ns-submit').click(); document.querySelector('#ns-form').requestSubmit(); ''")
     time.sleep(1.5)
     assert len(calls(sala, "project")) == 1 and calls(sala, "project-agent") == [] and sala.spawns() == []
     assert any(f"({n} s)" in ns(browser)["steps"][0] for n in (1, 2, 3)), ns(browser)["steps"]   # the seconds count up
     g = wait_state(browser, "queued", 30.0)
-    assert g["state"] == "beta-fresh-idea-main: Queued" and not g["pending"] and g["submitDisabled"], g
-    assert g["steps"] == ["Make the project pagedone", "Add beta-fresh-idea-main to the projectdone", "Start the sessiondone"], g["steps"]
-    assert "front agent of projects/fresh-idea" in g["status"], g
+    assert g["state"] == "beta-fresh-idea-pink: Queued" and not g["pending"] and g["submitDisabled"], g
+    assert g["steps"] == ["Make the project pagedone", "Add beta-fresh-idea-pink to the projectdone", "Start the sessiondone"], g["steps"]
+    assert "back agent of projects/fresh-idea" in g["status"], g
     # exactly one page made, one agent added, one spawn, with the form's one label
     (made,) = calls(sala, "project")
     assert made["body"] == {"key": "projects/fresh-idea", "scope": "beta", "title": "Fresh Idea", "sender": "sala-web"}
     (added,) = calls(sala, "project-agent")
     pid = sala.ss.find("projects/fresh-idea")["id"]
-    assert added["body"] == {"project": pid, "name": "beta-fresh-idea-main", "role": "main", "front": True,
+    assert added["body"] == {"project": pid, "name": "beta-fresh-idea-pink", "role": "pink", "front": False,
                              "mandate": "Fresh idea", "sender": "sala-web"}   # the mandate's first line, its heading mark dropped
     (spawn,) = sala.spawns()
-    assert spawn["argv"][2:7] == ["beta-fresh-idea-main", "--project", "projects/fresh-idea", "--role", "front"]
+    assert spawn["argv"][2:7] == ["beta-fresh-idea-pink", "--project", "projects/fresh-idea", "--role", "back"]
     assert spawn["mandate"] == "# Fresh idea\nWork out whether the idea holds.\n"
     assert calls(sala, "project-list") == []   # a new project is listed by being made
     # stackshot says the page still owes the agent's line: the form records that and asks the owner for nothing
@@ -356,18 +363,18 @@ def test_a_hidden_project_is_listed_again_then_the_agent_added_then_the_session_
     type_filter(browser, "old kayak")
     wait_order(browser, ["--divider--", "projects/gamma-old-kayak", "__new__"])
     pick(browser, "projects/gamma-old-kayak")
-    assert wait_for(browser, name_is("gamma-old-kayak-main")), ns(browser)
-    assert ns(browser)["picked"] == "Create will list old-kayak again, add gamma-old-kayak-main to it, then start the session."
+    as_back(browser, "gamma-old-kayak-pink", "Old kayak work")
+    assert ns(browser)["picked"] == "Create will list old-kayak again, add gamma-old-kayak-pink to it, then start the session."
     hidden = sala.ss.find("projects/gamma-old-kayak")
     assert hidden["listed"] is False
     click(browser, "#ns-submit")
     g = wait_state(browser, "queued", 20.0)
-    assert g["steps"] == ["List the project againdone", "Add gamma-old-kayak-main to the projectdone", "Start the sessiondone"], g["steps"]
+    assert g["steps"] == ["List the project againdone", "Add gamma-old-kayak-pink to the projectdone", "Start the sessiondone"], g["steps"]
     (listed,) = calls(sala, "project-list")
     assert listed["body"] == {"key": hidden["id"], "scope": "gamma", "sender": "sala-web"}
     (added,) = calls(sala, "project-agent")
-    assert added["body"]["project"] == hidden["id"] and added["body"]["mandate"] == "front agent of gamma-old-kayak" and added["body"]["role"] == "main", added
-    assert calls(sala, "project") == [] and [r["argv"][2] for r in sala.spawns()] == ["gamma-old-kayak-main"]
+    assert added["body"]["project"] == hidden["id"] and added["body"]["mandate"] == "Old kayak work" and added["body"]["role"] == "pink", added
+    assert calls(sala, "project") == [] and [r["argv"][2] for r in sala.spawns()] == ["gamma-old-kayak-pink"]
     assert sala.ss.find("projects/gamma-old-kayak")["listed"] is True
 
 
@@ -375,11 +382,12 @@ def test_a_listed_project_whose_agent_is_listed_starts_with_no_extra_step(sala, 
     open_form(browser, served, scope="gamma")
     pick(browser, "projects/gamma-harbor")
     assert wait_for(browser, name_is("gamma-harbor-pink")), ns(browser)   # a random word: the project has agents
+    as_back(browser, "gamma-harbor-pink")
     set_value(browser, "#ns-name", "gamma-harbor-main")                 # the name the project lists already
     assert ns(browser)["picked"] == ""   # nothing to do before the session
     click(browser, "#ns-submit")
     g = wait_state(browser, "queued", 20.0)
-    assert g["steps"] == [] and "front agent of projects/gamma-harbor" in g["status"], g
+    assert g["steps"] == [] and "back agent of projects/gamma-harbor" in g["status"], g
     assert calls(sala, "project") == [] and calls(sala, "project-list") == [] and calls(sala, "project-agent") == []
 
 
@@ -388,10 +396,8 @@ def test_a_listed_project_with_no_agents_is_confirmed_listed_so_its_first_agent_
     # items has no such mark, so the form renews it first
     open_form(browser, served, scope="gamma")
     pick(browser, "projects/gamma-pantry")
-    assert wait_for(browser, name_is("gamma-pantry-main")), ns(browser)
-    click(browser, 'input[name="ns-role"][value="back"]')
     assert wait_for(browser, name_is("gamma-pantry-pink")), ns(browser)
-    set_value(browser, "#ns-mandate", "Prepare the tax papers\nsecond line")
+    as_back(browser, "gamma-pantry-pink", "Prepare the tax papers\nsecond line")
     click(browser, "#ns-submit")
     g = wait_state(browser, "queued", 20.0)
     assert g["steps"] == ["Confirm the project is listeddone", "Add gamma-pantry-pink to the projectdone", "Start the sessiondone"], g["steps"]
@@ -406,19 +412,19 @@ def test_a_new_project_that_exists_already_says_so_and_changes_nothing_else(sala
     type_filter(browser, "Fresh Idea")
     wait_order(browser, ["(empty)", "__new__"])
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
+    as_back(browser, "beta-fresh-idea-pink")
     sala.ss.rows.append(FS.row("projects/fresh-idea", "Fresh idea", "beta", listed=False))   # made by someone else a moment ago
     click(browser, "#ns-submit")
-    g = wait_state(browser, "beta-fresh-idea-main: stopped", 20.0)
+    g = wait_state(browser, "beta-fresh-idea-pink: stopped", 20.0)
     assert "projects/fresh-idea exists already" in g["status"] and "pick it from the list" in g["status"], g
-    assert g["steps"][0].endswith("failed") and g["steps"][1:] == ["Add beta-fresh-idea-main to the projectwaiting", "Start the sessionwaiting"], g["steps"]
+    assert g["steps"][0].endswith("failed") and g["steps"][1:] == ["Add beta-fresh-idea-pink to the projectwaiting", "Start the sessionwaiting"], g["steps"]
     assert "already exists" in g["pre"], g
     assert calls(sala, "project-agent") == [] and sala.spawns() == []
     # the box now finds the page under the divider (it is hidden: nobody listed it), and the typed name is that project, not a new one
     g = wait_order(browser, ["--divider--", "projects/fresh-idea"])
     assert g["submitDisabled"], g
     pick(browser, "projects/fresh-idea")
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
+    as_back(browser, "beta-fresh-idea-pink")
     assert ns(browser)["picked"].startswith("Create will list fresh-idea again")
 
 
@@ -428,9 +434,9 @@ def test_a_project_being_made_by_another_request_is_said_as_a_wait_and_not_as_a_
     type_filter(browser, "Fresh Idea")
     wait_order(browser, ["(empty)", "__new__"])
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
+    as_back(browser, "beta-fresh-idea-pink")
     click(browser, "#ns-submit")
-    g = wait_state(browser, "beta-fresh-idea-main: stopped", 20.0)
+    g = wait_state(browser, "beta-fresh-idea-pink: stopped", 20.0)
     assert "is being made right now by another request" in g["status"] and "exists already" not in g["status"], g
     assert calls(sala, "project-agent") == [] and sala.spawns() == []
     assert not ns(browser)["submitDisabled"], g   # the form is usable again for a retry
@@ -442,33 +448,33 @@ def test_gbrain_refusing_the_page_stops_the_create_and_a_retry_goes_on_from_the_
     type_filter(browser, "Fresh Idea")
     wait_order(browser, ["(empty)", "__new__"])
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("beta-fresh-idea-main")), ns(browser)
+    as_back(browser, "beta-fresh-idea-pink")
     click(browser, "#ns-submit")
-    g = wait_state(browser, "beta-fresh-idea-main: stopped", 20.0)
+    g = wait_state(browser, "beta-fresh-idea-pink: stopped", 20.0)
     assert "gbrain did not take the new page" in g["status"] and "Create again to retry" in g["status"] and "no room" in g["pre"], g
     assert calls(sala, "project-agent") == [] and sala.spawns() == []
     # the page is made on the retry; then stackshot refuses the agent (not something the form can fix): it stops there, the page done
     sala.ss.new_reply = None
     sala.ss.agent_reply = (403, {"error": "projects/fresh-idea is retired or hidden: list it again first"})
     click(browser, "#ns-submit")
-    g = wait_state(browser, "beta-fresh-idea-main: stopped", 20.0)
-    assert g["steps"] == ["Make the project pagedone", "Add beta-fresh-idea-main to the projectfailed", "Start the sessionwaiting"], g["steps"]
+    g = wait_state(browser, "beta-fresh-idea-pink: stopped", 20.0)
+    assert g["steps"] == ["Make the project pagedone", "Add beta-fresh-idea-pink to the projectfailed", "Start the sessionwaiting"], g["steps"]
     assert "projects/fresh-idea is retired or hidden, so stackshot will not add an agent to it" in g["status"] and "Create again to go on from the failed step" in g["status"], g
     assert len(calls(sala, "project")) == 2 and sala.spawns() == []
     # the retry after that does not make the page again
     sala.ss.agent_reply = None
     click(browser, "#ns-submit")
-    g = wait_state(browser, "beta-fresh-idea-main: queued", 20.0)
+    g = wait_state(browser, "beta-fresh-idea-pink: queued", 20.0)
     assert len(calls(sala, "project")) == 2, "the page was made a third time"
-    assert len(calls(sala, "project-agent")) == 2 and [r["argv"][2] for r in sala.spawns()] == ["beta-fresh-idea-main"]
-    assert g["steps"] == ["Make the project pagedone", "Add beta-fresh-idea-main to the projectdone", "Start the sessiondone"], g["steps"]
+    assert len(calls(sala, "project-agent")) == 2 and [r["argv"][2] for r in sala.spawns()] == ["beta-fresh-idea-pink"]
+    assert g["steps"] == ["Make the project pagedone", "Add beta-fresh-idea-pink to the projectdone", "Start the sessiondone"], g["steps"]
 
 
 def test_a_new_agent_on_a_project_that_has_agents_is_added_and_queued(sala, served, browser):
     # stackshot: the old keeper-or-front-agent refusal is gone; the form adds the agent and starts the session
     open_form(browser, served, scope="gamma")
     pick(browser, "projects/gamma-harbor")
-    assert wait_for(browser, name_is("gamma-harbor-pink")), ns(browser)
+    as_back(browser, "gamma-harbor-pink")
     set_value(browser, "#ns-name", "gamma-harbor-extra")
     click(browser, "#ns-submit")
     g = wait_state(browser, "gamma-harbor-extra: queued", 20.0)
@@ -480,7 +486,7 @@ def test_a_taken_name_is_said_in_plain_words_and_nothing_is_queued(sala, served,
     sala.ss.pending_names.add("gamma-harbor-extra")
     open_form(browser, served, scope="gamma")
     pick(browser, "projects/gamma-harbor")
-    assert wait_for(browser, name_is("gamma-harbor-pink")), ns(browser)
+    as_back(browser, "gamma-harbor-pink")
     set_value(browser, "#ns-name", "gamma-harbor-extra")
     click(browser, "#ns-submit")
     g = wait_state(browser, "gamma-harbor-extra: stopped", 20.0)
@@ -493,7 +499,7 @@ def test_a_project_that_turns_out_retired_or_hidden_is_said_in_plain_words(sala,
     sala.ss.agent_reply = (403, {"error": "projects/gamma-harbor is retired or hidden: list it again first"})
     open_form(browser, served, scope="gamma")
     pick(browser, "projects/gamma-harbor")
-    assert wait_for(browser, name_is("gamma-harbor-pink")), ns(browser)
+    as_back(browser, "gamma-harbor-pink")
     set_value(browser, "#ns-name", "gamma-harbor-extra")
     click(browser, "#ns-submit")
     g = wait_state(browser, "gamma-harbor-extra: stopped", 20.0)
@@ -506,7 +512,7 @@ def test_a_spawn_that_does_not_see_the_new_agent_yet_is_asked_again_and_then_suc
     sala.mode("exit3")
     open_form(browser, served, scope="gamma")
     pick(browser, "projects/gamma-pantry")
-    assert wait_for(browser, name_is("gamma-pantry-main")), ns(browser)
+    as_back(browser, "gamma-pantry-pink")
     click(browser, "#ns-submit")
     assert wait_for(browser, "document.querySelector('#ns-status .ns-step.waiting') !== null", 15.0), ns(browser)
     assert "has not seen the change yet" in ns(browser)["status"]
@@ -529,10 +535,10 @@ def test_stackshot_being_down_is_said_for_the_list_and_for_create(sala, served, 
     type_filter(browser, "Fresh Idea")
     wait_order(browser, ["(empty)", "__new__"])
     pick(browser, "__new__")
-    assert wait_for(browser, name_is("gamma-fresh-idea-main")), ns(browser)
+    as_back(browser, "gamma-fresh-idea-pink")
     sala.ss.close()
     click(browser, "#ns-submit")
-    g = wait_state(browser, "gamma-fresh-idea-main: stopped", 20.0)
+    g = wait_state(browser, "gamma-fresh-idea-pink: stopped", 20.0)
     assert g["steps"][0].endswith("failed") and "stackshot unreachable" in g["status"] and sala.spawns() == [], g
 
 
@@ -544,7 +550,7 @@ def test_the_scope_and_the_box_fit_a_phone_and_a_desktop_and_a_long_refusal_neve
     type_filter(browser, "kayak")
     wait_order(browser, ["--divider--", "projects/gamma-old-kayak", "__new__"])
     pick(browser, "projects/gamma-old-kayak")
-    assert wait_for(browser, name_is("gamma-old-kayak-main")), ns(browser)
+    as_back(browser, "gamma-old-kayak-pink")
     set_value(browser, "#ns-name", "gamma-old-kayak-" + "x" * 30)
     click(browser, "#ns-submit")
     wait_state(browser, "stopped", 20.0)

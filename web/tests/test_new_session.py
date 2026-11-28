@@ -407,6 +407,24 @@ def test_the_argv_and_the_mandate_file_carry_what_the_form_sent(env):
     assert r.status_code == 202 and s.spawns()[-1]["mandate"] == "a\nb\nc\n"
 
 
+def test_a_session_with_no_agent_role_reaches_the_queue_as_role_none(env):
+    """The form's session choice: role none goes to `op spawn --role none`, needs no mandate, and its words say it is a session with no agent role."""
+    c, s = env["client"], env["sala"]
+    r = c.post("/api/spawn", json={"project": "projects/gamma-harbor", "role": "none", "name": "gamma-harbor-fox"})
+    assert r.status_code == 202, r.text
+    argv = s.spawns()[-1]["argv"]
+    assert argv[:7] == ["op", "spawn", "gamma-harbor-fox", "--project", "projects/gamma-harbor", "--role", "none"] and "--mandate" not in argv, argv
+    assert " new session (no agent role) gamma-harbor-fox in projects/gamma-harbor, " in argv[-1], argv[-1]
+    assert r.json()["role"] == "none"
+    # the suggestion is asked of sala with the same role, and is never -main: sala answers a word for it
+    d = c.get("/api/spawn/suggest", params={"project": "projects/gamma-harbor", "role": "none", "prefix": "gamma-harbor"}).json()
+    assert d["name"].startswith("gamma-harbor-") and d["name"] != "gamma-harbor-main", d
+    assert s.records()[-1]["argv"][:2] == ["spawn", "--suggest-name"] and "none" in s.records()[-1]["argv"]
+    # a word that is no role is still refused here
+    r = c.post("/api/spawn", json={"project": "projects/gamma-harbor", "role": "lead", "name": "gamma-harbor-fox"})
+    assert r.status_code == 400 and "front, back or none" in r.json()["error"], r.text
+
+
 def test_what_the_queue_answers_reaches_the_page_as_it_is(env, monkeypatch):
     c, s = env["client"], env["sala"]
     body = {**GOOD, "mandate": "x"}
@@ -525,7 +543,7 @@ def test_the_markup_and_the_rules_the_code_keeps():
     assert re.search(r'<section id="new-pane" class="pane"', INDEX) and 'new-scrim' not in INDEX and 'new-sheet' not in APP_JS
     assert '<form id="ns-form" class="np ns-form" novalidate' in INDEX
     assert '<textarea id="ns-mandate"' in INDEX and '<button id="ns-submit" class="ns-submit" type="submit" disabled data-i18n="ui.ns.create">' in INDEX
-    assert re.search(r'<input type="radio" name="ns-role" value="front" checked>', INDEX)
+    assert re.search(r'<input type="radio" name="ns-role" value="none" checked>', INDEX)
     section = APP_JS[APP_JS.index("/* ---------- new session"):APP_JS.index("/* ---------- selection, address")]
     assert ".innerHTML" not in section and "insertAdjacentHTML" not in section   # the queue's words are shown as text only
     assert 'nsEl.mandate.addEventListener("keydown"' not in section            # Enter and Tab in the mandate stay the browser's
@@ -672,7 +690,7 @@ def test_the_button_opens_a_page_in_the_main_area_at_phone_and_desktop_widths(sa
     assert g["open"] and g["current"] == "page" and g["hash"] == "#new" and g["active"] == "new-pane", g
     assert g["box"]["left"] <= 1 and g["box"]["width"] >= g["vw"] - 2 and abs(g["box"]["bottom"] - g["vh"]) <= 1 and g["box"]["top"] > 0, g   # the main area: below the title bar
     assert g["docScroll"] <= g["vw"] and g["bodyScroll"] <= g["vw"] and g["formScroll"] <= g["formClient"], g
-    assert g["role"] == "front" and g["submitDisabled"] and not g["sideOpen"], g
+    assert g["role"] == "none" and g["submitDisabled"] and not g["sideOpen"], g
     assert browser.evaluate("getComputedStyle(document.querySelector('#composer')).display") == "none"
     assert browser.evaluate("document.querySelector('#title .name').textContent") == "New session"
     assert wait_for(browser, ROWS_LOADED, 10.0)
@@ -764,7 +782,7 @@ def test_the_scopes_the_one_box_the_role_and_the_suggested_name(sala, served, br
     key(browser, "Enter", "Enter", 13, "\r")
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-harbor-pink'"), ns(browser)
     g = ns(browser)
-    assert g["rows"][0]["sel"] == "true" and not g["submitDisabled"] and g["mandateHint"] == "optional for a front agent", g
+    assert g["rows"][0]["sel"] == "true" and not g["submitDisabled"] and g["mandateHint"] == "optional for a session", g
     assert sala.spawns() == []
     unfold(browser)   # the Enter above chose a project, which folded the box
     set_value(browser, "#ns-filter", "nothing-like-this")
@@ -782,7 +800,7 @@ def test_the_scopes_the_one_box_the_role_and_the_suggested_name(sala, served, br
     assert not g["submitDisabled"] and g["mandateErr"] == "", g
     # a name the owner edited stays through a role change; another project replaces it with sala's suggestion again
     set_value(browser, "#ns-name", "gamma-harbor-watch")
-    click(browser, 'input[name="ns-role"][value="front"]')
+    click(browser, 'input[name="ns-role"][value="none"]')
     time.sleep(0.5)
     g = ns(browser)
     assert g["name"] == "gamma-harbor-watch" and not g["submitDisabled"], g
@@ -792,8 +810,8 @@ def test_the_scopes_the_one_box_the_role_and_the_suggested_name(sala, served, br
     pick(browser, "projects/demo")
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'demo-pink'"), ns(browser)
     assert [r["argv"][3:] for r in sala.records() if r["argv"][:2] == ["spawn", "--suggest-name"]] == \
-        [["projects/gamma-harbor", "--role", "front", "--prefix", "gamma-harbor"], ["projects/gamma-harbor", "--role", "back", "--prefix", "gamma-harbor"],
-         ["projects/demo", "--role", "front", "--prefix", "demo"]]   # the project's real prefix goes along
+        [["projects/gamma-harbor", "--role", "none", "--prefix", "gamma-harbor"], ["projects/gamma-harbor", "--role", "back", "--prefix", "gamma-harbor"],
+         ["projects/demo", "--role", "none", "--prefix", "demo"]]   # the project's real prefix goes along
     assert sala.ss.calls("/client/project") == [] and sala.ss.calls("/client/project-agent") == []   # looking changes nothing
 
 
@@ -834,13 +852,13 @@ def test_a_submit_queues_the_spawn_and_the_link_appears_when_the_session_is_in_t
     key(browser, "Tab", "Tab", 9)
     g = ns(browser)
     assert g["mandate"] == "abc 한\n- 둘째 줄 \"따옴표\" `x` $(id)" and g["active"] != "ns-mandate" and "\t" not in g["mandate"], g
-    assert sala.spawns() == [] and not g["submitDisabled"] and g["role"] == "front", g
+    assert sala.spawns() == [] and not g["submitDisabled"] and g["role"] == "none", g
     click(browser, "#ns-submit")
     g = wait_state(browser, "queued")
     assert g["state"] == "gamma-harbor-pink: Queued" and f"Operation {OP}" in g["status"] and "Queued as op" not in g["status"], g
     assert not g["pending"] and g["submitDisabled"] and g["submitText"] == "Starting…", g   # Start works until the session is ready or has failed
     (rec,) = sala.spawns()
-    assert rec["argv"][2:7] == ["gamma-harbor-pink", "--project", "projects/gamma-harbor", "--role", "front"]
+    assert rec["argv"][2:7] == ["gamma-harbor-pink", "--project", "projects/gamma-harbor", "--role", "none"]
     assert rec["mandate"] == "abc 한\n- 둘째 줄 \"따옴표\" `x` $(id)\n" and "--lane" not in rec["argv"] and "--model" not in rec["argv"]
     # the page left and opened again still shows it
     click(browser, "#side-ovw")
@@ -880,6 +898,7 @@ def test_a_name_the_queue_does_not_see_listed_is_said_in_words_and_the_add_to_pa
     open_form(browser, served, scope="beta")
     pick(browser, "projects/beta-web")
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'beta-web-pink'")
+    click(browser, 'input[name="ns-role"][value="back"]')   # a background agent: the create adds it to the project first (a session with no agent role adds nothing)
     set_value(browser, "#ns-mandate", "press")
     click(browser, "#ns-submit")
     g = wait_state(browser, "beta-web-pink: not queued", 25.0)   # the add step just changed stackshot's record: the form asks again 4, 4 and 6 s later first
@@ -889,7 +908,7 @@ def test_a_name_the_queue_does_not_see_listed_is_said_in_words_and_the_add_to_pa
     # the suggestion is a new agent's name (a random word), not the project's -main: the form adds it to the project
     # first, in the project's own name for it, and only then asks the queue
     (added,) = sala.ss.calls("/client/project-agent")
-    assert added["body"]["name"] == "beta-web-pink" and added["body"]["front"] is True and added["body"]["sender"] == "sala-web", added
+    assert added["body"]["name"] == "beta-web-pink" and added["body"]["front"] is False and added["body"]["sender"] == "sala-web", added
     # a refused spawn leaves no mandate file
     assert not list(served["settings"].mandates_dir.iterdir())
     assert not ns(browser)["submitDisabled"]   # the form is usable again, for the retry

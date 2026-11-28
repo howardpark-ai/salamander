@@ -1405,6 +1405,11 @@ _row_project() {  # <session|id> → the `project` of its live registry row (std
 try: print(json.load(sys.stdin).get("project") or "")
 except Exception: pass' 2>/dev/null
 }
+_row_no_role() {  # <session|id> → 1 when its live registry row is a session with no agent role (spawn --role none), else 0 (stdout)
+    sessions_py resolve "$1" --live --json 2>/dev/null | python3 -c 'import json,sys
+try: print("1" if json.load(sys.stdin).get("no_role") else "0")
+except Exception: print("0")' 2>/dev/null
+}
 # THE PROJECT FALLBACK (rows `migrate` imported carry `project: None`, and half the retires logged "no project known"): with no project on the row or a
 # side record, the project is the one stackshot's roles list gives the agent's name: `client.py get roles` ({"sessions": {name: {project, role}}}, under
 # `timeout`, stdin closed: record_file_r, below), else, ONLY when stackshot did not answer, the file stackshot's puller writes from the same list (SALA_ROLES_FILE, default ~/.local/state/stackshot/roles.json), its age in the source line.
@@ -1757,11 +1762,12 @@ PY
 # *-side-* name), a spawn's auto-generated throwaway name, and a throwaway's name (scratch-*, *-check-*, *-test-*, *-probe-*). Everything else that is not on the record is refused
 # with the reason and the register command. Revive, recycle, adopt, restore and the relaunch paths never come here: they resume a session that already exists.
 throwaway_name_p() { case "$1" in scratch-*|*-check-*|*-test-*|*-probe-*) return 0 ;; esac; return 1; }   # <name> → 0 for a name a throwaway carries by habit (op.sh's no-words retire door shares this list)
-agent_gate_exempt() {  # <name> <side 0|1> <generated 0|1> → rc 0 exempt (stdout: the class, in words) · rc 1 the gate applies
+agent_gate_exempt() {  # <name> <side 0|1> <generated 0|1> [<no role 0|1>] → rc 0 exempt (stdout: the class, in words) · rc 1 the gate applies
     local n=$1
     if is_shell_session "$n"; then echo "sala's own shell session"; return 0; fi
     if [ "${2:-0}" = 1 ] || [[ $n == *-side-?* ]]; then echo "a side session"; return 0; fi
     if [ "${3:-0}" = 1 ]; then echo "an auto-generated throwaway"; return 0; fi
+    if [ "${4:-0}" = 1 ]; then echo "a session with no agent role"; return 0; fi
     if throwaway_name_p "$n"; then echo "a throwaway's name (scratch-*, *-check-*, *-test-*, *-probe-*)"; return 0; fi
     return 1
 }

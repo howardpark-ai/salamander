@@ -567,6 +567,8 @@ row's far right (after the ⋯ when that shows). Each turn that ends in a reply 
 yet. Above 9 it reads **9+**. A folded project or scope header carries the total of the sessions inside it (9+ above 9
 there too). The chat session's entry (*The chat session in sala's own view*, below) wears the same pill at its far right, after its red waiting count, and the Unread total still leaves that session out. The open session never has one, and background agents never get one, nor does a session with no project or a
 quick session (only stackshot's role `front` counts). The pill is 18 px tall, at least 20 px wide, 11 px type at weight
+there too). The open session never has one, and background agents never get one, nor does a session with no project or a
+quick session (only stackshot's role `front` counts, and a session with a project and no role at all: the owner's own, made by the form's *session* choice). The pill is 18 px tall, at least 20 px wide, 11 px type at weight
 600, `--accent-text` on `--accent` (white on the light orange, the dark panel colour on the dark one, 5.7:1 and 6.5:1); its `aria-label` reads "3 unread replies in <session>" ("More than 9 unread replies in ..."
 above 9). The server decides, so the phone and the desktop agree (`unread.py`): `unread_count` is the number of replies in
 the session's transcript newer than its read marker. A reply is the text of a turn that ended (`transcript._ends_turn`): a
@@ -1192,7 +1194,7 @@ project page, the lane must be able to launch, one live session per name). What 
   description and an arrow; the arrow opens the box again, and choosing another project folds it again, so on a phone the form
   below is in view. A scope switch unfolds it.
   Nothing else is asked of the owner: scope, project, the agent's role and name (and mandate), Create.
-- **Role**: `front` (a session the owner talks to; the default) or `back` (a background agent).
+- **Role**: `session` (a session the owner works with; the default: sent as role `none`, no agent role: nothing is added to the project's agents map and stackshot is not asked, it starts in the home folder with the front rules, and its row carries the project and no role, so the sidebar, the unread count and the default search show it as they show a front agent) or `back` (a project's lead, a background agent that starts in the lead's folder). With `session` the *agent* step below is skipped and the name is never `-main`.
 - **Name** (-main is suggested only when a new project is created, otherwise a random name such as -pink): sala's suggestion (`sala spawn --suggest-name … --prefix <p>`, asked again when the project or the role changes).
   The prefix is the project's **real** one: its main agent's name without `-main` (`projects/harbor`, listed under lab, whose
   main agent is `harbor-main`, has the prefix `harbor`, not `lab-harbor`), else what its agents' names share, else stackshot's rule for a page's first agent
@@ -1260,7 +1262,7 @@ stackshot's `post project-agent` command (the queue no longer asks anyone to edi
 passes them on in `block`, but nothing shows it.
 
 The spawn (`POST /api/spawn`, one in flight at a time, the button disabled meanwhile) runs, as an argv list and
-never through a shell, `sala op spawn NAME --project <key> --role front|back [--mandate FILE] [--lane L]
+never through a shell, `sala op spawn NAME --project <key> --role front|back|none [--mandate FILE] [--lane L]
 [--model M] [--effort E] --from sala-web --words "the owner, via the sala web form: new <role> <name> in <project>,
 <HH:MM Www Mon Dth> <zone label>"`. The mandate never goes on the command line: it is written to `state_dir/mandates/
 <random>-<name>.md` (0600) and that path is the `--mandate`; the queue passes a readable file as it is and the

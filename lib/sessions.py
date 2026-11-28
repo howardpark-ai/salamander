@@ -14,7 +14,7 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
   dual add|adopt SESSION UUID NAME CWD [--lane L] [--model M] [--effort E]   the pane map took an add/adopt
   dual rename OLD NEW UUID NAME CWD                                          … a rename (the id stays, the old name becomes an alias)
   dual retire SESSION [NAME]                                                 … a retire (state=retired; the row stays)
-  set SESSION key=value… [--mint UUID,NAME,CWD,PANE]                         copy fields into the live row (lane, model, effort, project, role, surface, side*, spawned_by, throwaway);
+  set SESSION key=value… [--mint UUID,NAME,CWD,PANE]                         copy fields into the live row (lane, model, effort, project, role, surface, side*, spawned_by, throwaway, no_role);
                                                                              a project, role or side value clears the throwaway tag
   prepare NAME PANE CWD [--lane L] [--model M] [--effort E]                  spawn: the live row of NAME (made now, without a conversation, if
                                                                              there is none) → its id on stdout, exported to the new pane
@@ -88,7 +88,9 @@ import lanewords   # the lane words (lib/lanewords.py): an old word is read as t
 # throwaway: "1" on a row a bare `sala spawn` made (no project, no role, no side flag); `sala op retire NAME --from
 # ANY` takes no --words for a row that carries it, whoever started it (lib/op.sh); unpublished too. Cleared by `set`/`tag` the moment the row gets a
 # project, a role or a side mark, so a tag never outlives the row being a throwaway.
-FIELDS = ("lane", "model", "effort", "project", "role", "side", "side_origin", "side_item", "side_at", "spawned_by", "throwaway")
+# no_role: "1" on a row `spawn --project K --role none` made, a session the owner works with that is on no project's agents map (no role, not listed, the
+# gate and the unregistered-agent watch skip it); unpublished. Cleared the moment the row gets a role.
+FIELDS = ("lane", "model", "effort", "project", "role", "side", "side_origin", "side_item", "side_at", "spawned_by", "throwaway", "no_role")
 UNTAGGING = ("project", "role", "side")   # a non-empty value for one of these ends the row's life as a throwaway
 # surface: where a front agent talks with the owner. Absent means `sala` (a pane the owner reads in sala); `slack` is an agent that answers
 # his Slack app messages. A row stores the field only when it is slack (like stackshot's project record, `agents.<name>.surface`), so no
@@ -245,7 +247,7 @@ class Registry:
     def mint(self, name, pane, uuid_, cwd, why, **fields):
         rid = str(uuid.uuid4())
         row = {"id": rid, "name": name, "project": None, "role": None, "lane": None, "model": None, "effort": None,
-               "side": None, "side_origin": None, "side_item": None, "side_at": None, "spawned_by": None, "throwaway": None, "pane": pane or name, "cwd": cwd or None, "machine": self.machine, "created": now(), "state": "live",
+               "side": None, "side_origin": None, "side_item": None, "side_at": None, "spawned_by": None, "throwaway": None, "no_role": None, "pane": pane or name, "cwd": cwd or None, "machine": self.machine, "created": now(), "state": "live",
                "aliases": [], "transcripts": []}
         for k in FIELDS:
             if fields.get(k) not in (None, ""):
@@ -359,6 +361,9 @@ def cmd_set(R, a):
     if row.get("throwaway") and any(row.get(k) for k in UNTAGGING):   # the row is an agent or a side session now: no longer a throwaway
         ch.append("throwaway %s -> None" % row["throwaway"])
         row["throwaway"] = None
+    if row.get("no_role") and row.get("role"):   # a role was given: the row is an agent now, no longer a session with none
+        ch.append("no_role %s -> None" % row["no_role"])
+        row["no_role"] = None
     if ch:
         R.dirty = True
         R.note("set", sess, row["id"], "; ".join(ch))
@@ -503,6 +508,10 @@ def apply_tag(R, row, proj, role, dry_run, surface=None):
         ch.append("throwaway %s -> None" % row["throwaway"])
         if not dry_run:
             row["throwaway"] = None
+    if row.get("no_role") and row.get("role") and ch:
+        ch.append("no_role %s -> None" % row["no_role"])
+        if not dry_run:
+            row["no_role"] = None
     if ch and not dry_run:
         R.dirty = True
         R.note("tag", row["name"], row["id"], "; ".join(ch))

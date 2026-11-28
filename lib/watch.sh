@@ -1380,15 +1380,15 @@ unreg_due() {  # <state key> <now> → rc 0 when a post is due (first seen at le
     [ "$last" = 0 ] || [ $((now - last)) -ge "$SALA_UNREGISTERED_BACKOFF" ] || return 1
     st_set "$k" "$first:$now"; return 0
 }
-unreg_tag_exempt() {  # <session> → rc 0 when its registry row tags it a side session or an auto-generated throwaway (the exceptions agent_gate_exempt takes as arguments); the one python process of this watch, asked only when the record has no answer for the pane
+unreg_tag_exempt() {  # <session> → rc 0 when its registry row tags it a side session, an auto-generated throwaway or a session with no agent role (the exceptions agent_gate_exempt takes as arguments); the one python process of this watch, asked only when the record has no answer for the pane
     local row side tw
     sessions_on || return 1
     row=$(sessions_py resolve "$1" --live --json 2>/dev/null | python3 -I -c 'import json,sys
 try: r=json.load(sys.stdin)
 except Exception: sys.exit(0)
-print("%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else "0"))' 2>/dev/null)
-    IFS=$'\t' read -r side tw <<< "$row"
-    agent_gate_exempt "$1" "${side:-0}" "${tw:-0}" >/dev/null
+print("%s\t%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else "0", "1" if r.get("no_role") else "0"))' 2>/dev/null)
+    IFS=$'\t' read -r side tw nr <<< "$row"
+    agent_gate_exempt "$1" "${side:-0}" "${tw:-0}" "${nr:-0}" >/dev/null
 }
 unregistered_tick() {
     case "$SALA_UNREGISTERED_CHECK" in off|no|false|0) return 0;; esac
