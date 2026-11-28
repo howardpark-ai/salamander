@@ -21,7 +21,7 @@ SALA_CONFIG="${SALA_CONFIG:-$HOME/.config/salamander/config}"
 : "${SALA_RC_CAPACITY:=32}"                       # served sessions (CLI default 32)
 : "${SALA_RC_RESTART_DELAY:=30}"                  # seconds between server relaunches
 : "${SALA_TZ:=}"                                  # timezone for names/logs and every time sala shows (an IANA name); empty = this machine's local time
-: "${SALA_BACK_CWD:=}"                            # the background brief's folder: `spawn --role back` starts there without --cwd (empty = $HOME), and every wake and relaunch of a project's back agent runs there (empty = it keeps its folder; back_cwd_r)
+: "${SALA_BACK_CWD:=}"                            # the background brief's folder: `spawn --role back` starts there without --cwd (empty = $HOME), and every wake and relaunch of a project's back agent runs there (empty = it keeps its folder; back_cwd_r; the exception is under THE FOLDER OF A BACK AGENT)
 : "${SALA_SLACK_CWD:=}"                           # where `spawn --role front --surface slack` starts without --cwd (the directory of the Slack brief); empty = the spawn is refused (no fallback)
 : "${SALA_SCOPES:=}"                              # the scopes sessions are named by (<scope>-<project>-…), space-separated; empty = none. The web UI takes them from this first, and from stackshot's own settings file only when this is empty or unset
 : "${SALA_DEFAULT_SCOPE:=}"                       # the scope a page outside every scope's directory is named in; empty = the first of SALA_SCOPES
@@ -3797,7 +3797,7 @@ sidecar_uuid_for_session() { local _u; [ -r "$SALA_SIDECAR" ] || return 1; _tsv_
 #   follow  the ONE change an observation may make: the live claude in a mapped session reports a different conversation
 #           than the row (a /clear, a hand --resume); write_sidecar (revive --save-map) applies it from the live registry,
 #           unless another row carries that conversation (refused: one conversation, one row). The same op writes the
-#           folder a caller named for a relaunch (`revive --cwd DIR`, `wake --cwd DIR`; ledger_cwd below)
+#           folder a caller named for a relaunch (`revive --cwd DIR`, `wake --cwd DIR`) or a back agent's role gives (ledger_cwd below)
 # and only on the fleet's tmux server (see THE FLEET'S TMUX SERVER below).
 # Every write goes through ledger_write: flock on the map's .lock (fd 6; 8 is the inbox lock, 9 the recycle lock), a temp
 # file next to the map (same filesystem, so the mv is atomic, and no /tmp quota), a failed write aborts without touching
@@ -3950,7 +3950,8 @@ _ledger_unfreeze_locked() {  # <why> — under the lock
 # --role back`) must start in the background brief's folder to work by its rules. Every start of an existing conversation (revive and all that
 # goes through it: wake, recycle, lane and model moves, the boot hook, the retry worker, the self-worker; a recreated session: restore_check;
 # unpark) asks back_cwd_r, which answers from the role the session holds AT THAT MOMENT, so a later tag or setting change needs no rewrite of
-# the pane map. `--cwd` wins. The CLI resumes a conversation by its id from another folder and keeps writing its transcript where it started
+# the pane map. `--cwd` wins. One resume does not ask: an sdk-lane pane resuming in place after an API credit refusal (lib/sdk-pane.sh
+# exec_line) stays in the folder it runs in until the next relaunch. The CLI resumes a conversation by its id from another folder and keeps writing its transcript where it started
 # (transcript_dir).
 relaunch_dir_ok() {  # <dir> → 0 when a relaunch can be put in it and a row can carry it; 1 with the reason in RD_WHY
     RD_WHY=""

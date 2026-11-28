@@ -458,7 +458,7 @@ while [ $# -gt 0 ]; do
         -h|--help) sed -n 's/^#   \(salamander revive .*\)/usage: \1/p' "$SALA_BIN"
                    echo "  (no option) every pane on an older CLI · --force: every idle pane · --only NAME: just that session"
                    echo "  --cwd DIR (with exactly one --only NAME; an absolute, existing, readable directory): the relaunch is made in DIR (a missing tmux session is created there)"
-                   echo "  and, once the claude is up, DIR is written into the session's pane-map row, so a later restore starts there; without it only a back agent's relaunch writes a folder."
+                   echo "  and, once the claude is up, DIR is written into the session's pane-map row, so a later restore starts there (a back agent's: see below); without it only a back agent's relaunch writes a folder."
                    echo "  with no --cwd, a project's back agent is relaunched in SALA_BACK_CWD when that names a directory; every other session keeps its folder"
                    echo "  A live claude on the current version needs --force too; a --cwd run is never retried or deferred"
                    echo "  every plan says \"lane: <runs on now> → <relaunched on>\"; a pane with no lane row that runs on another lane than the default is refused"

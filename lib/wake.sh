@@ -10,7 +10,7 @@
 # A session put to sleep (lib/sleep.sh, common.sh THE SLEEPING SESSIONS) has no claude and keeps its tmux session and pane-map row. A wake clears its
 # marker, then resumes the row's conversation exactly as revive and restore do: `revive --only NAME` resumes by the conversation uuid on the session's
 # lane, model and effort (the dedupe guard, the inbox hold and the Remote Control re-registration are revive's own). A session whose tmux session is gone
-# (a reboot that did not bring it back) is recreated first at its row's directory, as restore does (common.sh restore_session).
+# (a reboot that did not bring it back) is recreated first, in the folder restore would use (common.sh restore_session).
 # A conversation is never resumed twice: a sleeper whose conversation is live in another pane is left asleep and the refusal says where it runs; one
 # whose own pane already runs its claude (started by hand) just loses its marker. A name that is not asleep gets one line and nothing is done (exit 0).
 # The wake also writes the wake stamp (common.sh, THE WAKE STAMP): the idle sleep tick never puts the session back to sleep inside SALA_SLEEP_AFTER.
@@ -25,7 +25,7 @@
 usage="usage: salamander wake NAME… [--dry-run]
        salamander wake --only NAME --cwd DIR [--dry-run]
   resumes sleeping sessions by their conversation id; salamander sleep --list names them
-  --cwd DIR (exactly one --only NAME; an absolute, existing, readable directory): resumed in DIR, and DIR written into the pane-map row, so a later restore starts there
+  --cwd DIR (exactly one --only NAME; an absolute, existing, readable directory): resumed in DIR, and DIR written into the pane-map row, so a later restore starts there (a back agent's: see below)
   with no --cwd, a project's back agent wakes in SALA_BACK_CWD when that names a directory; every other session keeps its folder"
 [ $# -gt 0 ] || die "$usage"
 NAMES=(); DRY=0; DRYFLAG=""; CWD=""; ncwd=0; nonly=0; npos=0

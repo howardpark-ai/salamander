@@ -90,7 +90,8 @@ the map is already frozen (a recycle still running) refuses before anything is p
 
 **At boot**, once revive has finished (its boot record), the boot half holds the frozen roster against tmux: every
 session of it that resurrect and revive did not bring back is recreated — the tmux session detached at a shell in the
-row's cwd, then `revive --only NAME`, which resumes the row's conversation by uuid under the usual dedupe guard — and
+row's cwd (a back agent's: `SALA_BACK_CWD`, when that names a directory), then `revive --only NAME`, which resumes
+the row's conversation by uuid under the usual dedupe guard — and
 one post says "Reboot: N sessions recreated" (🚨 for any that could not be). Then the freeze is lifted, the pane check
 against the snapshot runs over the full set, and the hooks are resumed as below. `sala reboot --resume`, standing in
 for a boot half that never ran, does the same comparison first. After a boot that was not a clean `sala reboot` there

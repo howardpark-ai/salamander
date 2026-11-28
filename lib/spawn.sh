@@ -73,7 +73,7 @@
 #     front agent. Set but naming a directory this box does not have, the spawn is refused (a typo or an unmounted checkout
 #     must not quietly start the agent under the front rules). An explicit --cwd wins for both; a side session and a plain spawn
 #     are unchanged. A later wake or relaunch of a back agent asks the setting again (common.sh, THE FOLDER OF A BACK AGENT).
-#     The pane map's cwd column records the directory, so `sala restore` recreates the session there; the dry
+#     The pane map's cwd column records the directory, so `sala restore` recreates the session there (a back agent: in the setting's directory when it names one); the dry
 #     run's "cwd …" shows it.
 #   · THE SURFACE (--surface sala|slack): where a front agent talks with the owner. `sala` (the default; no flag) is a session the owner reads in
 #     sala; `slack` is a front agent that answers his Slack app messages. Only valid with --role front (a back agent is refused), and

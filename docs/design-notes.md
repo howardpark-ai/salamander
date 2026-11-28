@@ -47,7 +47,7 @@ The failure modes that shaped sala, and what each design choice answers.
   boot half, a dry run's end or a halt. A stale freeze (owner dead on this boot, a recycle's from an earlier boot, or
   older than 3 h) is cleared by `watch`, with a report.
 - **Compare and restore.** At the end of a recycle sweep, and in the reboot's boot half after resurrect's restore and
-  revive, the frozen roster is held against tmux: every session of it that is gone is recreated in its directory and
+  revive, the frozen roster is held against tmux: every session of it that is gone is recreated in its directory (a back agent's: `SALA_BACK_CWD`, when set to one) and
   resumed by uuid (`restore` under the hood; a conversation live anywhere is never resumed twice), and one post says
   "Recycle/Reboot: N sessions recreated", or 🚨 for any that could not be. A session that exists but runs no claude is
   revive's business as before. After a boot that was not a clean `sala reboot`, the post-boot report names the rows

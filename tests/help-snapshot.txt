@@ -36,7 +36,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      resumed: the dry run says "will end a stuck process"; never the session running the command; SALA_EXIT_END=0: never)
   salamander revive --only NAME --cwd DIR [--force] [--dry-run]   move one session: relaunched in DIR, which its pane-map row then records (a session queues it, the owner's words only: op revive)
                                      (SALA_BACK_CWD naming a directory: every wake and relaunch of a project's back agent (revive, recycle, lane and model moves,
-                                     restore, unpark) starts there and its pane-map row follows; --cwd wins; every other session keeps its folder)
+                                     restore, unpark) starts there and its pane-map row follows; --cwd wins; every other session keeps its folder; an sdk-lane pane
+                                     resuming in place after an API credit refusal does not ask: it stays in its folder until the next relaunch)
   salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…|--titles [--dry-run|--apply (--only NAME (repeatable)|--all)]]   (the Remote Control server; retired; --titles: claude.ai session titles)
   salamander map    [--write PATH]
   salamander update [HOST…|--fleet] [--check]   CLI update: here (= recycle --update --force), named hosts over ssh, or the whole fleet then here
@@ -83,7 +84,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      is written only when the board item changed since the start, the project page has a timeline line from the session,
                                      and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
   salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
-  salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
+  salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, a back agent's in SALA_BACK_CWD when that names a directory, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
   salamander sleep NAME… [--dry-run] | --project KEY [--dry-run] | --list [--json] | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins    end the claude of an idle session (nothing in flight; never a front agent by name), keeping its tmux session and pane-map row; a session queues it: op sleep; --project sleeps every session of one project together; --list --json adds, for each sleeper, the lane and model a wake would launch it on; --candidates lists, per project, what the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep; --pin holds a project off it; its stackshot inbox is held, and checked for a waiting line, through stackshot's server on a box that is not the server's (the stackshot client's push_mode decides; SALA_INBOX_MODE files|server overrides), and a server that cannot be asked refuses the sleep
   salamander wake NAME… [--dry-run]               resume a sleeping session by its conversation id (a session queues it: op wake); a name that is not asleep is a message, no action; a project's back agent wakes in SALA_BACK_CWD when that names a directory (see revive); the watch wakes a sleeper itself when a stackshot message line waits for it
   salamander wake --only NAME --cwd DIR [--dry-run]   wake one sleeper in another folder: resumed in DIR and DIR written into its pane-map row, as revive --cwd does; a name that is not relaunched writes nothing (a session queues it, with the owner's words only: op wake)
@@ -310,7 +311,7 @@ usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [-
 usage: salamander revive --only NAME --cwd DIR [--force] [--dry-run]   move one session: relaunched in DIR, which its pane-map row then records (a session queues it, the owner's words only: op revive)
   (no option) every pane on an older CLI · --force: every idle pane · --only NAME: just that session
   --cwd DIR (with exactly one --only NAME; an absolute, existing, readable directory): the relaunch is made in DIR (a missing tmux session is created there)
-  and, once the claude is up, DIR is written into the session's pane-map row, so a later restore starts there; without it only a back agent's relaunch writes a folder.
+  and, once the claude is up, DIR is written into the session's pane-map row, so a later restore starts there (a back agent's: see below); without it only a back agent's relaunch writes a folder.
   with no --cwd, a project's back agent is relaunched in SALA_BACK_CWD when that names a directory; every other session keeps its folder
   A live claude on the current version needs --force too; a --cwd run is never retried or deferred
   every plan says "lane: <runs on now> → <relaunched on>"; a pane with no lane row that runs on another lane than the default is refused
@@ -347,7 +348,7 @@ usage: salamander sleep NAME… [--dry-run] | --project KEY [--asked] [--dry-run
 usage: salamander wake NAME… [--dry-run]
        salamander wake --only NAME --cwd DIR [--dry-run]
   resumes sleeping sessions by their conversation id; salamander sleep --list names them
-  --cwd DIR (exactly one --only NAME; an absolute, existing, readable directory): resumed in DIR, and DIR written into the pane-map row, so a later restore starts there
+  --cwd DIR (exactly one --only NAME; an absolute, existing, readable directory): resumed in DIR, and DIR written into the pane-map row, so a later restore starts there (a back agent's: see below)
   with no --cwd, a project's back agent wakes in SALA_BACK_CWD when that names a directory; every other session keeps its folder
 
 ### sala note --help (exit 1)
@@ -754,8 +755,8 @@ verbs:
   revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT the reason path above: every NAME is a live Claude session of the registry;
                                             never a sweep (no --only), --rescue, --lane-default or any other flag; --force is allowed
   revive --only NAME --cwd DIR [--force]    that one session relaunched in DIR (absolute, existing, readable; a missing tmux session is created there), and DIR written into its pane-map row once the claude is up, so a later restore
-                                            starts there. The owner's words only, never the reason path. A live claude on the current version needs --force; a pane that is busy is not retried: nothing is written and the operation says so
-  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
+                                            starts there (a back agent's starts in SALA_BACK_CWD when that names a directory). The owner's words only, never the reason path. A live claude on the current version needs --force; a pane that is busy is not retried: nothing is written and the operation says so
+  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, a back agent's in SALA_BACK_CWD when that names one, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
                                             every NAME is a pane-map row with no tmux session whose conversation is live nowhere else; never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere
   sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT the reason path above:
                                             every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent

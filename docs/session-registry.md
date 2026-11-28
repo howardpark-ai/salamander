@@ -210,11 +210,13 @@ A Claude session reads the instructions of the folder it runs in, so a backgroun
 there: `wake`, `revive` and all that goes through it (recycle, lane and model moves, the boot hook, the retry worker, the self-worker),
 `restore` and `unpark`. The relaunch is typed as `cd <directory> && <resume line>` and the pane-map row records the directory once the claude is
 up. A session tagged back (`sala sessions tag <name> --role back`) therefore moves at its next wake or relaunch; the tag itself moves nothing.
+One resume does not ask for the folder: an sdk-lane pane that resumes in place after an API credit refusal (`lib/sdk-pane.sh`) stays in the folder
+it runs in until the next relaunch.
 
 - A project's back agent is a live row with `role: back` and a `project`, and no `side`. Only the row is read (not stackshot's project record).
 - Every other session keeps its folder: a front agent, a side session, a row with no role or no project, and every session under
   `SALA_SESSIONS=off`.
-- `--cwd` wins. With the setting unset, relative or naming no directory, a relaunch changes nothing (`spawn --role back` without `--cwd` is
+- `--cwd` wins, for the run it is given to; the next relaunch without it asks the setting again. With the setting unset, relative or naming no directory, a relaunch changes nothing (`spawn --role back` without `--cwd` is
   refused for a missing directory, as before).
 - Tagging the row front again does not move it back: `sala wake --only <name> --cwd <dir>` (or `revive --only`) does.
 - The conversation is the same one. The CLI resumes it by id from another folder and keeps writing its transcript, and its subagents', under
