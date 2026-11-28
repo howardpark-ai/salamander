@@ -152,7 +152,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      SALA_DRAIN=off disables it); deny a reboot, CLI update, tmux kill-* on the fleet's server or kill of a claude
                                      process typed outside sala (lib/guard.py)
   salamander hook session-start     SessionStart hook (matcher "*"): records the pane's fresh conversation in the session registry (clear · resume ·
-                                     startup; not compact), by SALA_SESSION_ID or the tmux session name; always exit 0, prints nothing (lib/hook.sh)
+                                     startup; not compact), by SALA_SESSION_ID or the tmux session name; tells a conversation that moved lanes to
+                                     start new subagents (no turn; additionalContext), else prints nothing but the cleared background agent's line; exit 0 (lib/hook.sh)
   salamander hook subagent-stop     SubagentStop hook (matcher "*"): after a subagent handed back, SIGTERM the background shells it
                                      started and left running under the pane's claude, each logged; exit 0 always (lib/hook.sh, lib/holders.py)
   salamander hook permission-request   PermissionRequest hook (matcher "*"): approve a permission prompt at once; print nothing (the dialog
