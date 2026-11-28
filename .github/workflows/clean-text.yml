@@ -1,5 +1,5 @@
 # Clean commit and PR text (CONTRIBUTING.md): the branch name, the PR title, the PR body and every commit message of a pull request
-# carry none of the owner's private data (board ids, names, hosts, machine and session names). The rule and its
+# carry none of the owner's private data (board ids, names, hosts, machine and session names), attribution line or session URL. The rules and their
 # patterns are in .github/scripts/clean_text.py; the machine and session names are not in this repository, they are read from the
 # repository SECRET CLEAN_TEXT_DENY (one case-insensitive regex per line, newline-separated only), and the rule is skipped, with a notice, when it is unset or empty
 # (a fork's pull request gets no secrets). It is a secret and not a variable because the runner prints a step's env values in the log header and masks only secrets.

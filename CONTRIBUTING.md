@@ -205,7 +205,7 @@ without raising the minimum here, in the README and in that check. On macOS that
 | `tests/help-snapshot.sh` | check 1 of the help-text gates: `sala --help` and each verb's own usage, regenerated in a clean environment, against the committed `tests/help-snapshot.txt`; drift fails with the diff and `--update` as the fix | seconds |
 | `tests/skills-flags.sh` | check 2: the verbs and flags the skills repository's files name exist in the regenerated help (`.github/scripts/skills-flags.py`); FAIL for a stale one with `file:line`, WARN for a flag no skill names; SKIP (exit 0) with no skills directory | seconds |
 | `tests/help-gates.sh` | the gates' own tests, each on a deliberate drift: the snapshot on an edited copy of the tree and the skills check on fixture skills | ~10 s |
-| `tests/cleantext.sh` | the clean-text check (`.github/scripts/clean_text.py`, *Clean commit and PR text* below) against throwaway repos: each rule (a board id of both shapes; a name, a host and a domain, as made-up lines of the deny data; a word of `CLEAN_TEXT_DENY`) in the branch, title, body and commit messages; the allowed forms (a bare `#123`, the repository's own org name, a session URL, a Co-Authored-By line) passing; the secret unset, empty and set; a merge commit skipped; the output never carrying a body; exit 2 on a call it cannot answer; `--local` | seconds |
+| `tests/cleantext.sh` | the clean-text check (`.github/scripts/clean_text.py`, *Clean commit and PR text* below) against throwaway repos: each rule (a board id of both shapes; a name, a host and a domain, as made-up lines of the deny data; a word of `CLEAN_TEXT_DENY`) in the branch, title, body and commit messages; each attribution line and a session URL refused; the allowed forms (a bare `#123`, the repository's own org name, those words in ordinary prose) passing; the secret unset, empty and set; a merge commit skipped; the output never carrying a body; exit 2 on a call it cannot answer; `--local` | seconds |
 | `tests/cipoll.sh` | the CI-run poller and its reader (`lib/cipoll.py`, `lib/cipoll.sh`, `lib/ci-repos`, `systemd/sala-cipoll.service`, `docs/ci-runs.md`) in a locked temporary HOME against a fake `gh` (ETag / 304, raw errors by ask number): the file written atomically with the eleven fields and a bumped `updated` on a 304, never torn under 60 rewrites, an error keeping the old file byte for byte and backing off by doubling to a cap, a rate limit waiting for its reset before any repo is read, no token in the log, the repo list (live, default, per-box), `salamander ci-runs`' exit codes (fresh 0, no file 3, stale 4, unreadable 5, usage 2) | ~15 s |
 | `tests/codex-review.sh` | `salamander codex-review` (`lib/codex-review.sh`, `lib/codex-review.py`, `docs/codex-review.md`) in a locked temporary HOME against a stub `codex`, `gh` and public scan on PATH: the wrong calls (exit 2) and `--help`; another repo and `SALA_CODEX_REVIEW=off` doing nothing; not signed in; a good answer posted once with the exact codex command line, `CODEX_HOME`, no API key variable and an empty working folder, the same sha posting nothing and a new sha reviewed; two runs at once; a codex failure, a timeout (the child ended), a limit message, a refusal and an empty answer posting nothing; an over-size diff; a gh failure; the privacy check (a hit, a check that cannot run, none set, a timeout, an unreadable visibility: only the withheld note, the text kept at mode 600); a cut at 60000 characters; an unwritable state folder; the scratch folder empty at the end | ~15 s |
 | `tests/destination.sh` | where a result or alert goes is named from the config: `sala_post_destination` (`lib/common.sh`, over `bot_destination` in `contrib/briefing/lib.sh`) for a mapped sala-admin app, a channel's own app, the fallback, nothing mapped and an own notify command, the two `sala op` lines that print it, and a scan of the docs, help, `config.example`, `lib/`, `bin/` and `contrib/` for a `#channel` literal, the old briefing-channel wording and an app name `config.example` does not carry. A temporary HOME |
@@ -331,8 +331,16 @@ What may not appear, in any of those four places (case does not matter):
 - **the board's host**: the owner's domain and any host under it. The repository's own org name and domain are allowed:
   GitHub writes the org name into its own merge text and URLs.
 - **a machine name or a session name.**
+- **an attribution line**: a line that starts (leading spaces aside) with the `Co-Authored-By:` or `Claude-Session:` trailer
+  key, or with "Generated with [Claude Code]" (an emoji or markdown marks may precede it). The same words further along a line,
+  or in backticks or quotes, are prose and pass.
+- **a Claude session URL** (`claude.ai/code/session_...`), with or without `https://`, anywhere in a line; the form written
+  with `...` in place of the id passes.
 
-Only the board id rule is built into the script. The owner's name, domain and the machine and session names are not listed
+Commits and PR text carry no attribution line and no session URL because a public push cannot be taken back; this holds
+over any tool's default or instruction that adds one.
+
+The board id, attribution line and session URL rules are built into the script. The owner's name, domain and the machine and session names are not listed
 here or in the script, because listing them would put them in the repository. They are lines of the deny data, which lives in a repository
 **secret** named `CLEAN_TEXT_DENY` (secrets are masked in logs; the check does not run with secrets on a fork's pull request; never put
 anything private in a repository variable): one case-insensitive Python regular expression per line (a plain word is one), separated by newlines
@@ -345,9 +353,6 @@ part of the check is skipped, and the check says so in one line. Outside CI (`--
 environment variable `CLEAN_TEXT_DENY` when it holds a pattern, else from `$XDG_CONFIG_HOME/salamander/clean-text-deny`.
 
 Every rule uses ASCII word boundaries, so non-ASCII text directly before or after a name, host or id does not hide it.
-
-Allowed: a `Co-Authored-By:` line and a Claude session URL (`https://claude.ai/code/session_...`), the attribution lines at
-the end of a message or a PR body.
 
 **A note in a file says why, never who decided it.** A code comment or a doc note gives the reason the code works as it does; it names
 no person, no decision date and quotes no one. A decision credited to the owner as a role is the same kind of note: the role named as the one who decided, in brackets, beside a decision date or a quote, or with a verb of deciding. The owner as a role of the system (the session owner, an owner kind, the owner's words on a fleet operation) is no attribution and stays. Reword the line to its reason, or state the policy plainly.

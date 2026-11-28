@@ -1815,7 +1815,7 @@ thing between a commit message, a branch name or a PR text and a GitHub page: a 
 invisible until the data is already out. The script against throwaway repos, never the network and never a variable of
 GitHub's, in its CI mode (the texts in `CLEAN_TEXT_*`) and with `--local <base>`. Checked: each rule (a board id of both
 shapes, the owner's name in any case, the board's host, a host below the owner's domain, the bare domain, a word of the deny
-variable) in each place it is read (branch, title, a body line, a commit); the allowed forms passing (a bare `#123`, an org name written with its hyphen, a Claude session URL, a Co-Authored-By line even when it names the owner, the owner's initials);
+variable) in each place it is read (branch, title, a body line, a commit); the allowed forms passing (a bare `#123`, an org name written with its hyphen, the owner's initials);
 the deny variable unset, empty, only blank and comment lines, and set (one regex per line, any case, whole words only, a
 hyphen being part of a word); a merge commit skipped while the commits it merged are scanned; the
 output carrying the matched text and neither the text around it nor a whole 61-line body; a call it cannot answer (a missing
@@ -1835,6 +1835,14 @@ full `refs/remotes/origin/<ref>` (a tag named `origin/main` does not stand in) a
 `PATH`) cut off by `CLEAN_TEXT_FETCH_TIMEOUT` with the base sha as the fallback. The built-in owner-name, host and board-id rules on the same ASCII boundaries (a non-ASCII letter directly before or after each is caught; an org name with its hyphen and ASCII-adjacent words are not), the deny list split on newlines
 only, and a line like `a)|(b` exiting 2. The words used as names in the cases are made up. Not checked: the workflow file itself (a runner cannot be exercised before a merge), the
 variable's value, GitHub's `vars` context.
+
+**Attribution lines and session URLs are refused (Sat Nov 28th 2026)**: the two allowances are gone, so the old passing
+cases are refusals. Each on its own, in a commit message, the title and a body line: a `Co-Authored-By:` line (also lower
+case and indented), a `Claude-Session:` line, a "Generated with [Claude Code]" line (with and without its emoji), a session
+URL alone and one without a scheme inside a sentence; also a session URL in the branch name, each form at `commit-msg`, an
+attribution line at `pre-push`, and a deny word on a `Co-Authored-By:` line now read. Passing: the same words mid-line, in
+backticks or quotes, and the URL form with `...` for the id. No case reads history already on `main`: no job does (CI reads a
+pull request's own commits and text, `pre-push` the commits a remote lacks).
 
 ### `tests/githooks-chain.sh`: new (Sat Nov 7th 2026)
 
