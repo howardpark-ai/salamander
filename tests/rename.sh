@@ -17,6 +17,9 @@
 # <project> NEW --role R --front --mandate L --sender sala-web` (the stub's client-mode-agent: recorded, 403, 400, 409, unreachable) and then ends
 # the record (side/retired/, registry side fields cleared, row tagged project / front); a refusal renames nothing and keeps the record; no project
 # on the record or its origin is refused in --dry-run; the origin's project is the fallback; an already listed NEW makes no call; --sync never calls.
+# WITH SALA_CHAT_SESSION SET (the last section; every other case runs with it unset): a renamed side session lists no agent (no call, also on a stale
+# record; no project or role on its row) and stays a side session, its record and marker under the new name, --sync included; `side done` still sends
+# the summary to the same receiver, `retire` still asks for the marker, the unregistered watch posts nothing about it.
 # A --dry-run run directly inside OLD's own pane (TMUX_PANE set) says nothing is typed (a pane cannot type into itself) and names the queued
 # `sala op rename` path that types from outside; with no TMUX_PANE, as the queue's unit runs it, the plan types /rename itself.
 # THE PROJECT RECORD DECIDES (a section of its own): whether a rename has an entry to rename is read from stackshot's project record alone (no pages.py exists any more)
@@ -25,7 +28,7 @@
 # --sync goes on with the reason on stderr; no record and no stackshot on the box = nothing to ask.
 # Usage: bash tests/rename.sh   (exit 0 = pass; ~40 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME
+unset TMUX_PANE XDG_STATE_HOME SALA_CHAT_SESSION
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
@@ -658,5 +661,66 @@ rename_late "… waiting for the spawn of 'sala-test-nw2' to land its side recor
 [ "$rc" = 0 ] && has "$out" "… waiting for the spawn of 'sala-test-nw2' to land its side record" && [ "$el" -ge 2 ] && has "$out" "rename: lists 'gamma-foo-l6' on projects/foo" && ! has "$out" "in place" \
     && ok "a spawn op with --side: waited for the record (${el} s), then the side plan" || { echo "$out" | sed 's/^/    /' | cut -c1-240; bad "op with --side: rc=$rc after ${el} s"; }
 rm -f "$OPF"
+
+echo "== SALA_CHAT_SESSION set (the one front agent): a renamed side session lists no agent and stays a side session"
+KU1=aaaaaaaa-0000-4000-8000-000000000051 KU2=aaaaaaaa-0000-4000-8000-000000000052 KU3=aaaaaaaa-0000-4000-8000-000000000053
+export SALA_CHAT_SESSION=gamma-foo-chat
+python3 -I - "$HOME/projects.json" <<'PY'
+import datetime, json, sys   # a loaded box can run the cases above for longer than the record stays fresh: stamp it again
+d = json.load(open(sys.argv[1])); d["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump(d, open(sys.argv[1], "w"))
+PY
+hand sala-test-side-k1 "$KU1" "$HOME/work"; hand sala-test-side-k2 "$KU2" "$HOME/work"; hand gamma-foo-control "$KU3" "$HOME/work"
+fake_up sala-test-side-k1 sala-test-side-k2 gamma-foo-control
+for n in sala-test-side-k1 sala-test-side-k2 gamma-foo-control; do "$SALA" adopt "$n" >/dev/null 2>&1; done
+sidemake sala-test-side-k1 projects/foo gamma-foo-main; sidemake sala-test-side-k2 projects/foo gamma-foo-main
+setname sala-test-side-k1 gamma-foo-kept; setname sala-test-side-k2 gamma-foo-handkept
+printf 'recorded\n' > "$HOME/client-mode-agent"
+kept() {  # <old> <new> → NEW is a side session by its record and its row, with nothing listed: no project, no role
+    [ ! -e "$(side_file "$1")" ] && [ ! -e "$SALA_SIDE_DIR/retired/$1.side" ] && [ "$(side_val "$2" name)" = "$2" ] && [ "$(side_val "$2" origin)" = gamma-foo-main ] \
+        && [ "$(side_val "$2" summary_to)" = gamma-foo-main ] && [ "$(side_val "$2" project)" = projects/foo ] && grep -qxF "was=$1" "$(side_file "$2")" \
+        && [ "$(rowfield "$2" side)" = 1 ] && [ "$(rowfield "$2" side_origin)" = gamma-foo-main ] && [ "$(rowfield "$2" side_item)" = "$(side_val "$2" item)" ] \
+        && [ -z "$(rowfield "$2" project)" ] && [ -z "$(rowfield "$2" role)" ] && [ -z "$(rowfield "$2" throwaway)" ]
+}
+kstate() { echo "side/: $(ls "$SALA_SIDE_DIR" | grep -E 'kept|side-k' | tr '\n' ' ') row: side=$(rowfield "$1" side) project=$(rowfield "$1" project) role=$(rowfield "$1" role)"; }
+# (a) the plan, with a project record that cannot answer: nothing is asked of it, and it says the session stays a side one
+n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
+out=$(SALA_PROJECT_RECORD="$HOME/stale.json" "$SALA" rename sala-test-side-k1 gamma-foo-kept --dry-run 2>&1); rc=$?
+echo "$out" | sed 's/^/    /' | cut -c1-260
+[ "$rc" = 0 ] && has "$out" "'gamma-foo-kept' stays a side session and no agent is listed" && has "$out" "the summary to gamma-foo-main) is still owed" && ! has "$out" "lists 'gamma-foo-kept'" && ! has "$out" "ends the side record" && ! has "$out" "in place" \
+    && [ "$(calls)" = "$n0" ] && [ -f "$(side_file sala-test-side-k1)" ] && untouched sala-test-side-k1 gamma-foo-kept && ok "the plan: no listing, the side session stays one; no call, nothing changed" || bad "kept plan: rc=$rc"
+# (b) the real run; a marker an earlier session left under NEW goes
+: > "$(side_done_file gamma-foo-kept)"; n0=$(calls)
+out=$("$SALA" rename sala-test-side-k1 gamma-foo-kept 2>&1); rc=$?
+echo "$out" | sed 's/^/    /' | cut -c1-260
+[ "$rc" = 0 ] && has "$out" "'gamma-foo-kept' is still a side session (no agent listed)" && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-kept 2>/dev/null && [ -n "$(row gamma-foo-kept)" ] \
+    && ok "renamed with no stackshot call: no project-agent post" || bad "kept rename: rc=$rc calls=$(calls) (was $n0)"
+kept sala-test-side-k1 gamma-foo-kept && [ ! -e "$(side_done_file gamma-foo-kept)" ] && ok "the record follows the name (the old one kept as was=), the row's side fields stay, no project or role; the stale marker is gone" || bad "kept state: $(kstate gamma-foo-kept)"
+# (c) the unregistered-session watch says nothing about it (it is on no agents map), and does report an ordinary unlisted pane
+: > "$POSTS"; SALA_UNREGISTERED_GRACE=0 "$SALA" watch --unregistered >/dev/null 2>&1
+record_name_unlisted gamma-foo-kept >/dev/null; rc=$?
+[ "$rc" = 0 ] && grep -qF '*gamma-foo-control is live but not registered' "$POSTS" && ! grep -qF 'gamma-foo-kept' "$POSTS" \
+    && ok "listed nowhere, and the watch posts about the control pane only, never about the side session" || bad "watch: unlisted rc=$rc posts: $(grep -o '[a-z0-9-]* is live but not registered' "$POSTS" | tr '\n' ';')"
+# (d) a second rename: the write-up marker moves with the record, both earlier names are kept
+: > "$(side_done_file gamma-foo-kept)"; setname gamma-foo-kept gamma-foo-kept2; n0=$(calls)
+out=$("$SALA" rename gamma-foo-kept gamma-foo-kept2 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && kept gamma-foo-kept gamma-foo-kept2 && grep -qxF 'was=sala-test-side-k1' "$(side_file gamma-foo-kept2)" && [ -f "$(side_done_file gamma-foo-kept2)" ] && [ ! -e "$(side_done_file gamma-foo-kept)" ] \
+    && ok "renamed again: record and marker under the new name" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "second rename: rc=$rc $(kstate gamma-foo-kept2)"; }
+# (e) still a side session to retire (the marker is asked for), and side done sends the summary where it did, taking a timeline line under the first name
+rm -f "$(side_done_file gamma-foo-kept2)"
+out=$("$SALA" retire gamma-foo-kept2 --dry-run 2>&1)
+has "$out" "'gamma-foo-kept2' is a side session and its write-up is not done" && ok "retire still asks for the write-up marker" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "retire does not ask for the marker"; }
+mkdir -p "$HOME/brain/projects"; printf '## Timeline\n\n- **2999-01-01** | sala-test-side-k1 \xe2\x80\x94 moved the foo hosting\n' > "$HOME/brain/projects/foo.md"
+printf '#!/bin/bash\n{ printf "ARGS %%s\\n" "$*"; cat; echo; } >> "$HOME/side-msg.txt"\n' > "$HOME/fake-msg"; chmod +x "$HOME/fake-msg"
+out=$(SALA_SIDE_MSG_CMD="$HOME/fake-msg" SALA_BRAIN_DIR="$HOME/brain" "$SALA" side done --name gamma-foo-kept2 --item-updated $(( $(date +%s) + 60 )) --summary "the hosting move is settled" 2>&1); rc=$?
+echo "$out" | sed 's/^/    /' | cut -c1-260
+[ "$rc" = 0 ] && grep -qxF 'ARGS gamma-foo-main - --sender gamma-foo-kept2 --fyi' "$HOME/side-msg.txt" && grep -qF 'the hosting move is settled' "$HOME/side-msg.txt" && [ -f "$(side_done_file gamma-foo-kept2)" ] \
+    && ok "side done under the new name: the summary goes to the same receiver, the earlier name's timeline line counts, the marker is written" || bad "side done: rc=$rc msg: $(slurp "$HOME/side-msg.txt")"
+# (f) a hand rename (--sync) of a side session: the same, no call
+n0=$(calls)
+out=$(SALA_RENAME_SYNC=1 "$SALA" rename sala-test-side-k2 gamma-foo-handkept 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-handkept 2>/dev/null && kept sala-test-side-k2 gamma-foo-handkept \
+    && ok "--sync: followed with no call, the record under the new name" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "kept --sync: rc=$rc $(kstate gamma-foo-handkept)"; }
+unset SALA_CHAT_SESSION
 
 [ "$fail" = 0 ] && echo "rename: all passed" || { echo "rename: FAILED"; exit 1; }
